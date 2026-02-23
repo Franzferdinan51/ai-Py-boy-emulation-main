@@ -4,7 +4,7 @@ numpy>=1.24.3
 Pillow>=9.5.0
 requests==2.31.0
 openai>=1.0.0
-pyboy>=2.7.0  # Game Boy emulator
+pyboy==2.7.0  # Game Boy emulator (Latest: 2025-01-24) - https://github.com/Baekalfen/PyBoy
 mcp>=1.0.0  # Model Context Protocol
 python-dotenv>=1.0.0  # Environment variables
 # pygba==0.2.9  # Optional: Game Boy Advance support
