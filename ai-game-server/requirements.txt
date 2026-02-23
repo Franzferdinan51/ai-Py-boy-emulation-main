@@ -1,8 +1,10 @@
 Flask==2.3.2
 Flask-CORS==4.0.0
-numpy==1.24.3
-Pillow==9.5.0
+numpy>=1.24.3
+Pillow>=9.5.0
 requests==2.31.0
 openai>=1.0.0
-# pyboy==2.6.0  # Optional
-# pygba==0.2.9  # Optional
+pyboy>=2.7.0  # Game Boy emulator
+mcp>=1.0.0  # Model Context Protocol
+python-dotenv>=1.0.0  # Environment variables
+# pygba==0.2.9  # Optional: Game Boy Advance support
