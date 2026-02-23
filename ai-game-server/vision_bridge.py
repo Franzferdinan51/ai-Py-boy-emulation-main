@@ -41,8 +41,8 @@ def capture_frame(emulator: PyBoy, output_path: str = None) -> dict:
     if screen is None:
         raise ValueError("No screen buffer available")
     
-    # Convert to PIL Image
-    img = Image.fromarray(screen)
+    # Get PIL Image from screen (PyBoy API)
+    img = screen.image
     
     # Prepare result
     result = {

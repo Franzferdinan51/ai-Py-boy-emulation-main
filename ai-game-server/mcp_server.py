@@ -136,8 +136,8 @@ def get_frame() -> Optional[Dict[str, Any]]:
         if screen is None:
             return None
         
-        # Convert to PIL Image
-        img = Image.fromarray(screen)
+        # Get PIL Image from screen (PyBoy API)
+        img = screen.image
         
         # Convert to base64
         buffer = BytesIO()
