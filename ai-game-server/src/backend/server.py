@@ -11,6 +11,7 @@ import json
 import base64
 import logging
 import tempfile
+import shutil
 import time
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -1215,7 +1216,9 @@ def upload_rom():
         fd, temp_rom_path = tempfile.mkstemp(suffix=file_info['extension'])
         os.close(fd)
         file.stream.seek(0)
-        file.save(temp_rom_path)
+        with open(temp_rom_path, 'wb') as rom_out:
+            shutil.copyfileobj(file.stream, rom_out)
+        file.stream.seek(0)
         os.chmod(temp_rom_path, 0o600)
 
         logger.info(f"ROM saved to temporary path: {temp_rom_path}")
