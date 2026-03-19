@@ -356,6 +356,9 @@ game_state = {
     "current_model": None
 }
 
+# In-memory save-state store keyed by emulator id
+saved_states = {}
+
 ai_runtime_state = {
     "provider": ai_provider_manager.default_provider,
     "model": "",
@@ -2910,48 +2913,45 @@ def api_save_state():
     """Save game state API endpoint for frontend compatibility"""
     try:
         current_state = get_game_state()
-        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+        active = current_state.get("active_emulator")
+        if not current_state.get("rom_loaded") or not active:
             return jsonify({"error": "No ROM loaded"}), 400
 
-        emulator = emulators[current_state["active_emulator"]]
-
-        # Use the emulator's save state method if available
+        emulator = emulators[active]
         if hasattr(emulator, 'save_state'):
             state_data = emulator.save_state()
             if state_data:
-                return jsonify({"success": True, "message": "State saved successfully"}), 200
-            else:
-                return jsonify({"error": "Failed to save state data"}), 500
-        else:
-            # Fallback for emulators without save state support
-            return jsonify({"success": True, "message": "State saved (placeholder)"}), 200
+                saved_states[active] = state_data
+                return jsonify({"success": True, "message": "State saved successfully", "bytes": len(state_data)}), 200
+            return jsonify({"error": "Failed to save state data"}), 500
+        return jsonify({"error": "Emulator does not support save state"}), 400
 
     except Exception as e:
         logger.error(f"Error saving state: {e}")
-        return jsonify({"error": "Failed to save state"}), 500
+        return jsonify({"error": "Failed to save state", "details": str(e)}), 500
 
 @app.route('/api/load_state', methods=['POST'])
 def api_load_state():
     """Load game state API endpoint for frontend compatibility"""
     try:
         current_state = get_game_state()
-        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+        active = current_state.get("active_emulator")
+        if not current_state.get("rom_loaded") or not active:
             return jsonify({"error": "No ROM loaded"}), 400
+        if active not in saved_states:
+            return jsonify({"error": "No saved state available"}), 400
 
-        emulator = emulators[current_state["active_emulator"]]
-
-        # Use the emulator's load state method if available
+        emulator = emulators[active]
         if hasattr(emulator, 'load_state'):
-            # Note: In a real implementation, you'd get the state data from the request
-            # For now, we'll return a success response
-            return jsonify({"success": True, "message": "State loaded successfully"}), 200
-        else:
-            # Fallback for emulators without load state support
-            return jsonify({"success": True, "message": "State loaded (placeholder)"}), 200
+            ok = emulator.load_state(saved_states[active])
+            if ok:
+                return jsonify({"success": True, "message": "State loaded successfully", "bytes": len(saved_states[active])}), 200
+            return jsonify({"error": "Emulator failed to load saved state"}), 500
+        return jsonify({"error": "Emulator does not support load state"}), 400
 
     except Exception as e:
         logger.error(f"Error loading state: {e}")
-        return jsonify({"error": "Failed to load state"}), 500
+        return jsonify({"error": "Failed to load state", "details": str(e)}), 500
 
 @app.route('/tilemap', methods=['GET'])
 def get_tilemap():
