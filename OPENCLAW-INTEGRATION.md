@@ -32,7 +32,7 @@ Helper script to spawn sub-agents for automated gameplay.
 ```
 [ OpenClaw Main Agent ]
          |
-         |-- [ Sub-Agent: Gamer Strategy ] (Gemini 3 Flash)
+         |-- [ Sub-Agent: Gamer Strategy ] (Bailian kimi-k2.5)
          |         |
          |         |-- [MCP Tools] ←→ [ PyBoy Emulator ]
          |         |-- [Vision Analysis] ←→ [ Screenshots ]
@@ -41,6 +41,18 @@ Helper script to spawn sub-agents for automated gameplay.
                    |
                    |-- [ React Web UI ] ←→ [ Flask API ]
 ```
+
+## MCP Tools
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `emulator_load_rom` | Load a Game Boy ROM file | `rom_path` (string, required) |
+| `emulator_press_button` | Press a controller button | `button` (A/B/UP/DOWN/LEFT/RIGHT/START/SELECT) |
+| `emulator_press_sequence` | Press multiple buttons in sequence | `sequence` (e.g., "A B START"), `delay` (ms) |
+| `emulator_get_frame` | Get screenshot as base64 PNG | `include_base64` (bool, default false) |
+| `emulator_get_state` | Get emulator status | (none) |
+| `emulator_tick` | Advance N frames | `frames` (default 1) |
+| `emulator_save_screenshot` | Save screenshot to file | `output_path` (optional)
 
 ---
 
