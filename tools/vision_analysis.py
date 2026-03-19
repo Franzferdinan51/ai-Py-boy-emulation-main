@@ -643,4 +643,136 @@ Return JSON:
         """Export analysis result to JSON file"""
         data = {
             "game_state": result.game_state.value,
-            "battle_state": result.battle_state
+            "battle_state": result.battle_state.value,
+            "current_location": result.current_location,
+            "player_position": result.player_position,
+            "menu_open": result.menu_open,
+            "in_battle": result.in_battle,
+            "sprites": [
+                {
+                    "type": s.sprite_type,
+                    "name": s.name,
+                    "position": s.position,
+                    "bounds": s.bounds,
+                    "confidence": s.confidence,
+                    "description": s.description
+                }
+                for s in result.sprites
+            ],
+            "texts": [
+                {
+                    "text": t.text,
+                    "position": t.position,
+                    "type": t.text_type,
+                    "confidence": t.confidence
+                }
+                for t in result.texts
+            ],
+            "battle_info": result.battle_info,
+            "recommendations": result.recommendations
+        }
+        
+        with open(output_path, 'w') as f:
+            json.dump(data, f, indent=2)
+    
+    def print_analysis(self, result: VisionAnalysisResult):
+        """Print formatted analysis to console"""
+        print("\n" + "="*60)
+        print("POKEMON RED VISION ANALYSIS")
+        print("="*60)
+        print(f"\n📍 Location: {result.current_location}")
+        print(f"🎮 Game State: {result.game_state.value}")
+        print(f"⚔️  Battle State: {result.battle_state.value}")
+        print(f"📋 Menu Open: {result.menu_open}")
+        print(f"🥊 In Battle: {result.in_battle}")
+        
+        if result.player_position:
+            print(f"🚶 Player Position: {result.player_position}")
+        
+        if result.sprites:
+            print(f"\n🎨 Detected Sprites ({len(result.sprites)}):")
+            for sprite in result.sprites:
+                print(f"  • {sprite.name} ({sprite.sprite_type}) at {sprite.position}")
+        
+        if result.texts:
+            print(f"\n📝 Detected Text ({len(result.texts)}):")
+            for text in result.texts[:5]:  # Limit to first 5
+                print(f"  • [{text.text_type}] \"{text.text[:50]}...\" at {text.position}")
+        
+        if result.battle_info:
+            print(f"\n⚔️  Battle Info:")
+            print(f"  Player: {result.battle_info.get('player_pokemon')}")
+            print(f"  Enemy: {result.battle_info.get('enemy_pokemon')}")
+        
+        if result.recommendations:
+            print(f"\n💡 Recommendations:")
+            for i, rec in enumerate(result.recommendations, 1):
+                print(f"  {i}. {rec}")
+        
+        print("="*60 + "\n")
+
+
+def main():
+    """CLI interface for vision analysis"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Pokemon Red Vision Analysis Tool")
+    parser.add_argument("image", help="Path to screenshot image")
+    parser.add_argument("--api-key", help="Bailian API key (or set BAILIAN_API_KEY env var)")
+    parser.add_argument("--output", "-o", help="Output JSON file path")
+    parser.add_argument("--mode", "-m", choices=["full", "sprites", "text", "menu", "battle", "map"],
+                       default="full", help="Analysis mode")
+    
+    args = parser.parse_args()
+    
+    # Initialize analyzer
+    try:
+        analyzer = PokemonVisionAnalyzer(api_key=args.api_key)
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    
+    # Check if image exists
+    if not os.path.exists(args.image):
+        print(f"Error: Image not found: {args.image}")
+        sys.exit(1)
+    
+    # Run analysis based on mode
+    if args.mode == "full":
+        result = analyzer.analyze_screen(args.image)
+        analyzer.print_analysis(result)
+        
+        if args.output:
+            analyzer.export_to_json(result, args.output)
+            print(f"Analysis exported to: {args.output}")
+    
+    elif args.mode == "sprites":
+        sprites = analyzer.detect_sprites(args.image)
+        print(f"\nDetected {len(sprites)} sprites:")
+        for sprite in sprites:
+            print(f"  • {sprite.name} ({sprite.sprite_type}) at {sprite.position}")
+    
+    elif args.mode == "text":
+        texts = analyzer.ocr_text(args.image)
+        print(f"\nDetected {len(texts)} text elements:")
+        for text in texts:
+            print(f"  • [{text.text_type}] \"{text.text}\" at {text.position}")
+    
+    elif args.mode == "menu":
+        menu_state = analyzer.detect_menu_state(args.image)
+        print(f"\nMenu State:")
+        print(json.dumps(menu_state, indent=2))
+    
+    elif args.mode == "battle":
+        battle_state = analyzer.detect_battle_state(args.image)
+        print(f"\nBattle State:")
+        print(json.dumps(battle_state, indent=2))
+    
+    elif args.mode == "map":
+        map_info = analyzer.detect_map_transition(args.image)
+        print(f"\nMap Information:")
+        print(json.dumps(map_info, indent=2))
+
+
+if __name__ == "__main__":
+    main()
