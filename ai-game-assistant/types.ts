@@ -34,7 +34,7 @@ export interface ChatMessage {
 export interface AppSettings {
   // Legacy fields (for backward compatibility)
   aiActionInterval: number;
-  backendUrl?: string;
+  backendUrl: string;
   aiProvider?: string;
   googleApiKey?: string;
   openrouterApiKey?: string;
@@ -52,6 +52,8 @@ export interface AppSettings {
   autonomousLevel: 'passive' | 'moderate' | 'aggressive'; // How autonomous the agent is
   agentObjectives: string; // Agent's current objectives
   agentPersonality: 'strategic' | 'casual' | 'speedrun' | 'explorer'; // Agent behavior style
+  // Connection settings
+  autoConnect: boolean; // Whether to auto-connect on startup
 }
 
 // Agent status for the status panel

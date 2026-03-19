@@ -8,12 +8,29 @@
 
 The MCP server exposes Game Boy emulator controls as MCP (Model Context Protocol) tools. Agents can load ROMs, press buttons, read game memory, and use autonomous play modes.
 
-**Server Version:** 3.0.0  
+**Server Version:** 4.0.0  
 **Location:** `ai-game-server/mcp_server.py`
 
 ---
 
-## Base Configuration
+## Table of Contents
+
+1. [Quick Start](#quick-start)
+2. [MCP Tools](#mcp-tools)
+   - [Core Emulator Controls](#core-emulator-controls)
+   - [Vision & Screen Capture](#vision--screen-capture)
+   - [Memory Reading](#memory-reading)
+   - [Save States](#save-states)
+   - [Auto-Play Modes](#auto-play-modes)
+   - [Session Management](#session-management)
+   - [Advanced Automation](#advanced-automation)
+3. [HTTP API Endpoints](#http-api-endpoints)
+4. [Error Codes](#error-codes)
+5. [Response Format](#response-format)
+
+---
+
+## Quick Start
 
 ### Starting the MCP Server
 
@@ -229,7 +246,7 @@ Get the current game screen as a base64-encoded image.
 
 **Usage with Vision AI:**
 ```bash
-# Get screen and send to [SELECT_VISION_MODEL] for analysis
+# Get screen and send to vision model for analysis
 screen_data=$(get_screen_base64)
 echo "$screen_data" | base64 -d > /tmp/screen.png
 # Send to vision model for analysis
@@ -418,6 +435,45 @@ Read raw RAM at a specific address.
 
 ---
 
+#### `get_memory_range`
+
+Read a range of memory bytes.
+
+| Property | Value |
+|----------|-------|
+| **Description** | Read multiple memory bytes |
+| **Parameters** | `start` (integer, required) - Start address |
+| | `length` (integer, required) - Number of bytes |
+
+**Example Request:**
+```json
+{
+  "tool": "get_memory_range",
+  "args": {"start": 53248, "length": 16}
+}
+```
+
+---
+
+#### `get_memory_byte`
+
+Read a single memory byte.
+
+| Property | Value |
+|----------|-------|
+| **Description** | Read single memory address |
+| **Parameters** | `address` (integer, required) - Memory address |
+
+**Example Request:**
+```json
+{
+  "tool": "get_memory_byte",
+  "args": {"address": 53248}
+}
+```
+
+---
+
 #### `emulator_get_game_state`
 
 Get complete game state snapshot.
@@ -445,6 +501,17 @@ Get complete game state snapshot.
   }
 }
 ```
+
+---
+
+#### `read_game_state`
+
+Alias for emulator_get_game_state with enhanced data.
+
+| Property | Value |
+|----------|-------|
+| **Description** | Get complete game state |
+| **Parameters** | None |
 
 ---
 
@@ -569,12 +636,13 @@ Autonomous world exploration.
 |----------|-------|
 | **Description** | AI explores game world |
 | **Parameters** | `steps` (integer, optional) - Steps to take |
+| | `session_id` (string, optional) - Session for tracking |
 
 **Example Request:**
 ```json
 {
   "tool": "auto_explore",
-  "args": {"steps": 20}
+  "args": {"steps": 20, "session_id": "session_abc123"}
 }
 ```
 
@@ -589,12 +657,89 @@ Grind for XP or money.
 | **Description** | Farm XP or money |
 | **Parameters** | `target_level` (integer, optional) - Level to reach |
 | | `max_battles` (integer, optional) - Max battles |
+| | `heal_after` (integer, optional) - Battles before healing |
 
 **Example Request:**
 ```json
 {
   "tool": "auto_grind",
-  "args": {"target_level": 20, "max_battles": 50}
+  "args": {"target_level": 20, "max_battles": 50, "heal_after": 5}
+}
+```
+
+---
+
+### Advanced Automation
+
+#### `auto_catch`
+
+Automatically catch Pokemon in the wild.
+
+| Property | Value |
+|----------|-------|
+| **Description** | AI catches wild Pokemon |
+| **Parameters** | `max_attempts` (integer, optional, default: 30) - Max catch attempts |
+| | `use_best_ball` (boolean, optional, default: true) - Use best ball available |
+
+**Example Request:**
+```json
+{
+  "tool": "auto_catch",
+  "args": {"max_attempts": 30, "use_best_ball": true}
+}
+```
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "attempts": 5,
+    "caught": true,
+    "pokemon": "Pidgey",
+    "level": 3,
+    "ball_used": "Poke Ball"
+  }
+}
+```
+
+---
+
+#### `auto_item_use`
+
+Automatically use items.
+
+| Property | Value |
+|----------|-------|
+| **Description** | AI uses items from inventory |
+| **Parameters** | `item_id` (integer, optional) - Specific item to use |
+| | `target` (string, optional, default: "self") - Target for item |
+
+**Example Request:**
+```json
+{
+  "tool": "auto_item_use",
+  "args": {"item_id": 13, "target": "self"}
+}
+```
+
+---
+
+#### `auto_npc_talk`
+
+Talk to NPCs automatically.
+
+| Property | Value |
+|----------|-------|
+| **Description** | AI interacts with NPCs |
+| **Parameters** | `interact_distance` (integer, optional, default: 1) - Talk range |
+| | `max_attempts` (integer, optional, default: 20) - Max interactions |
+
+**Example Request:**
+```json
+{
+  "tool": "auto_npc_talk",
+  "args": {"interact_distance": 1, "max_attempts": 20}
 }
 ```
 
@@ -609,7 +754,9 @@ Start a new agent session.
 | Property | Value |
 |----------|-------|
 | **Description** | Create new session for tracking progress |
-| **Parameters** | `goal` (string, required) - Session goal |
+| **Parameters** | `session_id` (string, optional) - Custom session ID |
+| | `goal` (string, required) - Session goal |
+| | `ttl_seconds` (integer, optional) - Session TTL |
 
 **Example Request:**
 ```json
@@ -704,14 +851,76 @@ Delete a session.
 
 The server also exposes HTTP endpoints for non-MCP access:
 
+### Core Endpoints
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Server health check |
-| `/api/state` | GET | Get emulator state |
+| `/api/status` | GET | Get server status |
+| `/api/config` | GET | Get configuration |
+| `/api/config/validate` | GET | Validate configuration |
+
+### Emulator Control
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/load_rom` | POST | Load ROM file |
+| `/api/action` | POST | Send button input |
+| `/api/ai-action` | POST | Get AI-recommended action |
 | `/api/screen` | GET | Get screen image |
-| `/api/input` | POST | Send input |
-| `/api/save` | POST | Save state |
-| `/api/load` | POST | Load state |
+| `/api/upload-rom` | POST | Upload ROM file |
+
+### Save States
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/save_state` | POST | Save game state |
+| `/api/load_state` | POST | Load game state |
+| `/save_state` | POST | Alternative save endpoint |
+| `/load_state` | POST | Alternative load endpoint |
+
+### Memory & State
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/memory` | POST | Read memory |
+| `/characters` | GET | Get character sprite data |
+| `/tilemap` | GET | Get tilemap data |
+| `/sprites` | GET | Get sprite data |
+
+### AI & Chat
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/chat` | POST | Chat with AI |
+| `/api/providers/status` | GET | AI provider status |
+| `/api/models` | GET | Available AI models |
+
+### UI Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/ui/launch` | POST | Launch UI |
+| `/api/ui/stop` | POST | Stop UI |
+| `/api/ui/restart` | POST | Restart UI |
+| `/api/ui/status` | GET | UI status |
+
+### Tetris (when applicable)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/tetris/train` | POST | Train Tetris AI |
+| `/api/tetris/status` | GET | Tetris status |
+| `/api/tetris/save` | POST | Save Tetris state |
+| `/api/tetris/load` | POST | Load Tetris state |
+
+### Performance
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/performance` | GET | Performance metrics |
+| `/api/emulator/mode` | GET | Emulator mode |
+| `/api/emulator/clear-cache` | POST | Clear emulator cache |
 
 ---
 
@@ -719,12 +928,15 @@ The server also exposes HTTP endpoints for non-MCP access:
 
 | Code | Meaning | Resolution |
 |------|---------|-------------|
+| `EMULATOR_NOT_INITIALIZED` | Emulator not running | Load ROM first |
 | `ROM_NOT_FOUND` | ROM file doesn't exist | Check file path |
-| `INVALID_BUTTON` | Invalid button pressed | Use valid button |
-| `NO_EMULATOR` | Emulator not running | Load ROM first |
+| `INVALID_ROM` | Invalid ROM format | Use valid .gb/.gbc/.gba |
+| `BUTTON_INVALID` | Invalid button pressed | Use valid button |
+| `MEMORY_READ_ERROR` | Memory read failed | Try different address |
 | `SAVE_NOT_FOUND` | Save file doesn't exist | Check save name |
-| `MEMORY_ERROR` | Memory read failed | Try different address |
 | `SESSION_NOT_FOUND` | Session doesn't exist | Create session first |
+| `INVALID_PARAMETER` | Invalid parameter | Check parameter values |
+| `OPERATION_FAILED` | Operation failed | Check logs for details |
 
 ---
 
@@ -737,7 +949,7 @@ All responses follow this format:
   "success": true,
   "timestamp": "2026-03-19T10:00:00.000Z",
   "server": {
-    "version": "3.0.0",
+    "version": "4.0.0",
     "started": "2026-03-19T09:00:00.000Z"
   },
   "data": { ... },
@@ -764,6 +976,8 @@ Error responses:
 ## Related Documentation
 
 - [DECISION_TREE.md](DECISION_TREE.md) - How agents make decisions
-- [EXAMPLES.md](EXAMPLES.md) - Example prompts and sessions
-- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues
+- [VISION_GUIDE.md](VISION_GUIDE.md) - Vision AI integration
+- [EXAMPLES.md](../EXAMPLES.md) - Example prompts and sessions
+- [TROUBLESHOOTING.md](../TROUBLESHOOTING.md) - Common issues
 - [README.md](../README.md) - Main documentation
+- [QUICKSTART.md](../QUICKSTART.md) - Quick start guide for new users

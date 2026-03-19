@@ -1,100 +1,132 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { AppSettings } from '../../types';
+
+interface Settings {
+  apiProvider: string;
+  apiEndpoint: string;
+  apiKey: string;
+  visionModel: string;
+  autonomousLevel: string;
+  agentPersonality: string;
+  agentObjectives: string;
+  openclawMcpEndpoint: string;
+  agentMode: boolean;
+  autoConnect: boolean;
+  backendUrl: string;
+}
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  currentSettings: AppSettings;
-  onSave: (newSettings: AppSettings) => void;
-  className?: string;
+  settings: Settings;
+  onSave: (newSettings: Settings) => void;
 }
 
-// Common models by provider
-const PROVIDER_MODELS: Record<string, string[]> = {
-  openclaw: ['MiniMax-M2.5', 'kimi-k2.5', 'glm-5', 'qwen3.5-plus'],
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
-  openrouter: ['openai/gpt-4o', 'google/gemini-pro', 'anthropic/claude-3-opus'],
-  'openai-compatible': [], // Populated dynamically
-  nvidia: ['nvidia/llama-3.1-nemotron-70b-instruct', 'nvidia/llama-3.1-8b-instruct'],
-  gemini: ['gemini-2.0-flash', 'gemini-2.0-flash-exp'],
-};
+// Auto-detect OpenClaw endpoint
+const AUTO_DETECT_OPENCLAW = 'http://localhost:18789';
+
+// Vision-capable models only
+const VISION_MODELS = [
+  { id: 'kimi-k2.5', name: 'kimi-k2.5 (Bailian - Free)', provider: 'Bailian' },
+  { id: 'qwen-vl-plus', name: 'qwen-vl-plus (Bailian)', provider: 'Bailian' },
+  { id: 'gpt-4o', name: 'GPT-4o (OpenAI)', provider: 'OpenAI' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o-mini (OpenAI)', provider: 'OpenAI' },
+  { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet (Anthropic)', provider: 'Anthropic' },
+  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (Google)', provider: 'Google' },
+];
+
+// Text/reasoning models
+const TEXT_MODELS = [
+  { id: 'qwen3.5-plus', name: 'qwen3.5-plus (Bailian - Free)', provider: 'Bailian' },
+  { id: 'MiniMax-M2.5', name: 'MiniMax-M2.5 (Bailian - Free)', provider: 'Bailian' },
+  { id: 'glm-5', name: 'glm-5 (Bailian - Free)', provider: 'Bailian' },
+  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo (OpenAI)', provider: 'OpenAI' },
+  { id: 'claude-3-opus', name: 'Claude 3 Opus (Anthropic)', provider: 'Anthropic' },
+];
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
-  currentSettings,
+  settings,
   onSave,
-  className = '',
 }) => {
-  const [settings, setSettings] = useState<AppSettings>(currentSettings);
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [loadingModels, setLoadingModels] = useState(false);
+  const [localSettings, setLocalSettings] = useState<Settings>(settings);
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<{success: boolean; message: string} | null>(null);
   const [activeTab, setActiveTab] = useState<'api' | 'agent' | 'advanced'>('api');
+  const [detectedOpenClaw, setDetectedOpenClaw] = useState(false);
 
+  // Initialize with smart defaults
   useEffect(() => {
-    setSettings(currentSettings);
-  }, [currentSettings, isOpen]);
-
-  // Fetch models when provider changes
-  useEffect(() => {
-    const fetchModels = async () => {
-      if (!settings.apiProvider || settings.apiProvider === 'openrouter') {
-        setAvailableModels(PROVIDER_MODELS[settings.apiProvider || ''] || []);
-        return;
-      }
-
-      setLoadingModels(true);
-      
-      // For openai-compatible, try to fetch from backend
-      if (settings.apiProvider === 'openai-compatible') {
-        try {
-          const response = await fetch(`${settings.apiEndpoint || 'http://localhost:5000'}/api/models`);
-          if (response.ok) {
-            const data = await response.json();
-            setAvailableModels(data.models || []);
-          } else {
-            setAvailableModels([]);
-          }
-        } catch {
-          // LM Studio or local server not available
-          const saved = localStorage.getItem('lmStudioModels');
-          if (saved) {
-            try {
-              setAvailableModels(JSON.parse(saved));
-            } catch {
-              setAvailableModels([]);
-            }
-          } else {
-            setAvailableModels([]);
-          }
-        }
-      } else {
-        // Use predefined models
-        setAvailableModels(PROVIDER_MODELS[settings.apiProvider] || []);
-      }
-      
-      setLoadingModels(false);
-    };
-
     if (isOpen) {
-      fetchModels();
+      // Auto-detect OpenClaw if not set
+      if (!localSettings.openclawMcpEndpoint) {
+        setLocalSettings(prev => ({ 
+          ...prev, 
+          openclawMcpEndpoint: AUTO_DETECT_OPENCLAW 
+        }));
+      }
+      // Default backend if not set
+      if (!localSettings.backendUrl) {
+        setLocalSettings(prev => ({ 
+          ...prev, 
+          backendUrl: 'http://localhost:5002' 
+        }));
+      }
+      // Default vision model if not set
+      if (!localSettings.visionModel) {
+        setLocalSettings(prev => ({ 
+          ...prev, 
+          visionModel: 'kimi-k2.5' 
+        }));
+      }
+      // Default text model if not set
+      if (!localSettings.apiProvider) {
+        setLocalSettings(prev => ({ 
+          ...prev, 
+          apiProvider: 'qwen3.5-plus' 
+        }));
+      }
     }
-  }, [settings.apiProvider, settings.apiEndpoint, isOpen]);
+  }, [isOpen]);
 
-  // Test backend connection
+  useEffect(() => {
+    setLocalSettings(settings);
+  }, [settings, isOpen]);
+
+  // Auto-detect OpenClaw
+  const detectOpenClaw = useCallback(async () => {
+    setTestingConnection(true);
+    try {
+      const response = await fetch(`${AUTO_DETECT_OPENCLAW}/health`);
+      if (response.ok) {
+        setDetectedOpenClaw(true);
+        setLocalSettings(prev => ({ 
+          ...prev, 
+          openclawMcpEndpoint: AUTO_DETECT_OPENCLAW 
+        }));
+        setConnectionStatus({ success: true, message: 'OpenClaw detected!' });
+      } else {
+        setDetectedOpenClaw(false);
+        setConnectionStatus({ success: false, message: 'OpenClaw not found at localhost:18789' });
+      }
+    } catch {
+      setDetectedOpenClaw(false);
+      setConnectionStatus({ success: false, message: 'OpenClaw not running locally' });
+    }
+    setTestingConnection(false);
+  }, []);
+
+  // Test connection
   const testConnection = useCallback(async () => {
     setTestingConnection(true);
     setConnectionStatus(null);
 
     try {
-      const baseUrl = settings.apiEndpoint || settings.backendUrl || 'http://localhost:5000';
-      const response = await fetch(`${baseUrl}/api/screen`);
+      const baseUrl = localSettings.backendUrl || 'http://localhost:5002';
+      const response = await fetch(`${baseUrl}/health`);
       
-      if (response.ok || response.status === 400) {
-        // 400 means ROM not loaded, but connection works
-        setConnectionStatus({ success: true, message: 'Connected successfully!' });
+      if (response.ok) {
+        setConnectionStatus({ success: true, message: 'Backend connected!' });
       } else {
         setConnectionStatus({ success: false, message: `Server returned ${response.status}` });
       }
@@ -106,11 +138,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     } finally {
       setTestingConnection(false);
     }
-  }, [settings.apiEndpoint, settings.backendUrl]);
+  }, [localSettings.backendUrl]);
 
   // Handle save
   const handleSave = () => {
-    onSave(settings);
+    onSave(localSettings);
     onClose();
   };
 
@@ -129,21 +161,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div className={`relative bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden flex flex-col ${className}`}>
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-neutral-700">
           <h2 className="text-xl font-semibold text-neutral-200">⚙️ Settings</h2>
-          <button
-            onClick={onClose}
-            className="p-1 text-neutral-400 hover:text-white transition-colors"
-          >
+          <button onClick={onClose} className="p-1 text-neutral-400 hover:text-white">
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -156,7 +179,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+              className={`flex-1 px-4 py-2 text-sm font-medium ${
                 activeTab === tab 
                   ? 'text-cyan-400 border-b-2 border-cyan-400 bg-neutral-800/50' 
                   : 'text-neutral-400 hover:text-neutral-200'
@@ -171,42 +194,23 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {activeTab === 'api' && (
             <>
-              {/* API Provider */}
+              {/* Backend URL - Auto-detected */}
               <div>
                 <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  API Provider
-                </label>
-                <select
-                  value={settings.apiProvider || ''}
-                  onChange={e => setSettings(prev => ({ ...prev, apiProvider: e.target.value as AppSettings['apiProvider'] }))}
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 focus:outline-none focus:border-cyan-500"
-                >
-                  <option value="">Select Provider</option>
-                  <option value="openclaw">OpenClaw (Bailian)</option>
-                  <option value="openai-compatible">OpenAI Compatible (LM Studio)</option>
-                  <option value="openrouter">OpenRouter</option>
-                  <option value="nvidia">NVIDIA</option>
-                  <option value="gemini">Google Gemini</option>
-                </select>
-              </div>
-
-              {/* API Endpoint */}
-              <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  API Endpoint
+                  Game Backend URL
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    value={settings.apiEndpoint || ''}
-                    onChange={e => setSettings(prev => ({ ...prev, apiEndpoint: e.target.value }))}
-                    placeholder="http://localhost:5000"
-                    className="flex-1 px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-cyan-500"
+                    value={localSettings.backendUrl || ''}
+                    onChange={e => setLocalSettings(prev => ({ ...prev, backendUrl: e.target.value }))}
+                    placeholder="http://localhost:5002"
+                    className="flex-1 px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
                   />
                   <button
                     onClick={testConnection}
                     disabled={testingConnection}
-                    className="px-3 py-2 bg-neutral-700 hover:bg-neutral-600 text-neutral-300 rounded-lg text-sm disabled:opacity-50"
+                    className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm"
                   >
                     {testingConnection ? '...' : 'Test'}
                   </button>
@@ -218,37 +222,51 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 )}
               </div>
 
-              {/* API Key */}
+              {/* Vision Model */}
               <div>
                 <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  API Key
+                  Vision Model (for screen analysis)
+                </label>
+                <select
+                  value={localSettings.visionModel || 'kimi-k2.5'}
+                  onChange={e => setLocalSettings(prev => ({ ...prev, visionModel: e.target.value }))}
+                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
+                >
+                  {VISION_MODELS.map(model => (
+                    <option key={model.id} value={model.id}>{model.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Text Model */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-1">
+                  Text/Reasoning Model
+                </label>
+                <select
+                  value={localSettings.apiProvider || 'qwen3.5-plus'}
+                  onChange={e => setLocalSettings(prev => ({ ...prev, apiProvider: e.target.value }))}
+                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
+                >
+                  {TEXT_MODELS.map(model => (
+                    <option key={model.id} value={model.id}>{model.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* OpenClaw Token */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-1">
+                  OpenClaw Token (optional)
                 </label>
                 <input
                   type="password"
-                  value={settings.apiKey || ''}
-                  onChange={e => setSettings(prev => ({ ...prev, apiKey: e.target.value }))}
-                  placeholder="Enter your API key"
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-cyan-500"
+                  value={localSettings.apiKey || ''}
+                  onChange={e => setLocalSettings(prev => ({ ...prev, apiKey: e.target.value }))}
+                  placeholder="Leave empty for local OpenClaw"
+                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
                 />
-              </div>
-
-              {/* Model */}
-              <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  Model
-                  {loadingModels && <span className="ml-2 text-neutral-500">Loading...</span>}
-                </label>
-                <select
-                  value={settings.model || ''}
-                  onChange={e => setSettings(prev => ({ ...prev, model: e.target.value }))}
-                  disabled={loadingModels || availableModels.length === 0}
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 focus:outline-none focus:border-cyan-500 disabled:opacity-50"
-                >
-                  <option value="">Select Model</option>
-                  {availableModels.map(model => (
-                    <option key={model} value={model}>{model}</option>
-                  ))}
-                </select>
+                <p className="text-xs text-neutral-500 mt-1">Only needed for remote OpenClaw</p>
               </div>
             </>
           )}
@@ -256,48 +274,40 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           {activeTab === 'agent' && (
             <>
               {/* Agent Mode */}
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between p-3 bg-neutral-800 rounded-lg">
                 <div>
                   <label className="text-sm font-medium text-neutral-300">Agent Mode</label>
-                  <p className="text-xs text-neutral-500">Let the AI control the game</p>
+                  <p className="text-xs text-neutral-500">AI controls the game</p>
                 </div>
                 <button
-                  onClick={() => setSettings(prev => ({ ...prev, agentMode: !prev.agentMode }))}
-                  className={`relative w-12 h-6 rounded-full transition-colors ${
-                    settings.agentMode ? 'bg-green-500' : 'bg-neutral-600'
-                  }`}
+                  onClick={() => setLocalSettings(prev => ({ ...prev, agentMode: !prev.agentMode }))}
+                  className={`relative w-12 h-6 rounded-full ${localSettings.agentMode ? 'bg-green-500' : 'bg-neutral-600'}`}
                 >
-                  <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                    settings.agentMode ? 'left-7' : 'left-1'
-                  }`} />
+                  <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${localSettings.agentMode ? 'left-7' : 'left-1'}`} />
                 </button>
               </div>
 
-              {/* Vision Model */}
-              <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  Vision Model
-                </label>
-                <select
-                  value={settings.visionModel || 'kimi-k2.5'}
-                  onChange={e => setSettings(prev => ({ ...prev, visionModel: e.target.value as AppSettings['visionModel'] }))}
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 focus:outline-none focus:border-cyan-500"
+              {/* Auto Connect */}
+              <div className="flex items-center justify-between p-3 bg-neutral-800 rounded-lg">
+                <div>
+                  <label className="text-sm font-medium text-neutral-300">Auto Connect</label>
+                  <p className="text-xs text-neutral-500">Connect on startup</p>
+                </div>
+                <button
+                  onClick={() => setLocalSettings(prev => ({ ...prev, autoConnect: !prev.autoConnect }))}
+                  className={`relative w-12 h-6 rounded-full ${localSettings.autoConnect ? 'bg-green-500' : 'bg-neutral-600'}`}
                 >
-                  <option value="kimi-k2.5">kimi-k2.5 (Bailian)</option>
-                  <option value="MiniMax-M2.5">MiniMax-M2.5 (Bailian)</option>
-                  <option value="glm-5">glm-5 (Bailian)</option>
-                </select>
+                  <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${localSettings.autoConnect ? 'left-7' : 'left-1'}`} />
+                </button>
               </div>
 
               {/* Autonomous Level */}
               <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  Autonomous Level
-                </label>
+                <label className="block text-sm font-medium text-neutral-300">Autonomous Level</label>
                 <select
-                  value={settings.autonomousLevel || 'moderate'}
-                  onChange={e => setSettings(prev => ({ ...prev, autonomousLevel: e.target.value as AppSettings['autonomousLevel'] }))}
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 focus:outline-none focus:border-cyan-500"
+                  value={localSettings.autonomousLevel || 'moderate'}
+                  onChange={e => setLocalSettings(prev => ({ ...prev, autonomousLevel: e.target.value }))}
+                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
                 >
                   <option value="passive">Passive - Asks before actions</option>
                   <option value="moderate">Moderate - Decides and acts</option>
@@ -307,13 +317,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
               {/* Agent Personality */}
               <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  Agent Personality
-                </label>
+                <label className="block text-sm font-medium text-neutral-300">Agent Personality</label>
                 <select
-                  value={settings.agentPersonality || 'strategic'}
-                  onChange={e => setSettings(prev => ({ ...prev, agentPersonality: e.target.value as AppSettings['agentPersonality'] }))}
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 focus:outline-none focus:border-cyan-500"
+                  value={localSettings.agentPersonality || 'strategic'}
+                  onChange={e => setLocalSettings(prev => ({ ...prev, agentPersonality: e.target.value }))}
+                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
                 >
                   <option value="strategic">Strategic - Plans ahead</option>
                   <option value="casual">Casual - Relaxed gameplay</option>
@@ -324,15 +332,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
               {/* Objectives */}
               <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  Current Objectives
-                </label>
+                <label className="block text-sm font-medium text-neutral-300">Current Objectives</label>
                 <textarea
-                  value={settings.agentObjectives || ''}
-                  onChange={e => setSettings(prev => ({ ...prev, agentObjectives: e.target.value }))}
-                  placeholder="Complete the game, Catch 'em all..."
-                  rows={3}
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-cyan-500 resize-none"
+                  value={localSettings.agentObjectives || ''}
+                  onChange={e => setLocalSettings(prev => ({ ...prev, agentObjectives: e.target.value }))}
+                  placeholder="Catch 'em all, Beat the game..."
+                  rows={2}
+                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 resize-none"
                 />
               </div>
             </>
@@ -340,66 +346,42 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {activeTab === 'advanced' && (
             <>
-              {/* OpenClaw MCP Endpoint */}
+              {/* OpenClaw MCP - Auto-detected */}
               <div>
                 <label className="block text-sm font-medium text-neutral-300 mb-1">
                   OpenClaw MCP Endpoint
                 </label>
-                <input
-                  type="text"
-                  value={settings.openclawMcpEndpoint || ''}
-                  onChange={e => setSettings(prev => ({ ...prev, openclawMcpEndpoint: e.target.value }))}
-                  placeholder="http://localhost:3000/mcp"
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              {/* AI Action Interval */}
-              <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  AI Action Interval (ms)
-                </label>
-                <input
-                  type="number"
-                  value={settings.aiActionInterval || 1000}
-                  onChange={e => setSettings(prev => ({ ...prev, aiActionInterval: parseInt(e.target.value) || 1000 }))}
-                  min={100}
-                  max={10000}
-                  step={100}
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-
-              {/* Backend URL (Legacy) */}
-              <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  Backend URL (Legacy)
-                </label>
-                <input
-                  type="text"
-                  value={settings.backendUrl || ''}
-                  onChange={e => setSettings(prev => ({ ...prev, backendUrl: e.target.value }))}
-                  placeholder="http://localhost:5000"
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-cyan-500"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={localSettings.openclawMcpEndpoint || ''}
+                    onChange={e => setLocalSettings(prev => ({ ...prev, openclawMcpEndpoint: e.target.value }))}
+                    placeholder="Auto-detected"
+                    className="flex-1 px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
+                  />
+                  <button
+                    onClick={detectOpenClaw}
+                    disabled={testingConnection}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-sm"
+                  >
+                    🔍 Auto
+                  </button>
+                </div>
+                {detectedOpenClaw && (
+                  <p className="text-xs text-green-400 mt-1">✓ OpenClaw detected at localhost:18789</p>
+                )}
               </div>
             </>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-3 p-4 border-t border-neutral-700 bg-neutral-800/50">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-neutral-400 hover:text-white transition-colors"
-          >
+        <div className="flex justify-end gap-3 p-4 border-t border-neutral-700">
+          <button onClick={onClose} className="px-4 py-2 text-neutral-400 hover:text-white">
             Cancel
           </button>
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            Save Settings
+          <button onClick={handleSave} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg">
+            Save
           </button>
         </div>
       </div>
