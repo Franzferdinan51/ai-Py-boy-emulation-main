@@ -574,6 +574,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   onChange={(event) => update('launchUiOnRomLoad', event.target.checked)}
                 />
               </label>
+
+              <label className="toggle-card">
+                <div className="toggle-card__copy">
+                  <strong>Use dual-model routing</strong>
+                  <span>Keep OpenClaw vision and planning split into separate model calls.</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={draft.useDualModel}
+                  onChange={(event) => update('useDualModel', event.target.checked)}
+                />
+              </label>
             </div>
 
             <div className="modal-callout">

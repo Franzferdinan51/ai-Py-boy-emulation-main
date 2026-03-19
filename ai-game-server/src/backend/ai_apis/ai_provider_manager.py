@@ -53,20 +53,11 @@ class AIProviderManager:
         self.planning_model = os.environ.get('PLANNING_MODEL', 'glm-5')
         
         self.initialize_providers()
-        # self._initialize_dual_model()  # Temporarily disabled - dual model not yet implemented
+        self._initialize_dual_model()
 
-    def _initialize_dual_model(self):
-        """Initialize dual-model architecture (vision + planning)"""
-        # TODO: Implement dual-model support
-        self.logger.debug("Dual-model initialization not yet implemented")
-        pass
-
-    def initialize_providers(self):
-        """Initialize all available AI providers"""
-        self.logger.info("Initializing AI providers...")
-
-        # Define provider configurations (OpenClaw-first for native integration)
-        provider_configs = [
+    def _get_provider_configs(self) -> List[Dict[str, Any]]:
+        """Build provider configuration from current environment state."""
+        return [
             {
                 'name': 'openclaw',
                 'env_key': None,  # No API key required - uses local MCP
@@ -130,18 +121,32 @@ class AIProviderManager:
             }
         ]
 
-        # Initialize providers
-        for config in provider_configs:
-            self._initialize_provider(config)
-
-        # Sort providers by priority
-        self.provider_order = sorted(
+    def _sync_provider_lists(self):
+        """Recompute available-provider ordering after runtime changes."""
+        available = sorted(
             [name for name, info in self.providers.items() if info['status'] == ProviderStatus.AVAILABLE],
             key=lambda x: self.providers[x]['priority']
         )
 
-        # Set up fallback providers
-        self.fallback_providers = self.provider_order.copy()
+        if self.default_provider in available:
+            available.remove(self.default_provider)
+            available.insert(0, self.default_provider)
+
+        self.provider_order = available
+        self.fallback_providers = available.copy()
+
+    def initialize_providers(self):
+        """Initialize all available AI providers"""
+        self.logger.info("Initializing AI providers...")
+
+        self.providers.clear()
+        provider_configs = self._get_provider_configs()
+
+        # Initialize providers
+        for config in provider_configs:
+            self._initialize_provider(config)
+
+        self._sync_provider_lists()
         self.logger.info(f"Provider initialization complete. Available providers: {self.provider_order}")
 
     def _initialize_provider(self, config: Dict[str, Any]):
@@ -338,6 +343,42 @@ class AIProviderManager:
             self.logger.debug(f"Connection test failed for {provider_name}: {e}")
             return False
 
+    def reinitialize_provider(self, provider_name: str) -> bool:
+        """Rebuild a provider from current environment settings."""
+        config = next((cfg for cfg in self._get_provider_configs() if cfg['name'] == provider_name), None)
+        if not config:
+            self.logger.warning(f"Cannot reinitialize unknown provider: {provider_name}")
+            return False
+
+        self._initialize_provider(config)
+        self._sync_provider_lists()
+        provider_info = self.providers.get(provider_name)
+        return bool(provider_info and provider_info['status'] == ProviderStatus.AVAILABLE)
+
+    def set_default_provider(self, provider_name: str) -> bool:
+        """Set the preferred provider used when a request does not specify one."""
+        known_providers = {cfg['name'] for cfg in self._get_provider_configs()}
+        if provider_name not in known_providers:
+            self.logger.warning(f"Cannot set unknown default provider: {provider_name}")
+            return False
+
+        self.default_provider = provider_name
+        self._sync_provider_lists()
+        return True
+
+    def set_openclaw_endpoint(self, endpoint: str) -> bool:
+        """Update the OpenClaw endpoint for connector and dual-model flows."""
+        normalized = endpoint.rstrip('/')
+        os.environ['OPENCLAW_MCP_ENDPOINT'] = normalized
+
+        provider_ok = self.reinitialize_provider('openclaw')
+        if self.dual_model_provider:
+            self.dual_model_provider.openclaw_endpoint = normalized
+        elif self.use_dual_model:
+            self._initialize_dual_model()
+
+        return provider_ok
+
     def get_provider(self, provider_name: Optional[str] = None) -> Optional[AIAPIConnector]:
         """Get a provider connector by name, or use the first available one"""
         if provider_name:
@@ -364,12 +405,17 @@ class AIProviderManager:
         self.logger.error("No available AI providers found")
         return None
 
-    def get_next_action(self, image_bytes: bytes, goal: str, action_history: List[str],
-                      provider_name: Optional[str] = None, model: Optional[str] = None) -> tuple[str, Optional[str]]:
-        """Get next action with automatic fallback"""
+    def _get_next_action_single_provider(
+        self,
+        image_bytes: bytes,
+        goal: str,
+        action_history: List[str],
+        provider_name: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> tuple[str, Optional[str]]:
+        """Get next action using the single-provider fallback chain."""
         self.logger.info(f"get_next_action called with provider: {provider_name}, available_providers: {self.get_available_providers()}")
 
-        # Try specified provider first
         if provider_name:
             self.logger.info(f"Trying specified provider: {provider_name}")
             connector = self.get_provider(provider_name)
@@ -382,18 +428,15 @@ class AIProviderManager:
                     return action, provider_name
                 except Exception as e:
                     self.logger.error(f"Provider {provider_name} failed: {e}")
-                    # Continue to fallback
             else:
                 self.logger.warning(f"Provider {provider_name} not available, falling back to: {self.provider_order}")
 
-        # Try providers in order
         self.logger.info(f"Trying fallback providers in order: {self.fallback_providers}")
         for fallback_provider in self.fallback_providers:
             self.logger.info(f"Attempting fallback provider: {fallback_provider}")
             connector = self.get_provider(fallback_provider)
             if connector:
                 try:
-                    # Set model if provided
                     if model:
                         connector.model = model
                     action = connector.get_next_action(image_bytes, goal, action_history)
@@ -405,13 +448,41 @@ class AIProviderManager:
             else:
                 self.logger.warning(f"Fallback provider {fallback_provider} not available")
 
-        # Ultimate fallback - use a default action
         self.logger.error("All providers failed, using default action")
         return self._get_default_action(action_history), None
+
+    def get_next_action(self, image_bytes: bytes, goal: str, action_history: List[str],
+                      provider_name: Optional[str] = None, model: Optional[str] = None) -> tuple[str, Optional[str]]:
+        """Get next action with automatic fallback"""
+        should_try_dual_model = (
+            self.use_dual_model
+            and not model
+            and provider_name in (None, 'openclaw')
+        )
+
+        if should_try_dual_model:
+            try:
+                return self.get_next_action_dual_model(
+                    image_bytes,
+                    goal,
+                    action_history,
+                    context={"goal": goal},
+                )
+            except Exception as e:
+                self.logger.error(f"Dual-model path failed, falling back to provider chain: {e}")
+
+        return self._get_next_action_single_provider(image_bytes, goal, action_history, provider_name, model)
 
     def chat_with_ai(self, message: str, image_bytes: bytes, context: dict,
                     provider_name: Optional[str] = None, model: Optional[str] = None) -> tuple[str, Optional[str]]:
         """Chat with AI with automatic fallback"""
+        if self.use_dual_model and not model and provider_name in (None, 'openclaw') and self.dual_model_provider:
+            try:
+                response = self.dual_model_provider.chat_with_ai(message, image_bytes, context)
+                return response, f"vision:{self.vision_model}+planning:{self.planning_model}"
+            except Exception as e:
+                self.logger.error(f"Dual-model chat failed, falling back to provider chain: {e}")
+
         # Try specified provider first
         if provider_name:
             connector = self.get_provider(provider_name)
@@ -459,14 +530,14 @@ class AIProviderManager:
 
     def get_available_providers(self) -> List[str]:
         """Get list of available providers"""
-        return [name for name, info in self.providers.items() if info['status'] == ProviderStatus.AVAILABLE]
+        return self.provider_order.copy()
 
     def get_models(self, provider_name: str) -> List[str]:
         """Get a list of available models for a given provider"""
-        provider = self.get_provider(provider_name)
-        if provider:
+        provider_info = self.providers.get(provider_name)
+        if provider_info and provider_info['status'] == ProviderStatus.AVAILABLE and provider_info['connector']:
             try:
-                return provider.get_models()
+                return provider_info['connector'].get_models()
             except Exception as e:
                 self.logger.error(f"Failed to get models for {provider_name}: {e}")
                 return []
@@ -522,6 +593,7 @@ class AIProviderManager:
                 except Exception as e:
                     info['status'] = ProviderStatus.ERROR
                     info['error'] = str(e)
+        self._sync_provider_lists()
         self.logger.info("Provider status refresh complete")
 
     def cleanup(self):
@@ -575,21 +647,24 @@ class AIProviderManager:
         self.vision_model = model
         if self.dual_model_provider:
             return self.dual_model_provider.set_vision_model(model)
-        return False
+        return True
     
     def set_planning_model(self, model: str) -> bool:
         """Set the planning model for dual-model architecture"""
         self.planning_model = model
         if self.dual_model_provider:
             return self.dual_model_provider.set_planning_model(model)
-        return False
+        return True
     
     def get_dual_model_status(self) -> Dict[str, Any]:
         """Get dual-model provider status"""
         if self.dual_model_provider:
-            return self.dual_model_provider.get_status()
+            status = self.dual_model_provider.get_status()
+            status["enabled"] = self.use_dual_model
+            return status
         return {
             "available": False,
+            "enabled": self.use_dual_model,
             "vision_model": self.vision_model,
             "planning_model": self.planning_model,
             "error": "Dual-model provider not initialized"
@@ -618,7 +693,7 @@ class AIProviderManager:
         """
         if not self.dual_model_provider:
             self.logger.warning("Dual-model provider not available, falling back to single model")
-            return self.get_next_action(image_bytes, goal, action_history)
+            return self._get_next_action_single_provider(image_bytes, goal, action_history)
         
         try:
             return self.dual_model_provider.get_next_action(
@@ -627,7 +702,7 @@ class AIProviderManager:
         except Exception as e:
             self.logger.error(f"Dual-model action failed: {e}")
             # Fallback to single model
-            return self.get_next_action(image_bytes, goal, action_history)
+            return self._get_next_action_single_provider(image_bytes, goal, action_history)
     
     def configure_dual_model(
         self,
@@ -666,9 +741,14 @@ class AIProviderManager:
                 result["error"] = f"Failed to set planning model: {planning_model}"
         
         if use_dual_model is not None:
-            self.use_dual_model = use_dual_model
-            result["changes"].append(f"use_dual_model: {use_dual_model}")
-        
+            self.use_dual_model = bool(use_dual_model)
+            result["changes"].append(f"use_dual_model: {self.use_dual_model}")
+
+        if self.use_dual_model and not self.dual_model_provider:
+            self._initialize_dual_model()
+        elif not self.use_dual_model:
+            self.dual_model_provider = None
+
         result["current_config"] = {
             "vision_model": self.vision_model,
             "planning_model": self.planning_model,

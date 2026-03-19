@@ -63,6 +63,7 @@ class PyBoyEmulator(EmulatorInterface):
         self.game_wrapper = None
         self.ui_process = None
         self.ui_thread = None
+        self._emulator_lock = threading.RLock()
 
         # Performance optimization attributes
         self._screen_cache = {}
@@ -87,38 +88,39 @@ class PyBoyEmulator(EmulatorInterface):
             raise FileNotFoundError(f"ROM file not found: {rom_path}")
 
         try:
-            # Initialize PyBoy using the official API pattern
-            logger.info(f"Initializing PyBoy with ROM: {os.path.basename(rom_path)}")
+            with self._emulator_lock:
+                # Initialize PyBoy using the official API pattern
+                logger.info(f"Initializing PyBoy with ROM: {os.path.basename(rom_path)}")
 
-            # Use null window for server process - UI will be in separate process
-            self.pyboy = PyBoy(
-                rom_path,
-                window="null",  # Always use null for server process
-                scale=2,
-                sound_emulated=False,  # Disable sound to prevent buffer overrun crashes
-                sound_volume=0
-            )
+                # Use null window for server process - UI will be in separate process
+                self.pyboy = PyBoy(
+                    rom_path,
+                    window="null",  # Always use null for server process
+                    scale=2,
+                    sound_emulated=False,  # Disable sound to prevent buffer overrun crashes
+                    sound_volume=0
+                )
 
-            # Set emulation speed to unlimited for AI training
-            self.pyboy.set_emulation_speed(0)
+                # Set emulation speed to unlimited for AI training
+                self.pyboy.set_emulation_speed(0)
 
-            # Initialize game wrapper if available
-            self.game_wrapper = self.pyboy.game_wrapper
+                # Initialize game wrapper if available
+                self.game_wrapper = self.pyboy.game_wrapper
 
-            # Store basic info
-            self.rom_path = rom_path
-            self.initialized = True
-            self.game_title = self.pyboy.cartridge_title
+                # Store basic info
+                self.rom_path = rom_path
+                self.initialized = True
+                self.game_title = self.pyboy.cartridge_title
 
-            # Log successful initialization
-            logger.info(f"PyBoy initialized successfully")
-            logger.info(f"Game title: {self.game_title}")
-            logger.info(f"Window type: null")
-            logger.info(f"Emulation speed: unlimited (0)")
+                # Log successful initialization
+                logger.info(f"PyBoy initialized successfully")
+                logger.info(f"Game title: {self.game_title}")
+                logger.info(f"Window type: null")
+                logger.info(f"Emulation speed: unlimited (0)")
 
-            # Warm up the emulator long enough to populate a meaningful framebuffer.
-            # A single frame often stays blank/white during Game Boy boot.
-            self.pyboy.tick(180, True)
+                # Warm up the emulator long enough to populate a meaningful framebuffer.
+                # A single frame often stays blank/white during Game Boy boot.
+                self.pyboy.tick(180, True)
 
             # Launch UI in separate process if requested
             if self.auto_launch_ui:
@@ -385,22 +387,43 @@ finally:
             frame_count = 1
 
         try:
-            if action in action_map:
-                # Hold the button for the requested frames and advance one extra tick
-                # so PyBoy processes the release before the next action arrives.
-                button = action_map[action]
-                total_frames = frame_count + 1
-                self.pyboy.button(button, frame_count)
-            else:
-                total_frames = frame_count
+            with self._emulator_lock:
+                if action in action_map:
+                    # Hold the button for the requested frames and advance one extra tick
+                    # so PyBoy processes the release before the next action arrives.
+                    button = action_map[action]
+                    total_frames = frame_count + 1
+                    self.pyboy.button(button, frame_count)
+                else:
+                    total_frames = frame_count
 
-            for i in range(total_frames):
-                render_this_frame = (i == total_frames - 1)
-                self.pyboy.tick(1, render_this_frame)
+                for i in range(total_frames):
+                    render_this_frame = (i == total_frames - 1)
+                    self.pyboy.tick(1, render_this_frame)
 
             return True
         except Exception as e:
             logger.error(f"Error executing action {action}: {e}")
+            return False
+
+    def advance_idle_frames(self, frames: int = 1, render_last: bool = False) -> bool:
+        """Advance the emulator without injecting input."""
+        if not self.initialized or self.pyboy is None:
+            return False
+
+        try:
+            frame_count = max(int(frames), 1)
+        except (TypeError, ValueError):
+            frame_count = 1
+
+        try:
+            with self._emulator_lock:
+                for i in range(frame_count):
+                    render_this_frame = render_last and i == frame_count - 1
+                    self.pyboy.tick(1, render_this_frame)
+            return True
+        except Exception as e:
+            logger.error(f"Error advancing idle frames: {e}")
             return False
 
     def get_screen(self) -> np.ndarray:
@@ -414,13 +437,11 @@ finally:
         self._performance_stats['screen_captures'] += 1
 
         try:
-            # Advance a few idle frames so the live view actually updates even
-            # when the user/agent is not actively pressing buttons.
-            for i in range(4):
-                self.pyboy.tick(1, i == 3)
-
-            # Use PyBoy's official screen API - get the screen buffer directly
-            screen_array = self.pyboy.screen.ndarray
+            with self._emulator_lock:
+                # Use PyBoy's official screen API - get the screen buffer directly
+                screen_array = self.pyboy.screen.ndarray
+                if screen_array is not None:
+                    screen_array = screen_array.copy()
 
             # Validate screen array dimensions
             if screen_array is None or screen_array.size == 0:
@@ -571,10 +592,11 @@ finally:
             return b'\x00' * size
 
         try:
-            if size == 1:
-                return bytes([self.pyboy.memory[address]])
-            else:
-                return bytes(self.pyboy.memory[address:address + size])
+            with self._emulator_lock:
+                if size == 1:
+                    return bytes([self.pyboy.memory[address]])
+                else:
+                    return bytes(self.pyboy.memory[address:address + size])
         except Exception as e:
             logger.error(f"Error reading memory at {hex(address)}: {e}")
             return b'\x00' * size
@@ -595,10 +617,11 @@ finally:
             return False
 
         try:
-            if len(value) == 1:
-                self.pyboy.memory[address] = value[0]
-            else:
-                self.pyboy.memory[address:address + len(value)] = list(value)
+            with self._emulator_lock:
+                if len(value) == 1:
+                    self.pyboy.memory[address] = value[0]
+                else:
+                    self.pyboy.memory[address:address + len(value)] = list(value)
             logger.debug(f"Memory written to {hex(address)}: {value.hex()}")
             return True
         except Exception as e:
@@ -611,26 +634,27 @@ finally:
             return False
 
         try:
-            # Stop the current emulator
-            self.pyboy.stop()
+            with self._emulator_lock:
+                # Stop the current emulator
+                self.pyboy.stop()
 
-            # Re-initialize PyBoy with simplified configuration
-            self.pyboy = PyBoy(
-                self.rom_path,
-                window="SDL2" if self.auto_launch_ui else "null",
-                scale=2,
-                sound_emulated=True,
-                sound_volume=50
-            )
+                # Re-initialize PyBoy with simplified configuration
+                self.pyboy = PyBoy(
+                    self.rom_path,
+                    window="SDL2" if self.auto_launch_ui else "null",
+                    scale=2,
+                    sound_emulated=True,
+                    sound_volume=50
+                )
 
-            # Set emulation speed to unlimited for AI training
-            self.pyboy.set_emulation_speed(0)
+                # Set emulation speed to unlimited for AI training
+                self.pyboy.set_emulation_speed(0)
 
-            # Re-initialize game wrapper
-            self.game_wrapper = self.pyboy.game_wrapper
+                # Re-initialize game wrapper
+                self.game_wrapper = self.pyboy.game_wrapper
 
-            # Start with one tick
-            self.pyboy.tick(1, self.auto_launch_ui)
+                # Start with one tick
+                self.pyboy.tick(1, self.auto_launch_ui)
 
             logger.info("Emulator reset successfully")
             return True
@@ -648,7 +672,8 @@ finally:
         try:
             # Save state to bytes using PyBoy's save_state method
             state_buffer = io.BytesIO()
-            self.pyboy.save_state(state_buffer)
+            with self._emulator_lock:
+                self.pyboy.save_state(state_buffer)
             state_data = state_buffer.getvalue()
             logger.info(f"State saved successfully: {len(state_data)} bytes")
             return state_data
@@ -669,7 +694,8 @@ finally:
         try:
             # Load state from bytes using PyBoy's load_state method
             state_buffer = io.BytesIO(state)
-            self.pyboy.load_state(state_buffer)
+            with self._emulator_lock:
+                self.pyboy.load_state(state_buffer)
             logger.info(f"State loaded successfully: {len(state)} bytes")
             return True
         except Exception as e:
@@ -682,24 +708,25 @@ finally:
             return {"error": "PyBoy not initialized"}
 
         try:
-            info = {
-                "rom_title": self.pyboy.cartridge_title,
-                "frame_count": self.pyboy.frame_count,
-                "initialized": self.initialized,
-                "game_title": self.game_title,
-                "rom_path": self.rom_path,
-                "emulation_speed": "unlimited"  # We set this to 0 for AI training
-            }
+            with self._emulator_lock:
+                info = {
+                    "rom_title": self.pyboy.cartridge_title,
+                    "frame_count": self.pyboy.frame_count,
+                    "initialized": self.initialized,
+                    "game_title": self.game_title,
+                    "rom_path": self.rom_path,
+                    "emulation_speed": "unlimited"  # We set this to 0 for AI training
+                }
 
-            # Add screen information if available
-            try:
-                screen_shape = self.pyboy.screen.ndarray.shape
-                info["screen_size"] = screen_shape
-                info["screen_format"] = "RGBA" if len(screen_shape) == 3 and screen_shape[2] == 4 else "RGB"
-            except Exception as screen_e:
-                logger.warning(f"Could not get screen info: {screen_e}")
-                info["screen_size"] = "unknown"
-                info["screen_format"] = "unknown"
+                # Add screen information if available
+                try:
+                    screen_shape = self.pyboy.screen.ndarray.shape
+                    info["screen_size"] = screen_shape
+                    info["screen_format"] = "RGBA" if len(screen_shape) == 3 and screen_shape[2] == 4 else "RGB"
+                except Exception as screen_e:
+                    logger.warning(f"Could not get screen info: {screen_e}")
+                    info["screen_size"] = "unknown"
+                    info["screen_format"] = "unknown"
 
             return info
         except Exception as e:
@@ -815,10 +842,11 @@ finally:
             logger.info("Cleaning up PyBoy emulator resources")
 
             # Stop PyBoy emulator
-            if self.pyboy is not None:
-                logger.info("Stopping PyBoy emulator")
-                self.pyboy.stop()
-                self.pyboy = None
+            with self._emulator_lock:
+                if self.pyboy is not None:
+                    logger.info("Stopping PyBoy emulator")
+                    self.pyboy.stop()
+                    self.pyboy = None
 
             # Reset state
             self.initialized = False
@@ -843,10 +871,8 @@ finally:
         if not self.initialized or self.pyboy is None:
             return 0
         try:
-            # Advance one non-rendered idle frame so state polling reflects that
-            # the emulator is still running.
-            self.pyboy.tick(1, False)
-            return self.pyboy.frame_count
+            with self._emulator_lock:
+                return self.pyboy.frame_count
         except Exception as e:
             logger.error(f"Error getting frame count: {e}")
             return 0

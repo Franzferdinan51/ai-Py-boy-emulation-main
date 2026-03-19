@@ -91,6 +91,16 @@ const formatClock = (value: string | null | undefined) => {
 
 const capitalize = (value: string) => (value ? value.charAt(0).toUpperCase() + value.slice(1) : value);
 
+const normalizeOpenClawModelId = (model: string) => {
+  const trimmed = model.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const parts = trimmed.split('/');
+  return parts[parts.length - 1] || trimmed;
+};
+
 const summarizeProbeError = (message: string | null | undefined, fallback = 'Unavailable') => {
   if (!message) {
     return fallback;
@@ -181,12 +191,33 @@ const App: React.FC = () => {
       apiService.setBaseUrl(nextSettings.backendUrl);
 
       try {
-        const [openClawConfig, modeResponse] = await Promise.all([
+        const runtimeProvider = nextSettings.aiProvider || 'openclaw';
+        const runtimeEndpoint = (
+          runtimeProvider === 'lmstudio' || runtimeProvider === 'openai-compatible'
+            ? nextSettings.lmStudioUrl || nextSettings.customEndpoint || ''
+            : nextSettings.customEndpoint || ''
+        ).trim();
+        const runtimeModel = (
+          runtimeProvider === 'lmstudio'
+            ? nextSettings.lmStudioThinkingModel || nextSettings.customThinkingModel || ''
+            : runtimeProvider === 'openai-compatible'
+              ? nextSettings.lmStudioThinkingModel || nextSettings.customThinkingModel || ''
+              : nextSettings.customThinkingModel || ''
+        ).trim();
+
+        const [openClawConfig, aiRuntimeConfig, modeResponse] = await Promise.all([
           apiService.updateOpenClawConfig({
             endpoint: nextSettings.openclawMcpEndpoint,
-            vision_model: nextSettings.visionModel,
+            vision_model: normalizeOpenClawModelId(nextSettings.visionModel),
+            planning_model: normalizeOpenClawModelId(nextSettings.planningModel),
+            use_dual_model: nextSettings.useDualModel,
             objectives: objective,
             personality: nextSettings.agentPersonality,
+          }),
+          apiService.updateAiRuntimeConfig({
+            provider: runtimeProvider,
+            model: runtimeModel,
+            api_endpoint: runtimeEndpoint,
           }),
           apiService.setAgentMode({
             mode: nextSettings.agentMode ? 'auto' : 'manual',
@@ -194,6 +225,14 @@ const App: React.FC = () => {
             autonomous_level: nextSettings.autonomousLevel,
           }),
         ]);
+
+        if (runtimeProvider === 'lmstudio') {
+          await apiService.updateLmStudioConfig({
+            endpoint: nextSettings.lmStudioUrl || '',
+            thinking_model: nextSettings.lmStudioThinkingModel || '',
+            vision_model: nextSettings.lmStudioVisionModel || '',
+          });
+        }
 
         setOpenClawHealth((current) => (current ? { ...current, endpoint: openClawConfig.endpoint } : current));
         setAgentState((current) => ({
@@ -204,6 +243,11 @@ const App: React.FC = () => {
           autonomous_level: modeResponse.autonomous_level,
           current_action: modeResponse.current_action || current.current_action,
           last_decision: modeResponse.last_decision || current.last_decision,
+          provider: aiRuntimeConfig.provider,
+          model: aiRuntimeConfig.model || current.model,
+          vision_model: openClawConfig.vision_model,
+          planning_model: openClawConfig.planning_model,
+          use_dual_model: openClawConfig.use_dual_model,
           timestamp: modeResponse.timestamp,
         }));
         setLastSyncedAt(new Date().toISOString());

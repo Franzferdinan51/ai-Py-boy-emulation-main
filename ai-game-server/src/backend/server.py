@@ -312,7 +312,6 @@ def add_security_headers(response):
 from backend.emulators.pyboy_emulator import PyBoyEmulator, PyBoyEmulatorMP
 from backend.emulators.pygba_emulator import PyGBAEmulator
 from backend.ai_apis.ai_provider_manager import ai_provider_manager
-from backend.ai_apis.lmstudio_connector import LMStudioConnector
 from backend.ai_apis.openclaw_model_discovery import get_model_discovery
 
 # Configuration for emulator mode
@@ -351,6 +350,25 @@ game_state = {
     "current_provider": None,
     "current_model": None
 }
+
+ai_runtime_state = {
+    "provider": ai_provider_manager.default_provider,
+    "model": "",
+    "api_endpoint": "",
+}
+
+if ai_runtime_state["provider"] == "lmstudio":
+    ai_runtime_state["model"] = os.environ.get('LM_STUDIO_THINKING_MODEL', '')
+    ai_runtime_state["api_endpoint"] = os.environ.get('LM_STUDIO_URL', 'http://localhost:1234/v1')
+elif ai_runtime_state["provider"] == "openai-compatible":
+    ai_runtime_state["model"] = os.environ.get('OPENAI_MODEL', '')
+    ai_runtime_state["api_endpoint"] = os.environ.get('OPENAI_ENDPOINT', '')
+elif ai_runtime_state["provider"] == "gemini":
+    ai_runtime_state["model"] = os.environ.get('GEMINI_MODEL', '')
+elif ai_runtime_state["provider"] == "openrouter":
+    ai_runtime_state["model"] = os.environ.get('OPENROUTER_MODEL', '')
+elif ai_runtime_state["provider"] == "nvidia":
+    ai_runtime_state["model"] = os.environ.get('NVIDIA_MODEL', '')
 
 # Background live emulation loop state
 emulation_loop_running = False
@@ -412,10 +430,9 @@ def _live_emulation_loop():
             active = current_state.get("active_emulator")
             if current_state.get("rom_loaded") and active in emulators:
                 emulator = emulators[active]
-                # Prefer direct PyBoy ticking when available for a reliable live view.
-                if hasattr(emulator, 'pyboy') and getattr(emulator, 'pyboy', None):
+                if hasattr(emulator, 'advance_idle_frames'):
                     try:
-                        emulator.pyboy.tick(1, False)
+                        emulator.advance_idle_frames(1)
                     except Exception:
                         pass
                 elif hasattr(emulator, 'step'):
@@ -1719,6 +1736,7 @@ def get_ai_action():
 
         # Extract and validate parameters
         api_name = data.get('api_name')
+        requested_api_name = api_name
         api_key = data.get('api_key')
         api_endpoint = data.get('api_endpoint')
         model = data.get('model')
@@ -1790,8 +1808,21 @@ def get_ai_action():
             logger.warning(f"[{request_id}] Invalid goal: {e}")
             return jsonify({"error": f"Invalid goal: {str(e)}"}), 400
 
+        configured_provider = ai_runtime_state.get("provider")
+        configured_model = ai_runtime_state.get("model")
+        configured_endpoint = ai_runtime_state.get("api_endpoint")
+        api_name = api_name or configured_provider
+        if not model and configured_model:
+            model = configured_model
+        if not api_endpoint and configured_endpoint:
+            api_endpoint = configured_endpoint
+
         logger.info(f"[{request_id}] AI action request: api={api_name or 'auto'}, model={model or 'default'}, goal='{goal[:50]}...'")
-        update_game_state({"current_goal": goal})
+        update_game_state({
+            "current_goal": goal,
+            "current_provider": api_name,
+            "current_model": model,
+        })
 
         current_state = get_game_state()
         emulator = emulators[current_state["active_emulator"]]
@@ -1913,12 +1944,15 @@ def get_ai_action():
             available_providers = ai_provider_manager.get_available_providers()
             logger.warning(f"[{request_id}] Requested provider '{api_name}' is not available. Available providers: {available_providers}")
 
-            # If specific provider is requested but not available, return error with suggestions
-            return jsonify({
-                "error": f"Provider '{api_name}' is not available",
-                "available_providers": available_providers,
-                "suggestion": f"Please use one of the available providers: {', '.join(available_providers)}"
-            }), 400
+            if requested_api_name:
+                return jsonify({
+                    "error": f"Provider '{api_name}' is not available",
+                    "available_providers": available_providers,
+                    "suggestion": f"Please use one of the available providers: {', '.join(available_providers)}"
+                }), 400
+
+            logger.warning(f"[{request_id}] Falling back because configured provider '{api_name}' is unavailable")
+            api_name = None
 
         # Use provider manager with optimization and timeout protection
         logger.debug(f"[{request_id}] Calling AI API: {api_name or 'auto'} with model: {model or 'default'}")
@@ -1962,6 +1996,10 @@ def get_ai_action():
             return jsonify({"error": "AI returned invalid action"}), 500
 
         add_to_action_history(action)
+        update_game_state({
+            "current_provider": actual_provider or api_name,
+            "current_model": model,
+        })
 
         # Cache the AI response if optimization is available
         if OPTIMIZATION_SYSTEM_AVAILABLE and hasattr(optimization_system_manager, 'ai_cache_manager'):
@@ -2120,10 +2158,14 @@ def ai_chat():
         # Get model/provider with priority: game_state -> request params -> defaults
         current_provider = current_state.get('current_provider')
         current_model = current_state.get('current_model')
+        configured_provider = ai_runtime_state.get('provider')
+        configured_model = ai_runtime_state.get('model')
+        configured_endpoint = ai_runtime_state.get('api_endpoint')
 
-        # Use request parameters if provided, otherwise use stored values
-        api_name = api_name or current_provider
-        model = model or current_model
+        # Use request parameters first, then runtime config, then stored values.
+        api_name = api_name or configured_provider or current_provider
+        model = model or configured_model or current_model
+        api_endpoint = api_endpoint or configured_endpoint
 
         logger.debug(f"Chat using provider: {api_name or 'auto'}, model: {model or 'default'}")
         logger.debug(f"Stored provider: {current_provider}, stored model: {current_model}")
@@ -2150,6 +2192,10 @@ def ai_chat():
         response_text, actual_provider = ai_provider_manager.chat_with_ai(
             user_message, img_bytes, context, api_name, model
         )
+        update_game_state({
+            "current_provider": actual_provider or api_name,
+            "current_model": model,
+        })
 
         logger.info(f"AI chat message from user: {user_message} (provider: {actual_provider or 'fallback'})")
         return jsonify({
@@ -2482,14 +2528,6 @@ def get_screen():
             return jsonify({"error": "No ROM loaded"}), 400
 
         emulator = emulators[current_state["active_emulator"]]
-
-        # Advance a few idle frames before reading the screen so the live view
-        # keeps moving even when there is no active button input.
-        if hasattr(emulator, 'step'):
-            try:
-                emulator.step('NOOP', 4)
-            except Exception:
-                pass
 
         # Get screen array directly from the emulator.
         # For live gameplay view, correctness is more important than async screen-capture
@@ -4048,10 +4086,10 @@ agent_mode_state = {
 }
 
 openclaw_runtime_state = {
-    "endpoint": "http://localhost:18789",
-    "vision_model": "kimi-k2.5",
-    "planning_model": "glm-5",  # NEW: Independent planning model
-    "use_dual_model": True,  # NEW: Enable dual-model architecture
+    "endpoint": os.environ.get('OPENCLAW_MCP_ENDPOINT', 'http://localhost:18789'),
+    "vision_model": os.environ.get('VISION_MODEL', 'kimi-k2.5'),
+    "planning_model": os.environ.get('PLANNING_MODEL', 'glm-5'),
+    "use_dual_model": os.environ.get('USE_DUAL_MODEL', 'true').lower() == 'true',
     "objectives": "Complete Pokemon Red with safe exploration and clear progress.",
     "personality": "strategic",
 }
@@ -4067,6 +4105,29 @@ def _normalize_openclaw_endpoint(endpoint: Optional[str]) -> str:
         raise ValueError("OpenClaw endpoint must be a valid http(s) URL")
 
     return candidate.rstrip("/")
+
+
+def _normalize_optional_runtime_endpoint(endpoint: Optional[str]) -> str:
+    candidate = (endpoint or "").strip()
+    if not candidate:
+        return ""
+
+    parsed = urlparse(candidate)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("Runtime endpoint must be a valid http(s) URL")
+
+    return candidate.rstrip("/")
+
+
+def _normalize_openclaw_model_choice(model: Optional[str]) -> str:
+    candidate = str(model or "").strip()
+    if not candidate:
+        return ""
+
+    if "/" in candidate:
+        return candidate.split("/")[-1]
+
+    return candidate
 
 
 def _build_openclaw_health_payload(endpoint: str, ok: bool, status: Optional[int], service_status: Optional[str] = None,
@@ -4144,8 +4205,8 @@ def update_openclaw_config_api():
         allowed_personalities = {"strategic", "casual", "speedrun", "explorer"}
 
         endpoint = _normalize_openclaw_endpoint(data.get("endpoint", openclaw_runtime_state["endpoint"]))
-        vision_model = str(data.get("vision_model", openclaw_runtime_state["vision_model"])).strip()
-        planning_model = str(data.get("planning_model", openclaw_runtime_state["planning_model"])).strip()
+        vision_model = _normalize_openclaw_model_choice(data.get("vision_model", openclaw_runtime_state["vision_model"]))
+        planning_model = _normalize_openclaw_model_choice(data.get("planning_model", openclaw_runtime_state["planning_model"]))
         use_dual_model = data.get("use_dual_model", openclaw_runtime_state["use_dual_model"])
         personality = str(data.get("personality", openclaw_runtime_state["personality"])).strip()
         objectives = str(data.get("objectives", openclaw_runtime_state["objectives"])).strip()
@@ -4168,8 +4229,10 @@ def update_openclaw_config_api():
         openclaw_runtime_state["use_dual_model"] = bool(use_dual_model)
         openclaw_runtime_state["personality"] = personality
         openclaw_runtime_state["objectives"] = objectives
+        os.environ['OPENCLAW_MCP_ENDPOINT'] = endpoint
+        app.config['OPENCLAW_ENDPOINT'] = endpoint
         
-        # Update dual-model provider if available
+        ai_provider_manager.set_openclaw_endpoint(endpoint)
         if hasattr(ai_provider_manager, 'configure_dual_model'):
             ai_provider_manager.configure_dual_model(
                 vision_model=vision_model,
@@ -4206,6 +4269,95 @@ def get_openclaw_health_api():
             "checked_at": datetime.now().isoformat(),
         }), 400
 
+
+@app.route('/api/ai/runtime', methods=['GET'])
+def get_ai_runtime_config():
+    """Get the backend's active AI runtime defaults."""
+    return jsonify({
+        **ai_runtime_state,
+        "available_providers": ai_provider_manager.get_available_providers(),
+        "provider_status": ai_provider_manager.get_provider_status(),
+        "timestamp": datetime.now().isoformat(),
+    }), 200
+
+
+@app.route('/api/ai/runtime', methods=['POST'])
+def update_ai_runtime_config():
+    """Update the backend's preferred provider/model runtime settings."""
+    try:
+        data = request.get_json(silent=True) or {}
+        allowed_providers = set(ai_provider_manager.providers.keys()) or {
+            'openclaw', 'lmstudio', 'gemini', 'openrouter', 'openai-compatible', 'nvidia', 'mock', 'tetris-genetic'
+        }
+
+        provider = str(data.get('provider', ai_runtime_state['provider'])).strip() or ai_runtime_state['provider']
+        model = str(data.get('model', ai_runtime_state['model'])).strip()
+        api_endpoint = _normalize_optional_runtime_endpoint(data.get('api_endpoint', ai_runtime_state['api_endpoint']))
+
+        if provider not in allowed_providers:
+            return jsonify({"error": f"Invalid provider. Allowed: {sorted(allowed_providers)}"}), 400
+
+        endpoint_env_map = {
+            'lmstudio': 'LM_STUDIO_URL',
+            'openai-compatible': 'OPENAI_ENDPOINT',
+        }
+        model_env_map = {
+            'gemini': 'GEMINI_MODEL',
+            'openrouter': 'OPENROUTER_MODEL',
+            'openai-compatible': 'OPENAI_MODEL',
+            'nvidia': 'NVIDIA_MODEL',
+        }
+
+        endpoint_env_key = endpoint_env_map.get(provider)
+        if endpoint_env_key:
+            if api_endpoint:
+                os.environ[endpoint_env_key] = api_endpoint
+            else:
+                os.environ.pop(endpoint_env_key, None)
+
+        model_env_key = model_env_map.get(provider)
+        if model_env_key:
+            if model:
+                os.environ[model_env_key] = model
+            else:
+                os.environ.pop(model_env_key, None)
+        elif provider == 'lmstudio':
+            if model:
+                os.environ['LM_STUDIO_THINKING_MODEL'] = model
+            else:
+                os.environ.pop('LM_STUDIO_THINKING_MODEL', None)
+
+        if provider == 'lmstudio' and not api_endpoint:
+            api_endpoint = os.environ.get('LM_STUDIO_URL', 'http://localhost:1234/v1')
+        if provider == 'lmstudio' and not model:
+            model = os.environ.get('LM_STUDIO_THINKING_MODEL', '')
+        elif provider == 'openai-compatible' and not api_endpoint:
+            api_endpoint = os.environ.get('OPENAI_ENDPOINT', '')
+
+        ai_runtime_state['provider'] = provider
+        ai_runtime_state['model'] = model
+        ai_runtime_state['api_endpoint'] = api_endpoint
+
+        ai_provider_manager.set_default_provider(provider)
+        ai_provider_manager.reinitialize_provider(provider)
+
+        update_game_state({
+            "current_provider": provider,
+            "current_model": model or None,
+        })
+
+        return jsonify({
+            **ai_runtime_state,
+            "available_providers": ai_provider_manager.get_available_providers(),
+            "provider_status": ai_provider_manager.get_provider_status(),
+            "timestamp": datetime.now().isoformat(),
+        }), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error(f"Error updating AI runtime config: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
 @app.route('/api/lmstudio/config', methods=['GET'])
 def get_lmstudio_config():
     """Get LM Studio configuration"""
@@ -4221,39 +4373,33 @@ def update_lmstudio_config():
     """Update LM Studio configuration (runtime only - not persisted to .env)"""
     try:
         data = request.get_json(silent=True) or {}
-        
-        endpoint = data.get('endpoint', '').strip()
-        thinking_model = data.get('thinking_model', '').strip()
-        vision_model = data.get('vision_model', '').strip()
-        
-        # Validate endpoint URL
-        if endpoint and not endpoint.startswith(('http://', 'https://')):
-            return jsonify({"error": "Endpoint must start with http:// or https://"}), 400
-        
-        # Update environment variables for current session
-        if endpoint:
-            os.environ['LM_STUDIO_URL'] = endpoint
-        if thinking_model:
-            os.environ['LM_STUDIO_THINKING_MODEL'] = thinking_model
-        if vision_model:
-            os.environ['LM_STUDIO_VISION_MODEL'] = vision_model
-        
-        # Reinitialize LM Studio provider if it exists
-        if 'lmstudio' in ai_provider_manager.providers:
-            try:
-                ai_provider_manager._initialize_provider({
-                    'name': 'lmstudio',
-                    'env_key': None,
-                    'class': LMStudioConnector,
-                    'priority': 2,
-                    'extra_params': {
-                        'base_url': os.environ.get('LM_STUDIO_URL'),
-                        'thinking_model': os.environ.get('LM_STUDIO_THINKING_MODEL'),
-                        'vision_model': os.environ.get('LM_STUDIO_VISION_MODEL')
-                    }
-                })
-            except Exception as e:
-                logger.warning(f"Failed to reinitialize LM Studio provider: {e}")
+
+        if 'endpoint' in data:
+            endpoint = _normalize_optional_runtime_endpoint(data.get('endpoint'))
+            if endpoint:
+                os.environ['LM_STUDIO_URL'] = endpoint
+            else:
+                os.environ.pop('LM_STUDIO_URL', None)
+
+        if 'thinking_model' in data:
+            thinking_model = str(data.get('thinking_model') or '').strip()
+            if thinking_model:
+                os.environ['LM_STUDIO_THINKING_MODEL'] = thinking_model
+            else:
+                os.environ.pop('LM_STUDIO_THINKING_MODEL', None)
+
+        if 'vision_model' in data:
+            vision_model = str(data.get('vision_model') or '').strip()
+            if vision_model:
+                os.environ['LM_STUDIO_VISION_MODEL'] = vision_model
+            else:
+                os.environ.pop('LM_STUDIO_VISION_MODEL', None)
+
+        ai_provider_manager.reinitialize_provider('lmstudio')
+
+        if ai_runtime_state.get('provider') == 'lmstudio':
+            ai_runtime_state['api_endpoint'] = os.environ.get('LM_STUDIO_URL', 'http://localhost:1234/v1')
+            ai_runtime_state['model'] = os.environ.get('LM_STUDIO_THINKING_MODEL', '')
         
         return jsonify({
             "endpoint": os.environ.get('LM_STUDIO_URL', 'http://localhost:1234/v1'),
@@ -4289,13 +4435,6 @@ def get_game_state_api():
 
         if current_state["rom_loaded"] and current_state["active_emulator"]:
             emulator = emulators[current_state["active_emulator"]]
-            # Advance one idle frame so live polling reflects a running game even
-            # when no explicit input is being sent.
-            if hasattr(emulator, 'step'):
-                try:
-                    emulator.step('NOOP', 1)
-                except Exception:
-                    pass
             if hasattr(emulator, 'get_frame_count'):
                 frame_count = emulator.get_frame_count()
                 update_game_state({"frame_count": frame_count})
@@ -4344,6 +4483,8 @@ def get_agent_status_api():
             "game_running": current_state["rom_loaded"],
             "objectives": openclaw_runtime_state["objectives"],
             "personality": openclaw_runtime_state["personality"],
+            "provider": ai_runtime_state["provider"],
+            "model": ai_runtime_state["model"],
             # Dual-model architecture (NEW)
             "vision_model": openclaw_runtime_state["vision_model"],
             "planning_model": openclaw_runtime_state["planning_model"],
@@ -5376,7 +5517,7 @@ def main():
             logger.info(f"  - {provider_name}")
 
     try:
-        app.run(host=HOST, port=PORT, debug=DEBUG, threaded=True)
+        app.run(host=HOST, port=PORT, debug=DEBUG, threaded=True, use_reloader=False)
     except Exception as e:
         logger.error(f"Server failed to start: {e}", exc_info=True)
     finally:

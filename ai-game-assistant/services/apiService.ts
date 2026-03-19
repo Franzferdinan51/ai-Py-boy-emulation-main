@@ -33,6 +33,7 @@ export type GameAction = GameButton | 'NOOP';
 export type AgentAutonomy = 'passive' | 'moderate' | 'aggressive';
 export type AgentPersonality = 'strategic' | 'casual' | 'speedrun' | 'explorer';
 export type EmulatorType = 'gb' | 'gba';
+export type AiProvider = 'openclaw' | 'lmstudio' | 'gemini' | 'openrouter' | 'openai-compatible' | 'nvidia' | 'mock' | 'tetris-genetic';
 
 export interface ModelInfo {
   id: string;
@@ -55,12 +56,13 @@ export interface AppSettings {
   aiActionInterval: number;
   agentMode: boolean;
   visionModel: string; // Now dynamic instead of hardcoded
-  planningModel?: string; // Separate planning model
+  planningModel: string;
+  useDualModel: boolean;
   autonomousLevel: AgentAutonomy;
   agentPersonality: AgentPersonality;
   agentObjectives: string;
   // LM Studio / Local Model Settings
-  aiProvider?: 'openclaw' | 'lmstudio' | 'gemini' | 'openrouter' | 'openai-compatible' | 'nvidia';
+  aiProvider?: AiProvider;
   lmStudioUrl?: string;
   lmStudioThinkingModel?: string;
   lmStudioVisionModel?: string;
@@ -106,7 +108,10 @@ export interface AgentStatus {
   enabled: boolean;
   game_running: boolean;
   provider?: string;     // Current AI provider being used
+  model?: string;
   vision_model?: string; // Current vision model
+  planning_model?: string;
+  use_dual_model?: boolean;
   objectives?: string;   // Current objectives
   personality?: string;  // Agent personality
   timestamp: string;
@@ -200,12 +205,21 @@ export interface InventoryData {
 export interface OpenClawConfig {
   endpoint: string;
   vision_model: AppSettings['visionModel'];
-  planning_model?: string; // NEW: Independent planning model
-  use_dual_model?: boolean; // NEW: Enable dual-model architecture
+  planning_model: AppSettings['planningModel'];
+  use_dual_model: boolean;
   objectives: string;
   personality: AgentPersonality;
   timestamp: string;
   dual_model_status?: DualModelStatus; // NEW: Dual-model status
+}
+
+export interface AiRuntimeConfig {
+  provider: AiProvider;
+  model: string;
+  api_endpoint: string;
+  available_providers: string[];
+  provider_status: Record<string, { status: string; priority: number; error: string | null; available: boolean }>;
+  timestamp: string;
 }
 
 export interface OpenClawHealthResponse {
@@ -381,8 +395,8 @@ class ApiService {
   updateOpenClawConfig(payload: {
     endpoint: string;
     vision_model: AppSettings['visionModel'];
-    planning_model?: AppSettings['planningModel'];
-    use_dual_model?: boolean;
+    planning_model: AppSettings['planningModel'];
+    use_dual_model: boolean;
     objectives: string;
     personality: AgentPersonality;
   }) {
@@ -399,6 +413,21 @@ class ApiService {
 
   getProviderStatus() {
     return this.request<Record<string, { status: string; priority: number; error: string | null; available: boolean }>>('/api/providers/status');
+  }
+
+  getAiRuntimeConfig() {
+    return this.request<AiRuntimeConfig>('/api/ai/runtime');
+  }
+
+  updateAiRuntimeConfig(payload: {
+    provider: AiProvider;
+    model: string;
+    api_endpoint: string;
+  }) {
+    return this.request<AiRuntimeConfig>('/api/ai/runtime', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   }
 
   // LM Studio API methods
