@@ -1106,6 +1106,334 @@ def session_delete(session_id: str) -> Dict[str, Any]:
 
 # ========== Auto-Play Modes ==========
 
+def auto_catch(max_attempts: int = 30, use_best_ball: bool = True) -> Dict[str, Any]:
+    """
+    Autonomous catching mode.
+    Attempts to catch wild Pokemon using optimal ball selection.
+    """
+    start_time = time.time()
+    
+    if emulator is None:
+        return {
+            "success": False,
+            "error": "Emulator not initialized",
+            "suggestions": ["Call emulator_load_rom first"],
+            "timing_ms": round((time.time() - start_time) * 1000, 2)
+        }
+    
+    try:
+        attempts = 0
+        caught = False
+        actions = []
+        
+        # Get current ball count and species
+        try:
+            # Ball count at 0xD67E (Poke Balls)
+            ball_count = emulator.memory[0xD67E]
+            # Enemy species
+            enemy_species = emulator.memory[0xD883]
+        except:
+            ball_count = 0
+            enemy_species = 0
+        
+        actions.append({
+            "attempt": 0,
+            "action": "INITIAL_STATE",
+            "ball_count": ball_count,
+            "enemy_species": enemy_species
+        })
+        
+        for i in range(max_attempts):
+            attempts += 1
+            
+            # Check if in battle
+            battle_status = emulator.memory[0xD057]
+            if battle_status == 0:
+                actions.append({
+                    "attempt": i + 1,
+                    "action": "NO_BATTLE",
+                    "message": "No wild Pokemon to catch"
+                })
+                break
+            
+            # Navigate to BALL option (typically SELECT then navigate)
+            # In Pokemon: SELECT from menu, then choose BALL
+            press_button("SELECT")
+            time.sleep(0.1)
+            
+            # Navigate to ball option and throw
+            if use_best_ball and ball_count > 0:
+                press_button("A")  # Select ball
+                actions.append({
+                    "attempt": attempts,
+                    "action": "THROW_BALL",
+                    "ball_type": "best_available"
+                })
+            else:
+                actions.append({
+                    "attempt": attempts,
+                    "action": "NO_BALLS",
+                    "message": "No balls remaining"
+                })
+                break
+            
+            # Wait for catch result
+            for _ in range(20):
+                tick()
+            
+            # Check if caught (battle ends)
+            if emulator.memory[0xD057] == 0:
+                caught = True
+                actions.append({
+                    "attempt": attempts,
+                    "action": "CATCH_SUCCESS",
+                    "message": "Pokemon caught!"
+                })
+                break
+            
+            # Check ball count
+            ball_count = emulator.memory[0xD67E]
+            if ball_count == 0:
+                actions.append({
+                    "attempt": attempts,
+                    "action": "OUT_OF_BALLS",
+                    "message": "No balls left"
+                })
+                break
+            
+            actions.append({
+                "attempt": attempts,
+                "action": "CATCH_FAILED",
+                "message": "Pokemon broke free"
+            })
+        
+        return {
+            "success": True,
+            "tool": "auto_catch",
+            "data": {
+                "mode": "catch",
+                "attempts": attempts,
+                "caught": caught,
+                "ball_count": ball_count,
+                "enemy_species": enemy_species,
+                "actions_summary": f"Tried {attempts} times, {'caught' if caught else 'failed'}",
+                "actions": actions
+            },
+            "frame": frame_count,
+            "timing_ms": round((time.time() - start_time) * 1000, 2)
+        }
+        
+    except Exception as e:
+        logger.error(f"Auto catch failed: {e}")
+        return {
+            "success": False,
+            "error": f"Auto catch failed: {str(e)}",
+            "timing_ms": round((time.time() - start_time) * 1000, 2),
+            "tool": "auto_catch"
+        }
+
+
+def auto_item_use(item_id: int = None, target: str = "self") -> Dict[str, Any]:
+    """
+    Autonomous item use mode.
+    Uses items from inventory on self or party members.
+    """
+    start_time = time.time()
+    
+    if emulator is None:
+        return {
+            "success": False,
+            "error": "Emulator not initialized",
+            "suggestions": ["Call emulator_load_rom first"],
+            "timing_ms": round((time.time() - start_time) * 1000, 2)
+        }
+    
+    try:
+        actions = []
+        
+        # Get current inventory
+        inventory_result = get_inventory()
+        inventory = inventory_result.get("data", {}).get("items", []) if inventory_result.get("success") else []
+        
+        if not inventory and item_id is None:
+            return {
+                "success": False,
+                "error": "No items in inventory",
+                "timing_ms": round((time.time() - start_time) * 1000, 2)
+            }
+        
+        # Find requested item or use first healing item
+        if item_id is not None:
+            item_to_use = next((item for item in inventory if item.get("item_id") == item_id), None)
+        else:
+            # Default: find first potion-like item
+            # Common healing item IDs: 0x01-0x0F (Potion, Super Potion, etc.)
+            item_to_use = next((item for item in inventory if item.get("item_id", 0) < 0x10), None)
+        
+        if not item_to_use:
+            return {
+                "success": False,
+                "error": "Requested item not found",
+                "timing_ms": round((time.time() - start_time) * 1000, 2)
+            }
+        
+        # Open inventory menu
+        press_button("SELECT")
+        time.sleep(0.1)
+        
+        actions.append({
+            "action": "OPEN_MENU"
+        })
+        
+        # Navigate to item and use
+        # Simplified: just press A to use selected item
+        press_button("A")
+        time.sleep(0.1)
+        
+        actions.append({
+            "action": "USE_ITEM",
+            "item": item_to_use
+        })
+        
+        # If targeting party member, select target
+        if target == "party":
+            press_button("A")  # Select first party member
+            time.sleep(0.1)
+            
+            actions.append({
+                "action": "SELECT_TARGET",
+                "target": "party_member_1"
+            })
+        
+        return {
+            "success": True,
+            "tool": "auto_item_use",
+            "data": {
+                "mode": "item_use",
+                "item_used": item_to_use,
+                "target": target,
+                "actions": actions,
+                "remaining_items": len(inventory) - 1
+            },
+            "frame": frame_count,
+            "timing_ms": round((time.time() - start_time) * 1000, 2)
+        }
+        
+    except Exception as e:
+        logger.error(f"Auto item use failed: {e}")
+        return {
+            "success": False,
+            "error": f"Auto item use failed: {str(e)}",
+            "timing_ms": round((time.time() - start_time) * 1000, 2),
+            "tool": "auto_item_use"
+        }
+
+
+def auto_npc_talk(interact_distance: int = 1, max_attempts: int = 20) -> Dict[str, Any]:
+    """
+    Autonomous NPC interaction mode.
+    Finds and talks to nearby NPCs.
+    """
+    start_time = time.time()
+    
+    if emulator is None:
+        return {
+            "success": False,
+            "error": "Emulator not initialized",
+            "suggestions": ["Call emulator_load_rom first"],
+            "timing_ms": round((time.time() - start_time) * 1000, 2)
+        }
+    
+    try:
+        actions = []
+        talked_count = 0
+        
+        # Get initial position
+        pos_result = get_player_position()
+        start_pos = pos_result.get("data", {}) if pos_result.get("success") else {"x": 0, "y": 0}
+        
+        actions.append({
+            "action": "START",
+            "position": start_pos
+        })
+        
+        directions = ["UP", "DOWN", "LEFT", "RIGHT"]
+        
+        for i in range(max_attempts):
+            # Try talking in each direction
+            for direction in directions:
+                # Get position before
+                pos_before = get_player_position()
+                
+                # Face that direction
+                press_button(direction)
+                time.sleep(0.05)
+                
+                # Try to interact (A button talks to NPCs)
+                press_button("A")
+                time.sleep(0.2)
+                
+                # Check if dialog opened (memory address varies by game)
+                # In Pokemon, dialog is shown when certain flags are set
+                try:
+                    # Check if textbox is active (0xD73E = text engine state)
+                    dialog_active = emulator.memory[0xD73E] if emulator.memory[0xD73E] != 0 else None
+                    
+                    if dialog_active:
+                        talked_count += 1
+                        actions.append({
+                            "attempt": i + 1,
+                            "direction": direction,
+                            "action": "TALKED",
+                            "dialog_active": True
+                        })
+                        
+                        # Close dialog with B
+                        press_button("B")
+                        time.sleep(0.1)
+                except:
+                    pass
+            
+            # Move to explore more area
+            move_dir = directions[i % 4]
+            press_button(move_dir)
+            time.sleep(0.1)
+            
+            # Get new position
+            pos_after = get_player_position()
+            if pos_after.get("success"):
+                actions.append({
+                    "attempt": i + 1,
+                    "action": "MOVED",
+                    "direction": move_dir,
+                    "new_position": pos_after.get("data")
+                })
+        
+        return {
+            "success": True,
+            "tool": "auto_npc_talk",
+            "data": {
+                "mode": "npc_talk",
+                "attempts": max_attempts,
+                "npcs_interacted": talked_count,
+                "start_position": start_pos,
+                "actions_summary": f"Attempted {max_attempts} interactions, talked to {talked_count} NPCs",
+                "actions": actions
+            },
+            "frame": frame_count,
+            "timing_ms": round((time.time() - start_time) * 1000, 2)
+        }
+        
+    except Exception as e:
+        logger.error(f"Auto NPC talk failed: {e}")
+        return {
+            "success": False,
+            "error": f"Auto NPC talk failed: {str(e)}",
+            "timing_ms": round((time.time() - start_time) * 1000, 2),
+            "tool": "auto_npc_talk"
+        }
+
+
 def auto_explore(steps: int = 10, session_id: str = None) -> Dict[str, Any]:
     """
     Autonomous exploration mode.
@@ -1811,6 +2139,64 @@ async def list_tools() -> List[Tool]:
                     }
                 }
             }
+        ),
+        # === NEW: Auto-Catch, Auto-Item, Auto-NPC ===
+        Tool(
+            name="auto_catch",
+            description="Autonomous catching mode. Attempts to catch wild Pokemon using optimal ball selection.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "max_attempts": {
+                        "type": "integer",
+                        "description": "Maximum catch attempts (default: 30)",
+                        "default": 30
+                    },
+                    "use_best_ball": {
+                        "type": "boolean",
+                        "description": "Use the best available ball (default: true)",
+                        "default": True
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="auto_item_use",
+            description="Autonomous item use mode. Uses items from inventory on self or party members.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "integer",
+                        "description": "Specific item ID to use (optional, auto-selects healing item if not specified)"
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "Target for item use: 'self' or 'party'",
+                        "enum": ["self", "party"],
+                        "default": "self"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="auto_npc_talk",
+            description="Autonomous NPC interaction mode. Finds and talks to nearby NPCs.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "interact_distance": {
+                        "type": "integer",
+                        "description": "Distance to look for NPCs (default: 1)",
+                        "default": 1
+                    },
+                    "max_attempts": {
+                        "type": "integer",
+                        "description": "Maximum interaction attempts (default: 20)",
+                        "default": 20
+                    }
+                }
+            }
         )
     ]
 
@@ -2041,6 +2427,25 @@ async def call_tool(name: str, arguments: dict) :
             max_battles = arguments.get("max_battles", 20)
             heal_after = arguments.get("heal_after", 5)
             result = auto_grind(target_level, max_battles, heal_after)
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
+        # === NEW: Auto-Catch, Auto-Item, Auto-NPC Handlers ===
+        elif name == "auto_catch":
+            max_attempts = arguments.get("max_attempts", 30)
+            use_best_ball = arguments.get("use_best_ball", True)
+            result = auto_catch(max_attempts, use_best_ball)
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
+        elif name == "auto_item_use":
+            item_id = arguments.get("item_id")
+            target = arguments.get("target", "self")
+            result = auto_item_use(item_id, target)
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
+        elif name == "auto_npc_talk":
+            interact_distance = arguments.get("interact_distance", 1)
+            max_attempts = arguments.get("max_attempts", 20)
+            result = auto_npc_talk(interact_distance, max_attempts)
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
         else:

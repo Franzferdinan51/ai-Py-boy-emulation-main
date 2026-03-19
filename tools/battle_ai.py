@@ -117,6 +117,128 @@ POKEMON_TYPES = {
     105: "ground",  # Marowak
 }
 
+# Move priority levels (higher = goes first)
+# Pokemon moves with priority (from Pokemon games)
+MOVE_PRIORITY = {
+    # Priority moves (typically go first)
+    "quick_attack": 1,
+    "extreme_speed": 2,
+    "sucker_punch": 1,
+    "fake_out": 1,
+    "bullet_punch": 1,
+    "mach_punch": 1,
+    "aqua_jet": 1,
+    "ice_shard": 1,
+    "shadow_sneak": 1,
+    "vacuum_wave": 1,
+    "volt_tackle": 1,
+    # Default moves
+    "default": 0,
+}
+
+# Status moves (non-damaging moves)
+STATUS_MOVES = {
+    # Healing moves
+    "recover": "heal",
+    "rest": "heal",
+    "softboiled": "heal",
+    "milk_drink": "heal",
+    "potion": "heal",  # Item
+    "super_potion": "heal",
+    "hyper_potion": "heal",
+    "max_potion": "heal",
+    # Status-inducing moves
+    "thunder_wave": "paralyze",
+    "toxic": "poison",
+    "will_o_wisp": "burn",
+    "sleep_powder": "sleep",
+    "spore": "sleep",
+    "sing": "sleep",
+    "hypnosis": "sleep",
+    "glare": "paralyze",
+    "body_slam": "paralyze",
+    "stun_spore": "paralyze",
+    # Stat-boosting moves
+    "swords_dance": "attack_up",
+    "amnesia": "defense_up",
+    "barrier": "defense_up",
+    "aurora_beam": "attack_down",
+    "growl": "attack_down",
+    "tail_whip": "defense_down",
+    # Utility moves
+    "teleport": "escape",
+    "whirlwind": "escape",
+    "roar": "escape",
+    "fly": "escape",
+    "dig": "escape",
+    "flash": "evasion_down_enemy,
+}
+
+# Move power and accuracy (simplified)
+MOVE_DATA = {
+    # Moves by ID (Gen 1 simplified)
+    1: {"name": "pound", "power": 40, "accuracy": 100, "type": "normal", "priority": 0},
+    2: {"name": "karate_chop", "power": 50, "accuracy": 100, "type": "fighting", "priority": 0},
+    3: {"name": "double_kick", "power": 30, "accuracy": 100, "type": "fighting", "priority": 0},
+    4: {"name": "comet_punch", "power": 18, "accuracy": 85, "type": "normal", "priority": 0},
+    5: {"name": "mega_punch", "power": 80, "accuracy": 85, "type": "normal", "priority": 0},
+    6: {"name": "pay_day", "power": 40, "accuracy": 100, "type": "normal", "priority": 0},
+    7: {"name": "fire_punch", "power": 75, "accuracy": 100, "type": "fire", "priority": 0},
+    8: {"name": "ice_punch", "power": 75, "accuracy": 100, "type": "ice", "priority": 0},
+    9: {"name": "thunder_punch", "power": 75, "accuracy": 100, "type": "electric", "priority": 0},
+    10: {"name": "scratch", "power": 40, "accuracy": 100, "type": "normal", "priority": 0},
+    11: {"name": "vice_grip", "power": 55, "accuracy": 100, "type": "normal", "priority": 0},
+    12: {"name": "guillotine", "power": 0, "accuracy": 30, "type": "normal", "priority": 0},  # OHKO
+    13: {"name": "razor_wind", "power": 80, "accuracy": 75, "type": "normal", "priority": 0},
+    14: {"name": "swords_dance", "power": 0, "accuracy": 100, "type": "normal", "status": "attack_up", "priority": 0},
+    15: {"name": "cut", "power": 50, "accuracy": 95, "type": "normal", "priority": 0},
+    16: {"name": "gust", "power": 40, "accuracy": 100, "type": "flying", "priority": 0},
+    17: {"name": "wing_attack", "power": 35, "accuracy": 100, "type": "flying", "priority": 0},
+    18: {"name": "fly", "power": 70, "accuracy": 95, "type": "flying", "priority": 0},
+    19: {"name": "bind", "power": 15, "accuracy": 85, "type": "normal", "priority": 0},
+    20: {"name": "vine_whip", "power": 35, "accuracy": 100, "type": "grass", "priority": 0},
+    21: {"name": "tackle", "power": 35, "accuracy": 95, "type": "normal", "priority": 0},
+    22: {"name": "body_slam", "power": 60, "accuracy": 100, "type": "normal", "priority": 0},
+    23: {"name": "wrap", "power": 15, "accuracy": 90, "type": "normal", "priority": 0},
+    24: {"name": "take_down", "power": 90, "accuracy": 85, "type": "normal", "priority": 0},
+    25: {"name": "thrash", "power": 90, "accuracy": 100, "type": "normal", "priority": 0},
+    26: {"name": "tail_whip", "power": 0, "accuracy": 100, "type": "normal", "status": "defense_down", "priority": 0},
+    27: {"name": "poison_powder", "power": 0, "accuracy": 75, "type": "poison", "status": "poison", "priority": 0},
+    28: {"name": "stun_spore", "power": 0, "accuracy": 75, "type": "grass", "status": "paralyze", "priority": 0},
+    29: {"name": "sleep_powder", "power": 0, "accuracy": 75, "type": "grass", "status": "sleep", "priority": 0},
+    30: {"name": "petal_dance", "power": 70, "accuracy": 100, "type": "grass", "priority": 0},
+    31: {"name": "string_shot", "power": 0, "accuracy": 95, "type": "bug", "status": "speed_down", "priority": 0},
+    32: {"name": "dragon_rage", "power": 40, "accuracy": 100, "type": "dragon", "priority": 0},
+    33: {"name": "fire_spin", "power": 15, "accuracy": 85, "type": "fire", "priority": 0},
+    34: {"name": "thunder_shock", "power": 40, "accuracy": 100, "type": "electric", "priority": 0},
+    35: {"name": "thunderbolt", "power": 90, "accuracy": 100, "type": "electric", "priority": 0},
+    36: {"name": "thunder_wave", "power": 0, "accuracy": 90, "type": "electric", "status": "paralyze", "priority": 0},
+    37: {"name": "rock_throw", "power": 50, "accuracy": 90, "type": "rock", "priority": 0},
+    38: {"name": "earthquake", "power": 100, "accuracy": 100, "type": "ground", "priority": 0},
+    39: {"name": "fissure", "power": 0, "accuracy": 30, "type": "ground", "priority": 0},  # OHKO
+    40: {"name": "dig", "power": 60, "accuracy": 100, "type": "ground", "priority": 0},
+    41: {"name": "toxic", "power": 0, "accuracy": 90, "type": "poison", "status": "poison", "priority": 0},
+    42: {"name": "confusion", "power": 50, "accuracy": 100, "type": "psychic", "priority": 0},
+    43: {"name": "psychic", "power": 90, "accuracy": 100, "type": "psychic", "priority": 0},
+    44: {"name": "hypnosis", "power": 0, "accuracy": 60, "type": "psychic", "status": "sleep", "priority": 0},
+    45: {"name": "meditate", "power": 0, "accuracy": 100, "type": "psychic", "status": "attack_up", "priority": 0},
+    46: {"name": "agility", "power": 0, "accuracy": 100, "type": "psychic", "status": "speed_up", "priority": 0},
+    47: {"name": "quick_attack", "power": 40, "accuracy": 100, "type": "normal", "priority": 1},
+    48: {"name": "rage", "power": 20, "accuracy": 100, "type": "normal", "priority": 0},
+    49: {"name": "teleport", "power": 0, "accuracy": 100, "type": "psychic", "status": "escape", "priority": 0},
+    50: {"name": "night_shade", "power": 0, "accuracy": 100, "type": "ghost", "priority": 0},  # Damage = user level
+    51: {"name": "mimic", "power": 0, "accuracy": 100, "type": "normal", "priority": 0},
+    52: {"name": "screech", "power": 0, "accuracy": 85, "type": "normal", "status": "defense_down", "priority": 0},
+    53: {"name": "double_team", "power": 0, "accuracy": 100, "type": "normal", "status": "evasion_up", "priority": 0},
+    54: {"name": "recover", "power": 0, "accuracy": 100, "type": "normal", "status": "heal", "priority": 0},
+    55: {"name": "harden", "power": 0, "accuracy": 100, "type": "normal", "status": "defense_up", "priority": 0},
+    56: {"name": "minimize", "power": 0, "accuracy": 100, "type": "normal", "status": "evasion_up", "priority": 0},
+    57: {"name": "smokescreen", "power": 0, "accuracy": 100, "type": "normal", "status": "evasion_down_enemy", "priority": 0},
+    58: {"name": "confuse_ray", "power": 0, "accuracy": 100, "type": "ghost", "status": "confuse", "priority": 0},
+    59: {"name": "withdraw", "power": 0, "accuracy": 100, "type": "water", "status": "defense_up", "priority": 0},
+    60: {"name": "defense_curl", "power": 0, "accuracy": 100, "type": "normal", "status": "defense_up", "priority": 0},
+}
+
 
 def get_type_advantage(attack_type: str, defend_types: List[str]) -> float:
     """Calculate type effectiveness"""
@@ -136,6 +258,103 @@ def get_pokemon_type(species_id: int) -> List[str]:
     if "_" in types_str:
         return types_str.split("_")
     return [types_str]
+
+
+def get_move_priority(move_id: int) -> int:
+    """Get priority level of a move"""
+    move_data = MOVE_DATA.get(move_id, {})
+    return move_data.get("priority", 0)
+
+
+def get_move_data(move_id: int) -> Dict:
+    """Get full move data"""
+    return MOVE_DATA.get(move_id, {
+        "name": "unknown",
+        "power": 0,
+        "accuracy": 100,
+        "type": "normal",
+        "priority": 0
+    })
+
+
+def is_status_move(move_id: int) -> bool:
+    """Check if a move is a status move (non-damaging)"""
+    move_data = MOVE_DATA.get(move_id, {})
+    return "status" in move_data
+
+
+def get_move_type(move_id: int) -> str:
+    """Get the type of a move"""
+    move_data = MOVE_DATA.get(move_id, {})
+    return move_data.get("type", "normal")
+
+
+def get_move_power(move_id: int) -> int:
+    """Get the power of a move"""
+    move_data = MOVE_DATA.get(move_id, {})
+    return move_data.get("power", 0)
+
+
+def prioritize_moves(move_ids: List[int]) -> List[Tuple[int, int]]:
+    """
+    Sort moves by priority and type effectiveness.
+    Returns list of (move_id, priority_score) sorted by priority.
+    """
+    move_priorities = []
+    
+    for move_id in move_ids:
+        priority = get_move_priority(move_id)
+        power = get_move_power(move_id)
+        is_status = is_status_move(move_id)
+        
+        # Calculate priority score:
+        # Higher priority moves go first
+        # High-power attacks are prioritized
+        # Status moves have lower base priority
+        
+        if is_status:
+            # Status moves get lower priority unless HP is low
+            priority_score = priority - 10
+        else:
+            # Attack moves: power + priority * 100
+            priority_score = priority * 100 + power
+        
+        move_priorities.append((move_id, priority_score))
+    
+    # Sort by priority score (highest first)
+    move_priorities.sort(key=lambda x: x[1], reverse=True)
+    
+    return move_priorities
+
+
+def use_status_move_heuristic(
+    player_hp_pct: float,
+    enemy_hp_pct: float,
+    enemy_status: str = None
+) -> str:
+    """
+    Determine when to use status moves vs attacks.
+    Returns: 'attack', 'status', 'heal', or 'run'
+    """
+    
+    # If player is low HP, prioritize healing
+    if player_hp_pct < 30:
+        return "heal"
+    
+    # If enemy is already statused, attack
+    if enemy_status is not None:
+        return "attack"
+    
+    # If player has type advantage, attack aggressively
+    if player_hp_pct > 70 and enemy_hp_pct < 50:
+        return "attack"
+    
+    # If enemy has type advantage, try status
+    if enemy_hp_pct > player_hp_pct:
+        return "status"
+    
+    # Default to attack
+    return "attack"
 
 
 def analyze_battle_state(emulator) -> Dict:
