@@ -1725,6 +1725,8 @@ def api_openclaw_health():
 def api_rom_load_alias():
     return load_rom()
 
+@app.route('/api/game/button', methods=['POST', 'OPTIONS'])
+@app.route('/api/game/action', methods=['POST', 'OPTIONS'])
 @app.route('/api/action', methods=['POST', 'OPTIONS'])
 def execute_action():
     """Execute an action in the active emulator"""
