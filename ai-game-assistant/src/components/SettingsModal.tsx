@@ -1,29 +1,35 @@
-/**
- * Settings Modal - Simplified Configuration
- * Focus on essential settings only, hide complexity
- */
-
-import React, { useState, useEffect, useCallback } from 'react';
-
-interface Settings {
-  backendUrl: string;
-  openclawMcpEndpoint: string;
-  visionModel: string;
-  autonomousLevel: string;
-  agentPersonality: string;
-  agentObjectives: string;
-  agentMode: boolean;
-}
+import React, { useEffect, useState } from 'react';
+import type { AppSettings } from '../../services/apiService';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  settings: Settings;
-  onSave: (newSettings: Settings) => void;
+  settings: AppSettings;
+  onSave: (settings: AppSettings) => void;
 }
 
-const DEFAULT_BACKEND = 'http://localhost:5002';
-const DEFAULT_OPENCLAW = 'http://localhost:18789';
+interface ProbeStatus {
+  ok: boolean;
+  message: string;
+}
+
+const VISION_MODELS: Array<{ value: AppSettings['visionModel']; label: string }> = [
+  { value: 'kimi-k2.5', label: 'kimi-k2.5' },
+  { value: 'qwen-vl-plus', label: 'qwen-vl-plus' },
+];
+
+const PERSONALITIES: Array<{ value: AppSettings['agentPersonality']; label: string }> = [
+  { value: 'strategic', label: 'Strategic' },
+  { value: 'casual', label: 'Casual' },
+  { value: 'speedrun', label: 'Speedrun' },
+  { value: 'explorer', label: 'Explorer' },
+];
+
+const AUTONOMY_LEVELS: Array<{ value: AppSettings['autonomousLevel']; label: string }> = [
+  { value: 'passive', label: 'Passive' },
+  { value: 'moderate', label: 'Moderate' },
+  { value: 'aggressive', label: 'Aggressive' },
+];
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -31,222 +37,289 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   onSave,
 }) => {
-  const [localSettings, setLocalSettings] = useState<Settings>(settings);
+  const [draft, setDraft] = useState<AppSettings>(settings);
+  const [backendStatus, setBackendStatus] = useState<ProbeStatus | null>(null);
+  const [openClawStatus, setOpenClawStatus] = useState<ProbeStatus | null>(null);
   const [testingBackend, setTestingBackend] = useState(false);
   const [testingOpenClaw, setTestingOpenClaw] = useState(false);
-  const [backendStatus, setBackendStatus] = useState<{ok: boolean; msg: string} | null>(null);
-  const [openclawStatus, setOpenclawStatus] = useState<{ok: boolean; msg: string} | null>(null);
 
-  // Initialize on open
   useEffect(() => {
     if (isOpen) {
-      setLocalSettings(prev => ({
-        ...prev,
-        backendUrl: prev.backendUrl || DEFAULT_BACKEND,
-        openclawMcpEndpoint: prev.openclawMcpEndpoint || DEFAULT_OPENCLAW,
-        visionModel: prev.visionModel || 'kimi-k2.5',
-        autonomousLevel: prev.autonomousLevel || 'moderate',
-        agentPersonality: prev.agentPersonality || 'strategic',
-        agentObjectives: prev.agentObjectives || 'Complete Pokemon Red',
-      }));
+      setDraft(settings);
+      setBackendStatus(null);
+      setOpenClawStatus(null);
     }
-  }, [isOpen]);
+  }, [isOpen, settings]);
 
-  // Reset when settings change externally
   useEffect(() => {
-    setLocalSettings(settings);
-  }, [settings]);
+    if (!isOpen) {
+      return undefined;
+    }
 
-  // Test backend connection
-  const testBackend = useCallback(async () => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  };
+
+  const testBackend = async () => {
     setTestingBackend(true);
     setBackendStatus(null);
-    try {
-      const res = await fetch(`${localSettings.backendUrl}/health`);
-      if (res.ok) {
-        setBackendStatus({ ok: true, msg: 'Connected' });
-      } else {
-        setBackendStatus({ ok: false, msg: `Error ${res.status}` });
-      }
-    } catch {
-      setBackendStatus({ ok: false, msg: 'Connection failed' });
-    }
-    setTestingBackend(false);
-  }, [localSettings.backendUrl]);
 
-  // Test OpenClaw connection
-  const testOpenClaw = useCallback(async () => {
-    setTestingOpenClaw(true);
-    setOpenclawStatus(null);
     try {
-      const res = await fetch(`${localSettings.openclawMcpEndpoint}/health`);
-      if (res.ok) {
-        setOpenclawStatus({ ok: true, msg: 'Connected' });
-      } else {
-        setOpenclawStatus({ ok: false, msg: `Error ${res.status}` });
+      const response = await fetch(`${draft.backendUrl.replace(/\/+$/, '')}/health`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-    } catch {
-      setOpenclawStatus({ ok: false, msg: 'Not running' });
+
+      const payload = await response.json();
+      setBackendStatus({
+        ok: true,
+        message: payload.status === 'healthy' ? 'Backend healthy' : 'Backend responded',
+      });
+    } catch (error) {
+      setBackendStatus({
+        ok: false,
+        message: error instanceof Error ? error.message : 'Connection failed',
+      });
+    } finally {
+      setTestingBackend(false);
     }
-    setTestingOpenClaw(false);
-  }, [localSettings.openclawMcpEndpoint]);
+  };
+
+  const testOpenClaw = async () => {
+    setTestingOpenClaw(true);
+    setOpenClawStatus(null);
+
+    try {
+      const backendUrl = draft.backendUrl.replace(/\/+$/, '');
+      const endpoint = encodeURIComponent(draft.openclawMcpEndpoint);
+      const response = await fetch(`${backendUrl}/api/openclaw/health?endpoint=${endpoint}`);
+      const payload = await response.json();
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+
+      setOpenClawStatus({
+        ok: true,
+        message: payload.service_status || 'OpenClaw reachable',
+      });
+    } catch (error) {
+      setOpenClawStatus({
+        ok: false,
+        message: error instanceof Error ? error.message : 'Health check failed',
+      });
+    } finally {
+      setTestingOpenClaw(false);
+    }
+  };
 
   const handleSave = () => {
-    onSave(localSettings);
+    onSave(draft);
     onClose();
   };
 
-  // Close on Escape
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    if (isOpen) window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div className="relative bg-neutral-900 border border-neutral-700 rounded-xl w-full max-w-md mx-4 max-h-[85vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-neutral-700">
-          <div className="flex items-center gap-3">
-            <svg className="w-6 h-6 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            <h2 className="text-lg font-semibold text-neutral-200">Configuration</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm">
+      <div
+        className="absolute inset-0"
+        onClick={onClose}
+      />
+
+      <div className="relative z-10 flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-cyan-900/60 bg-neutral-950 shadow-2xl shadow-black/60">
+        <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-5">
+          <div>
+            <h2 className="text-xl font-semibold text-white">WebUI Settings</h2>
+            <p className="mt-1 text-sm text-neutral-400">
+              Keep this focused on connection details and default OpenClaw behavior.
+            </p>
           </div>
-          <button onClick={onClose} className="p-1 text-neutral-400 hover:text-white">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+          <button
+            onClick={onClose}
+            className="rounded-full border border-neutral-700 px-3 py-1.5 text-sm text-neutral-400 transition hover:border-neutral-500 hover:text-white"
+          >
+            Close
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-5">
-          
-          {/* Game Server */}
-          <section>
-            <h3 className="text-sm font-medium text-cyan-400 mb-2">Game Server</h3>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={localSettings.backendUrl}
-                onChange={e => setLocalSettings(prev => ({ ...prev, backendUrl: e.target.value }))}
-                placeholder="http://localhost:5002"
-                className="flex-1 px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-sm text-neutral-200"
-              />
-              <button
-                onClick={testBackend}
-                disabled={testingBackend}
-                className="px-3 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-sm text-neutral-300"
-              >
-                {testingBackend ? '...' : 'Test'}
-              </button>
+        <div className="space-y-6 overflow-y-auto px-6 py-6">
+          <section className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-5">
+            <div className="mb-4">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Connection</h3>
+              <p className="mt-1 text-sm text-neutral-400">Backend and OpenClaw endpoints are the only required integration points.</p>
             </div>
-            {backendStatus && (
-              <p className={`text-xs mt-1 ${backendStatus.ok ? 'text-green-400' : 'text-red-400'}`}>
-                {backendStatus.ok ? '✓' : '✗'} {backendStatus.msg}
-              </p>
-            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-neutral-200">Backend URL</label>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={draft.backendUrl}
+                    onChange={(event) => update('backendUrl', event.target.value)}
+                    className="flex-1 rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
+                    placeholder="http://localhost:5002"
+                  />
+                  <button
+                    onClick={testBackend}
+                    disabled={testingBackend}
+                    className="rounded-xl border border-neutral-700 px-4 text-sm text-neutral-200 transition hover:border-cyan-500 hover:text-white disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {testingBackend ? 'Testing...' : 'Test'}
+                  </button>
+                </div>
+                {backendStatus && (
+                  <p className={`mt-2 text-xs ${backendStatus.ok ? 'text-green-400' : 'text-red-400'}`}>
+                    {backendStatus.message}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-neutral-200">OpenClaw Endpoint</label>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={draft.openclawMcpEndpoint}
+                    onChange={(event) => update('openclawMcpEndpoint', event.target.value)}
+                    className="flex-1 rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
+                    placeholder="http://localhost:18789"
+                  />
+                  <button
+                    onClick={testOpenClaw}
+                    disabled={testingOpenClaw}
+                    className="rounded-xl border border-neutral-700 px-4 text-sm text-neutral-200 transition hover:border-cyan-500 hover:text-white disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {testingOpenClaw ? 'Testing...' : 'Test'}
+                  </button>
+                </div>
+                {openClawStatus && (
+                  <p className={`mt-2 text-xs ${openClawStatus.ok ? 'text-green-400' : 'text-red-400'}`}>
+                    {openClawStatus.message}
+                  </p>
+                )}
+              </div>
+            </div>
           </section>
 
-          {/* OpenClaw Endpoint */}
-          <section>
-            <h3 className="text-sm font-medium text-purple-400 mb-2">OpenClaw Gateway</h3>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={localSettings.openclawMcpEndpoint}
-                onChange={e => setLocalSettings(prev => ({ ...prev, openclawMcpEndpoint: e.target.value }))}
-                placeholder="http://localhost:18789"
-                className="flex-1 px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-sm text-neutral-200"
-              />
-              <button
-                onClick={testOpenClaw}
-                disabled={testingOpenClaw}
-                className="px-3 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-sm text-neutral-300"
-              >
-                {testingOpenClaw ? '...' : 'Test'}
-              </button>
+          <section className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-5">
+            <div className="mb-4">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Startup Defaults</h3>
+              <p className="mt-1 text-sm text-neutral-400">These are applied when the WebUI connects or when you resume OpenClaw control.</p>
             </div>
-            {openclawStatus && (
-              <p className={`text-xs mt-1 ${openclawStatus.ok ? 'text-green-400' : 'text-red-400'}`}>
-                {openclawStatus.ok ? '✓' : '✗'} {openclawStatus.msg}
-              </p>
-            )}
-          </section>
 
-          {/* Agent Behavior */}
-          <section className="border-t border-neutral-700 pt-4">
-            <h3 className="text-sm font-medium text-neutral-300 mb-3">Agent Behavior</h3>
-            
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="block text-xs text-neutral-500 mb-1">Autonomy Level</label>
+                <label className="mb-2 block text-sm font-medium text-neutral-200">Emulator Type</label>
                 <select
-                  value={localSettings.autonomousLevel}
-                  onChange={e => setLocalSettings(prev => ({ ...prev, autonomousLevel: e.target.value }))}
-                  className="w-full px-2 py-1.5 bg-neutral-800 border border-neutral-600 rounded text-sm text-neutral-300"
+                  value={draft.emulatorType}
+                  onChange={(event) => update('emulatorType', event.target.value as AppSettings['emulatorType'])}
+                  className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
                 >
-                  <option value="passive">Passive</option>
-                  <option value="moderate">Moderate</option>
-                  <option value="aggressive">Aggressive</option>
+                  <option value="gb">Game Boy / Game Boy Color</option>
+                  <option value="gba">Game Boy Advance</option>
                 </select>
               </div>
-              
+
               <div>
-                <label className="block text-xs text-neutral-500 mb-1">Personality</label>
+                <label className="mb-2 block text-sm font-medium text-neutral-200">Vision Model</label>
                 <select
-                  value={localSettings.agentPersonality}
-                  onChange={e => setLocalSettings(prev => ({ ...prev, agentPersonality: e.target.value }))}
-                  className="w-full px-2 py-1.5 bg-neutral-800 border border-neutral-600 rounded text-sm text-neutral-300"
+                  value={draft.visionModel}
+                  onChange={(event) => update('visionModel', event.target.value as AppSettings['visionModel'])}
+                  className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
                 >
-                  <option value="strategic">Strategic</option>
-                  <option value="casual">Casual</option>
-                  <option value="speedrun">Speedrun</option>
+                  {VISION_MODELS.map((model) => (
+                    <option key={model.value} value={model.value}>
+                      {model.label}
+                    </option>
+                  ))}
                 </select>
               </div>
-            </div>
 
-            <div className="mt-3">
-              <label className="block text-xs text-neutral-500 mb-1">Objectives</label>
-              <input
-                type="text"
-                value={localSettings.agentObjectives}
-                onChange={e => setLocalSettings(prev => ({ ...prev, agentObjectives: e.target.value }))}
-                placeholder="Complete Pokemon Red"
-                className="w-full px-3 py-1.5 bg-neutral-800 border border-neutral-600 rounded text-sm text-neutral-200"
-              />
-            </div>
-
-            {/* Agent Mode Toggle */}
-            <div className="mt-4 flex items-center justify-between p-3 bg-neutral-800 rounded-lg">
               <div>
-                <span className="text-sm text-neutral-300">Start in Autonomous Mode</span>
-                <p className="text-xs text-neutral-500">OpenClaw controls the game automatically</p>
+                <label className="mb-2 block text-sm font-medium text-neutral-200">Autonomy</label>
+                <select
+                  value={draft.autonomousLevel}
+                  onChange={(event) => update('autonomousLevel', event.target.value as AppSettings['autonomousLevel'])}
+                  className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
+                >
+                  {AUTONOMY_LEVELS.map((level) => (
+                    <option key={level.value} value={level.value}>
+                      {level.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <button
-                onClick={() => setLocalSettings(prev => ({ ...prev, agentMode: !prev.agentMode }))}
-                className={`relative w-11 h-6 rounded-full transition-colors ${localSettings.agentMode ? 'bg-cyan-600' : 'bg-neutral-600'}`}
-              >
-                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${localSettings.agentMode ? 'left-5' : 'left-0.5'}`} />
-              </button>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-neutral-200">Personality</label>
+                <select
+                  value={draft.agentPersonality}
+                  onChange={(event) => update('agentPersonality', event.target.value as AppSettings['agentPersonality'])}
+                  className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
+                >
+                  {PERSONALITIES.map((personality) => (
+                    <option key={personality.value} value={personality.value}>
+                      {personality.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <label className="flex items-center justify-between rounded-2xl border border-neutral-800 bg-neutral-950/70 px-4 py-3 text-sm text-neutral-200">
+                Auto-connect on load
+                <input
+                  type="checkbox"
+                  checked={draft.autoConnect}
+                  onChange={(event) => update('autoConnect', event.target.checked)}
+                  className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 text-cyan-500"
+                />
+              </label>
+
+              <label className="flex items-center justify-between rounded-2xl border border-neutral-800 bg-neutral-950/70 px-4 py-3 text-sm text-neutral-200">
+                Launch emulator UI with ROM
+                <input
+                  type="checkbox"
+                  checked={draft.launchUiOnRomLoad}
+                  onChange={(event) => update('launchUiOnRomLoad', event.target.checked)}
+                  className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 text-cyan-500"
+                />
+              </label>
             </div>
           </section>
         </div>
 
-        {/* Footer */}
-        <div className="flex justify-end gap-2 p-4 border-t border-neutral-700">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-neutral-400 hover:text-white">
-            Cancel
-          </button>
-          <button onClick={handleSave} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm">
-            Save
-          </button>
+        <div className="flex items-center justify-between border-t border-neutral-800 px-6 py-5">
+          <p className="text-xs text-neutral-500">
+            Objectives and live control stay in the main OpenClaw panel so runtime intent is visible.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-300 transition hover:border-neutral-500 hover:text-white"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-cyan-400"
+            >
+              Save Settings
+            </button>
+          </div>
         </div>
       </div>
     </div>

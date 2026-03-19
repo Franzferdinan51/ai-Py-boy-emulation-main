@@ -1,21 +1,38 @@
-const DEFAULT_BASE_URL = 'http://localhost:5000';
+const DEFAULT_BASE_URL = 'http://localhost:5002';
 
 export type GameButton = 'A' | 'B' | 'START' | 'SELECT' | 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
 export type GameAction = GameButton | 'NOOP';
 export type AgentAutonomy = 'passive' | 'moderate' | 'aggressive';
-export type ScreenFormat = 'int' | 'hex' | 'binary';
+export type AgentPersonality = 'strategic' | 'casual' | 'speedrun' | 'explorer';
+export type EmulatorType = 'gb' | 'gba';
 
-export interface HealthResponse {
-  status?: string;
-  services?: Record<string, string>;
-  [key: string]: unknown;
+export interface AppSettings {
+  backendUrl: string;
+  openclawMcpEndpoint: string;
+  emulatorType: EmulatorType;
+  launchUiOnRomLoad: boolean;
+  autoConnect: boolean;
+  aiActionInterval: number;
+  agentMode: boolean;
+  visionModel: 'kimi-k2.5' | 'qwen-vl-plus';
+  autonomousLevel: AgentAutonomy;
+  agentPersonality: AgentPersonality;
+  agentObjectives: string;
 }
 
-export interface ProviderStatus {
+export interface LogEntry {
+  id: number;
+  timestamp: string;
+  type: 'info' | 'action' | 'error' | 'system' | 'vision' | 'thought';
+  message: string;
+}
+
+export interface HealthResponse {
   status: string;
-  priority: number;
-  error?: string | null;
-  available: boolean;
+  service: string;
+  version: string;
+  timestamp: string;
+  checks: Record<string, string>;
 }
 
 export interface GameState {
@@ -32,8 +49,7 @@ export interface GameState {
 export interface AgentStatus {
   connected: boolean;
   agent_name: string;
-  mode: string;  // Frontend-friendly mode ('auto' or 'manual' or 'idle')
-  actual_mode?: string;  // Actual backend mode (e.g., 'auto_explore', 'auto_battle')
+  mode: string;
   autonomous_level: AgentAutonomy;
   current_action: string;
   last_decision: string;
@@ -43,12 +59,14 @@ export interface AgentStatus {
 }
 
 export interface AgentModeResponse {
-  mode: string;  // Frontend-friendly mode
-  actual_mode?: string;  // Actual backend mode
+  success?: boolean;
+  message?: string;
+  mode: string;
+  actual_mode?: string;
   enabled: boolean;
   autonomous_level: AgentAutonomy;
-  current_action: string;
-  last_decision: string;
+  current_action?: string;
+  last_decision?: string;
   valid_modes: string[];
   timestamp: string;
 }
@@ -63,11 +81,6 @@ export interface ScreenResponse {
     conversion_time_ms?: number;
     current_fps?: number;
     adaptive_fps_target?: number;
-  };
-  optimization?: {
-    cache_hit?: boolean;
-    memory_pressure?: number;
-    optimization_enabled?: boolean;
   };
 }
 
@@ -84,46 +97,34 @@ export interface MemoryValue extends MemoryAddress {
 
 export interface MemoryWatch {
   addresses: MemoryAddress[];
-  values: Array<MemoryValue | { error: string }>;
+  values: MemoryValue[];
   timestamp: string;
 }
 
-export interface MemoryReadResponse {
-  address: string;
-  address_int: number;
-  size: number;
-  values: number[];
-  formatted: Array<number | string>;
-  format: ScreenFormat;
-  timestamp: string;
+export interface PokemonMove {
+  id: number;
+  name: string;
 }
 
-export interface MemoryWriteResponse {
-  success: boolean;
-  message: string;
-  writes: Array<{ address: string; value: number }>;
-  timestamp: string;
-}
-
-export interface PartyPokemon {
+export interface Pokemon {
   slot: number;
   species_id: number | null;
   species_name: string | null;
   level: number | null;
   hp: number | null;
   max_hp: number | null;
-  hp_percent: number;
   status: number | null;
   status_text?: string;
   type1: string | null;
   type2: string | null;
-  moves: Array<{ id: number; name: string }>;
+  moves: PokemonMove[];
   ot_id: number | null;
+  hp_percent?: number;
 }
 
-export interface PartyResponse {
+export interface PartyData {
   party_count: number;
-  party: PartyPokemon[];
+  party: Pokemon[];
   timestamp: string;
 }
 
@@ -134,7 +135,7 @@ export interface InventoryItem {
   quantity: number;
 }
 
-export interface InventoryResponse {
+export interface InventoryData {
   money: number;
   money_formatted: string;
   item_count: number;
@@ -142,78 +143,23 @@ export interface InventoryResponse {
   timestamp: string;
 }
 
-export interface UiStatusResponse {
-  ui_status: Record<string, unknown>;
-  rom_loaded: boolean;
-  active_emulator: string;
+export interface OpenClawConfig {
+  endpoint: string;
+  vision_model: AppSettings['visionModel'];
+  objectives: string;
+  personality: AgentPersonality;
+  timestamp: string;
 }
 
-export interface PerformanceResponse {
-  server_performance?: Record<string, unknown>;
-  emulator_performance?: Record<string, unknown>;
-  system_info?: {
-    cpu_count?: number;
-    memory_usage_mb?: number;
-    multi_process_mode?: boolean;
-    timestamp?: number;
-  };
+export interface OpenClawHealthResponse {
+  ok: boolean;
+  endpoint: string;
+  status: number | null;
+  service_status?: string | null;
+  error?: string | null;
+  checked_at: string;
+  details?: Record<string, unknown> | null;
 }
-
-export interface EmulatorModeResponse {
-  multi_process_mode: boolean;
-  available_modes: string[];
-  current_mode: string;
-}
-
-export interface ConfigValidationResponse {
-  validation?: {
-    valid: boolean;
-    missing_required?: string[];
-    missing_optional?: string[];
-    warnings?: string[];
-    api_keys_configured?: number;
-  };
-  configuration?: Record<string, unknown>;
-  timestamp?: number;
-  error?: string;
-  fallback?: string;
-  basic_config?: Record<string, unknown>;
-}
-
-export interface UiControlResponse {
-  message: string;
-  ui_status?: Record<string, unknown>;
-}
-
-export interface AiActionResponse {
-  action: GameAction;
-  provider_used?: string | null;
-  history: string[];
-  optimization?: {
-    cache_hit?: boolean;
-    response_time_ms?: number;
-    memory_pressure?: number;
-    optimization_enabled?: boolean;
-  };
-}
-
-export interface ChatResponse {
-  response: string;
-  provider_used?: string | null;
-}
-
-export interface RomLoadResponse {
-  success?: boolean;
-  message?: string;
-  rom_name?: string;
-  rom_path?: string;
-  rom_size?: number;
-  emulator_type?: string;
-  ui_launched?: boolean;
-  timestamp?: string;
-}
-
-export interface StatusResponse extends Record<string, unknown> {}
 
 class ApiService {
   private baseUrl = DEFAULT_BASE_URL;
@@ -246,44 +192,23 @@ class ApiService {
 
     const contentType = response.headers.get('content-type') || '';
     const isJson = contentType.includes('application/json');
-    const body = isJson ? await response.json() : await response.text();
+    const payload = isJson ? await response.json() : await response.text();
 
     if (!response.ok) {
       const message =
-        typeof body === 'object' && body !== null && 'error' in body
-          ? String(body.error)
-          : typeof body === 'string' && body
-            ? body
+        typeof payload === 'object' && payload !== null && 'error' in payload
+          ? String(payload.error)
+          : typeof payload === 'string' && payload
+            ? payload
             : `Request failed with status ${response.status}`;
       throw new Error(message);
     }
 
-    return body as T;
+    return payload as T;
   }
 
   getHealth() {
     return this.request<HealthResponse>('/health');
-  }
-
-  getStatus() {
-    return this.request<StatusResponse>('/api/status');
-  }
-
-  getConfig() {
-    return this.request<Record<string, unknown>>('/api/config');
-  }
-
-  validateConfig() {
-    return this.request<ConfigValidationResponse>('/api/config/validate');
-  }
-
-  getProvidersStatus() {
-    return this.request<Record<string, ProviderStatus>>('/api/providers/status');
-  }
-
-  getModels(provider: string) {
-    const query = encodeURIComponent(provider);
-    return this.request<{ models: string[] }>(`/api/models?provider=${query}`);
   }
 
   getGameState() {
@@ -319,88 +244,42 @@ class ApiService {
     return this.request<MemoryWatch>('/api/memory/watch');
   }
 
-  readMemory(address: number, size: number, format: ScreenFormat) {
-    const params = new URLSearchParams({
-      size: String(size),
-      format,
-    });
-    return this.request<MemoryReadResponse>(`/api/memory/${address}?${params.toString()}`);
-  }
-
-  writeMemory(address: number, values: number[]) {
-    const body = values.length === 1 ? { value: values[0] } : { values };
-    return this.request<MemoryWriteResponse>(`/api/memory/${address}`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
-  }
-
   getParty() {
-    return this.request<PartyResponse>('/api/party');
+    return this.request<PartyData>('/api/party');
   }
 
   getInventory() {
-    return this.request<InventoryResponse>('/api/inventory');
+    return this.request<InventoryData>('/api/inventory');
   }
 
-  getUiStatus() {
-    return this.request<UiStatusResponse>('/api/ui/status');
-  }
-
-  launchUi() {
-    return this.request<UiControlResponse>('/api/ui/launch', { method: 'POST' });
-  }
-
-  stopUi() {
-    return this.request<UiControlResponse>('/api/ui/stop', { method: 'POST' });
-  }
-
-  restartUi() {
-    return this.request<UiControlResponse>('/api/ui/restart', { method: 'POST' });
-  }
-
-  getPerformance() {
-    return this.request<PerformanceResponse>('/api/performance');
-  }
-
-  getEmulatorMode() {
-    return this.request<EmulatorModeResponse>('/api/emulator/mode');
-  }
-
-  clearCache() {
-    return this.request<{ message: string; cleared_caches?: string[] }>('/api/emulator/clear-cache', {
-      method: 'POST',
-    });
-  }
-
-  uploadRom(file: File, emulatorType: string, launchUi: boolean) {
+  uploadRom(file: File, emulatorType: EmulatorType, launchUi: boolean) {
     const formData = new FormData();
     formData.append('rom', file);
     formData.append('emulator_type', emulatorType);
     formData.append('launch_ui', String(launchUi));
-    return this.request<RomLoadResponse>('/api/upload-rom', {
+
+    return this.request<{
+      message: string;
+      rom_name: string;
+      original_filename?: string;
+      emulator_type?: string;
+      ui_launched?: boolean;
+    }>('/api/upload-rom', {
       method: 'POST',
       body: formData,
     });
   }
 
-  loadRomFromPath(path: string, emulatorType: string, launchUi: boolean) {
-    return this.request<RomLoadResponse>('/api/rom/load', {
+  saveState() {
+    return this.request<{ success?: boolean; message?: string }>('/api/save_state', {
       method: 'POST',
-      body: JSON.stringify({
-        path,
-        emulator_type: emulatorType,
-        launch_ui: launchUi,
-      }),
     });
   }
 
-  saveState() {
-    return this.request<{ message?: string }>('/api/save_state', { method: 'POST' });
-  }
-
   loadState() {
-    return this.request<{ message?: string }>('/api/load_state', { method: 'POST' });
+    return this.request<{ success?: boolean; message?: string }>('/api/load_state', {
+      method: 'POST',
+    });
   }
 
   pressButton(button: GameButton) {
@@ -410,37 +289,25 @@ class ApiService {
     });
   }
 
-  executeAction(action: GameAction, frames: number) {
-    return this.request<{ message: string; action: GameAction; frames: number; history_length: number }>('/api/action', {
-      method: 'POST',
-      body: JSON.stringify({ action, frames }),
-    });
+  getOpenClawConfig() {
+    return this.request<OpenClawConfig>('/api/openclaw/config');
   }
 
-  requestAiAction(payload: {
-    api_name?: string;
-    api_key?: string;
-    api_endpoint?: string;
-    model?: string;
-    goal: string;
+  updateOpenClawConfig(payload: {
+    endpoint: string;
+    vision_model: AppSettings['visionModel'];
+    objectives: string;
+    personality: AgentPersonality;
   }) {
-    return this.request<AiActionResponse>('/api/ai-action', {
+    return this.request<OpenClawConfig>('/api/openclaw/config', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
   }
 
-  chat(payload: {
-    message: string;
-    api_name?: string;
-    api_key?: string;
-    api_endpoint?: string;
-    model?: string;
-  }) {
-    return this.request<ChatResponse>('/api/chat', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+  checkOpenClawHealth(endpoint?: string) {
+    const params = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : '';
+    return this.request<OpenClawHealthResponse>(`/api/openclaw/health${params}`);
   }
 }
 
