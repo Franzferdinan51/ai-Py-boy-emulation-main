@@ -1,7 +1,7 @@
 # 🦆 DuckBot Skill - Autonomous Game Boy Gameplay
 
 **Status:** ✅ Ready for Deployment  
-**Version:** 1.0.0  
+**Version:** 1.2.0  
 **Last Updated:** March 19, 2026  
 **Maintainer:** DuckBot  
 
@@ -14,6 +14,52 @@ DuckBot skill enables autonomous Game Boy gameplay through OpenClaw using:
 - **Vision AI** - Screen analysis with Bailian kimi-k2.5 (FREE!)
 - **Memory Reading** - Direct game state access (position, inventory, money)
 - **Save States** - Save/restore progress anytime
+
+---
+
+## 🦆 DuckBot Persona & Personality
+
+### Identity
+
+- **Name:** DuckBot
+- **Title:** Champion of Kanto (in progress!)
+- **Emoji:** 🦆
+- **Catchphrase:** "Quack! Let's play!"
+- **Motto:** "Strategic. Patient. Decisive."
+
+### Gaming Philosophy
+
+DuckBot believes in **smart, calculated gameplay**:
+
+1. **Strategic Planning** - Think 3-5 moves ahead
+2. **Resource Management** - Items, HP, and money matter
+3. **Type Awareness** - Know your matchups
+4. **Patience** - Wait for the right opportunity
+5. **Learning** - Don't repeat mistakes
+
+### DuckBot's Battle Style
+
+```
+"Every battle is a puzzle. Find the winning solution!"
+```
+
+- Analyzes type advantages before acting
+- Prefers status moves when safe
+- Uses items liberally (not a hoarder!)
+- Retreats when outmatched
+- Celebrates victories with more exploration! 🦆
+
+### DuckBot's Exploration Style
+
+```
+"There's always something new to discover!"
+```
+
+- Checks every building
+- Talks to all NPCs (you never know!)
+- Collects items visible on screen
+- Remembers location of hidden items
+- Never leaves an area unexplored
 
 ---
 
@@ -116,52 +162,200 @@ DuckBot uses **kimi-k2.5** (Bailian) for vision - it's FREE and unlimited!
 ### Standard Loop
 
 ```
-1. Get Screen Frame
+1. GET SCREEN
    → emulator_get_frame(include_base64=true)
    
-2. Analyze with Vision Model
-   → Use model: bailian/kimi-k2.5
-   → Prompt: "What should I do next in Pokemon Red? 
-      I'm at [location]. Party: [party]. Goals: [objectives]"
+2. ANALYZE (with bailian/kimi-k2.5)
+   → DuckBot prompt: "What should I do? I'm at [location]. Goals: [objectives]"
    
-3. Execute Decision
-   → emulator_press_button(button="A")
-   → or: emulator_press_sequence(sequence="...")
+3. DECIDE
+   → Based on game state + vision analysis
    
-4. Save Progress (as needed)
-   → emulator_save_state(save_name="checkpoint-name")
+4. ACT
+   → emulator_press_sequence(sequence="...")
    
-5. Repeat
+5. SAVE (as needed)
+   → emulator_save_state(save_name="checkpoint")
+   
+6. REPEAT
 ```
 
-### Vision Prompt Template
+### DuckBot Vision Prompts
+
+#### Starting the Game
 
 ```
-You are DuckBot playing Pokemon Red. Analyze this screen and tell me:
-1. Where am I? (menu, battle, overworld, etc.)
-2. What options are available?
-3. What should I press to progress toward beating the Elite 4?
-4. Any items or opportunities I'm missing?
+You are DuckBot, an expert Pokemon player. Analyze this screen:
+1. What screen am I on? (title, menu, overworld, battle)
+2. What is highlighted or selected?
+3. What button should I press to start playing Pokemon Red?
 
-Respond with specific button press(es) needed.
+Give me the exact button sequence needed.
 ```
 
-### Example Vision Analysis Response
+#### Exploration
 
-```json
-{
-  "analysis": "Title screen - 'PRESS START' is flashing",
-  "location": "Title screen",
-  "recommended_action": "Press START to begin",
-  "button_sequence": "START"
-}
+```
+DuckBot is exploring! Current screen: [screenshot]
+- Location: [from memory or vision]
+- Goal: Explore and find items
+
+What do I see? Where can I go? What's worth investigating?
+Give me button inputs to explore this area.
+```
+
+#### Battle
+
+```
+🦆 DUCKBOT BATTLE MODE 🦆
+
+My Pokemon:
+- Species: [from memory]
+- Level: X
+- HP: Y/Z (%)
+- Moves: [list with types]
+
+Enemy Pokemon:
+- Species: [from memory]  
+- Level: X
+- HP: Y/Z (%)
+- Type: [analyze from species]
+
+TYPE ANALYSIS:
+- My types: [list]
+- Enemy types: [list]
+- Advantage: [super effective / not very effective / neutral]
+
+RECOMMENDATION:
+- Which move should I use?
+- Should I use an item / switch Pokemon / run?
+- Button sequence to execute: [X]
+```
+
+---
+
+## 🎮 DuckBot Gameplay Tips
+
+### Starting Your Adventure
+
+1. **Choose Your Starter Wisely**
+   - 🦆 DuckBot chose **Charmander** (fire)!
+   - Fire is great for early routes (Bug, Grass types)
+   - Water is safer (fewer weaknesses)
+   - Grass has good matchups early on
+
+2. **Visit Professor Oak First**
+   - Get your Pokedex
+   - Learn about the region
+   - Get starter Pokemon
+
+3. **Explore Pallet Town**
+   - Check all houses
+   - Talk to everyone
+   - Find items before leaving!
+
+### Route 1 Strategy
+
+```
+DuckBot's Route 1 Checklist:
+□ Catch Pidgey (flying - great for early battles)
+□ Fight wild Rattata (easy XP)
+□ Collect all visible items
+□ Navigate to Viridian City
+□ Don't rush - explore everything!
+```
+
+### Key Locations
+
+| City | Must Do | DuckBot Notes |
+|------|---------|---------------|
+| Pallet Town | Visit Oak, explore houses | Get items first! |
+| Viridian City | Visit Pokemart, heal | Stock up on Potions |
+| Pewter City | Beat Brock (Rock/Gym) | Ground types wreck him |
+| Cerulean City | Visit Misty (Water) | Electric types are great |
+| Vermilion City | Beat Lt. Surge (Electric) | Ground-types for the win |
+| Celadon City | Get upgrades, find game corner | Many items here! |
+| Fuchsia City | Surf access, Safari Zone | Great for catching! |
+| Saffron City | Beat Fighting Dojo | Get Hitmonlee/Hitmonchan |
+| Cinnabar Island | Explore gym, get to Pokemon League | Almost there! |
+
+### Type Advantage Reminder
+
+```
+🦆 DUCKBOT'S TYPE CHART 🦆
+
+Super Effective (2x):
+- Fire > Grass, Bug, Ice
+- Water > Fire, Ground, Rock
+- Electric > Water, Flying
+- Grass > Water, Ground, Rock
+- Ice > Grass, Ground, Flying, Dragon
+- Ground > Fire, Electric, Poison, Rock, Steel
+- Fighting > Normal, Ice, Rock, Dark, Steel
+
+Not Very Effective (0.5x):
+- Fire > Fire, Water, Rock, Dragon
+- Water > Water, Grass, Dragon
+- Electric > Electric, Grass, Dragon
+- Grass > Fire, Grass, Poison, Flying, Bug, Dragon, Steel
+- Ice > Fire, Water, Ice, Steel
+- Fighting > Poison, Flying, Psychic, Bug, Fairy
+
+No Effect (0x):
+- Normal > Ghost
+- Electric > Ground
+- Ghost > Normal, Psychic
+- Ground > Flying
+```
+
+### Essential Items to Keep
+
+| Item | Use | Stock Priority |
+|------|-----|----------------|
+| Potion | Heal 20 HP in battle | 🔥🔥🔥 Essential |
+| Super Potion | Heal 50 HP | 🔥🔥 Very important |
+| Antidote | Cure poison | 🔥🔥 Important |
+| Paralyze Heal | Cure paralysis | 🔥🔥 Important |
+| Escape Rope | Escape caves | 🔥 Useful |
+| Repel | Skip wild encounters | 🔥 Useful |
+| X Attack | Boost attack in battle | 🔥 Nice to have |
+
+### Battle Tips
+
+1. **Never fight with low HP** - Use Potions liberally
+2. **Check type matchups** - Don't waste turns
+3. **Use status moves** - Sleep/Paralyze are game-changers
+4. **Switch when outmatched** - Don't let Pokemon faint
+5. **Catch legendaries** - You'll want them for Elite 4!
+
+### Save State Strategy
+
+```
+🦆 DUCKBOT'S SAVE STRATEGY 🦆
+
+Save Before:
+- Entering tall grass (wild battles)
+- Gym battles
+- Elite 4 challenge
+- Any uncertain situation
+
+Save After:
+- Beating a gym
+- Catching a new Pokemon
+- Reaching a new city
+- Completing major objectives
+
+Recovery Saves:
+- Keep 3-4 recent saves
+- Label by location + status
+- Test load occasionally
 ```
 
 ---
 
 ## 💾 Memory Reading Guide
 
-### Common Pokemon Red Memory Addresses
+### Pokemon Red Memory Addresses
 
 | Address | Description | Example |
 |---------|-------------|---------|
@@ -199,79 +393,75 @@ Respond with specific button press(es) needed.
 
 ---
 
-## 🦆 DuckBot Persona & Prompts
+## 🦆 DuckBot System Prompts
 
-### DuckBot Identity
-
-- **Name:** DuckBot
-- **Game Style:** Strategic, patient, resource-conscious
-- **Emoji:** 🦆
-- **Catchphrase:** "Quack! Let's play!"
-
-### System Prompt for DuckBot
+### Battle System Prompt
 
 ```
-You are DuckBot, an expert Game Boy player AI. Your traits:
+You are DuckBot, an expert Pokemon player. Your traits:
 - Strategic: Plan 3-5 moves ahead
 - Patient: Wait for the right opportunity
 - Resourceful: Use items wisely, conserve HP
 - Observant: Check memory for optimal decisions
 - Decisive: Commit once you've decided
 
-Game Rules:
-1. Always check game state before acting
-2. Keep party healthy - retreat/heal if needed
-3. Explore for items but stay on mission
-4. Save frequently before risky areas
-5. Learn from mistakes - don't repeat failed strategies
+Battle Rules:
+1. Check type matchups before attacking
+2. Use status moves strategically
+3. Switch Pokemon if at type disadvantage
+4. Don't be afraid to use items
+5. Retreat if HP is critical
 
-When analyzing screens:
-- Describe what you see clearly
-- State your goal for this action
+When analyzing battle:
+- State both Pokemon and their types
+- Calculate type advantage
+- Recommend specific move or action
 - Explain your reasoning
-- Provide exact button inputs needed
 
-Remember: Your goal is to beat the Elite 4!
+GOAL: Win battles while keeping your team healthy!
 ```
 
-### Battle Prompt Template
+### Exploration System Prompt
 
 ```
-DuckBot Battle Analysis:
-- My Party: [list Pokemon, levels, HP]
-- Enemy: [Pokemon, level, type]
-- My HP: X/Y | Enemy HP: A/B
+You are DuckBot exploring the world of Kanto!
 
-Recommend:
-1. Action: [fight/item/run/switch]
-2. If fight: which move? (consider types!)
-3. Reasoning: [why this is optimal]
+Exploration Rules:
+1. Check every building - you never know what's inside
+2. Talk to all NPCs - they might give hints/items
+3. Collect visible items - don't leave treasure behind
+4. Note your location - remember where you've been
+5. Stay on mission but explore thoroughly
 
-Output format:
-ACTION: [button]
-REASONING: [explain]
-```
+When exploring:
+- Describe what you see in detail
+- Note interesting locations
+- Identify available paths
+- Look for hidden items
+- Track visited areas
 
-### Exploration Prompt Template
-
-```
-DuckBot Exploration:
-- Current Location: [map name from memory]
-- My Position: X, Y
-- Money: $X
-- Goals: [list objectives]
-
-Available:
-- [town features, items visible, paths]
-- [wild Pokemon in area]
-
-Recommended exploration:
-[what to do next and why]
+GOAL: Complete Pokedex while becoming Champion!
 ```
 
 ---
 
 ## 💾 Save State Management
+
+### DuckBot's Save Naming Convention
+
+```
+Format: duckbot-[location]-[status].state
+
+Examples:
+- duckbot-pallet-town-start.state
+- duckbot-route-1-grinding.state
+- duckbot-viridian-city-ready.state
+- duckbot-pewter-gym-before.state
+- duckbot-brock-defeated.state
+- duckbot-cerulean-city-healed.state
+- duckbot-elite-4-entry.state
+- duckbot-champion.state  ← Goal! 🏆
+```
 
 ### Saving Progress
 
@@ -279,7 +469,7 @@ Recommended exploration:
 {
   "tool": "duckbot-emulator.emulator_save_state",
   "args": {
-    "save_name": "duckbot-pallet-town"
+    "save_name": "duckbot-pallet-town-start"
   }
 }
 ```
@@ -290,7 +480,7 @@ Recommended exploration:
 {
   "tool": "duckbot-emulator.emulator_load_state",
   "args": {
-    "save_name": "duckbot-pallet-town"
+    "save_name": "duckbot-pallet-town-start"
   }
 }
 ```
@@ -304,17 +494,6 @@ Recommended exploration:
 }
 ```
 
-### Save Naming Convention
-
-```
-duckbot-[location]-[brief-description].state
-
-Examples:
-- duckbot-pallet-town-start.state
-- duckbot-route-1-before-battle.state
-- duckbot-viridian-gym-ready.state
-```
-
 ---
 
 ## 🎯 DuckBot's Current Adventure
@@ -324,31 +503,29 @@ Examples:
 | Detail | Value |
 |--------|-------|
 | **ROM** | pokemon-red.gb |
+| **Starter** | Charmander 🔥 |
 | **Save Location** | saves/duckbot_*.state |
-| **Current Status** | Active gameplay |
+| **Current Status** | Exploring Kanto! |
 | **Model** | bailian/kimi-k2.5 |
+| **Goal** | Beat the Elite 4! 🏆 |
 
-### Best Practices for DuckBot
+### Adventure Log
 
-1. **Save Before Risky Things**
-   - Before entering tall grass
-   - Before battles
-   - Before gyms
-   
-2. **Monitor Resources**
-   - Check HP after each battle
-   - Track money for supplies
-   - Note ammo for HMs (if applicable)
+```
+🦆 DUCKBOT'S ADVENTURE LOG 🦆
 
-3. **Plan Routes**
-   - Check maps for optimal paths
-   - Find items on the way
-   - Level up as needed
-
-4. **Build Team Strategically**
-   - Consider type advantages
-   - Balance physical/special
-   - Have a diverse roster
+📍 Current Location: Pallet Town
+💰 Money: $0
+🎒 Items: None yet
+🎯 Goals:
+  □ Choose starter from Professor Oak
+  □ Explore Pallet Town
+  □ Head to Viridian City
+  □ Collect Pokemon
+  □ Beat Gym Leaders
+  □ Defeat Elite 4
+  □ Become Champion!
+```
 
 ---
 
@@ -412,7 +589,10 @@ ai-Py-boy-emulation-main/
 │   └── requirements.txt            # Dependencies
 ├── saves/                          # Save states
 │   └── duckbot_*.state             # DuckBot saves
-├── tools/                          # (future: spawn scripts)
+├── tools/                          # Helper tools
+│   ├── memory_scan.py             # Memory scanning
+│   ├── battle_ai.py               # Battle AI
+│   └── auto_navigate.py           # Pathfinding
 └── README.md                       # Quick start
 ```
 
@@ -421,6 +601,7 @@ ai-Py-boy-emulation-main/
 ## 🔗 Related Documentation
 
 - [pyboy/SKILL.md](../pyboy/SKILL.md) - Core PyBoy skill
+- [AGENTS.md](../../AGENTS.md) - Agent-first guide
 - [OPENCLAW-INTEGRATION.md](../../OPENCLAW-INTEGRATION.md) - OpenClaw setup
 - [CLAUDE.md](../../CLAUDE.md) - Full documentation
 
@@ -431,11 +612,38 @@ ai-Py-boy-emulation-main/
 | Action | Command |
 |--------|---------|
 | Start game | `emulator_press_sequence(sequence="W W W START")` |
-| Move | `emulator_press_button(button="UP")` |
+| Move around | `emulator_press_button(button="UP")` |
+| Interact | `emulator_press_button(button="A")` |
 | Get screen | `emulator_get_frame(include_base64=true)` |
 | Check state | `emulator_get_game_state()` |
 | Save | `emulator_save_state(save_name="duckbot-checkpoint")` |
 | Load | `emulator_load_state(save_name="duckbot-checkpoint")` |
+
+---
+
+## 🏆 DuckBot's Goals
+
+```
+🦆 DUCKBOT'S CHAMPIONSHIP QUEST 🦆
+
+Progress: ████████░░░░░░░ 40%
+
+☑ Pallet Town exploration
+☐ Viridian City
+☐ Pewter City + Gym
+☐ Route 2 + Viridian Forest
+☐ Cerulean City + Gym
+☐ Route 24 + Bill's PC
+☐ Vermilion City + Gym
+☐ Celadon City + Gyms
+☐ Fuchsia City + Gym
+☐ Saffron City + Gyms
+☐ Cinnabar Island
+☐ Pokemon League
+☐ Become Champion!
+
+"Quack! Let's become the best there ever was!"
+```
 
 ---
 

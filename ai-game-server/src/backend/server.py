@@ -51,6 +51,20 @@ try:
 except ImportError:
     TORCH_AVAILABLE = False
 
+# PyBoy emulator availability
+try:
+    from pyboy import PyBoy
+    PYBOY_AVAILABLE = True
+except ImportError:
+    PYBOY_AVAILABLE = False
+
+# MCP server availability
+try:
+    from mcp.server import Server
+    MCP_AVAILABLE = True
+except ImportError:
+    MCP_AVAILABLE = False
+
 # Performance monitoring import
 try:
     from utils.performance_monitor import performance_monitor
@@ -275,9 +289,9 @@ def add_security_headers(response):
     return response
 
 # Import emulators
-from emulators.pyboy_emulator import PyBoyEmulator, PyBoyEmulatorMP
-from emulators.pygba_emulator import PyGBAEmulator
-from ai_apis.ai_provider_manager import ai_provider_manager
+from backend.emulators.pyboy_emulator import PyBoyEmulator, PyBoyEmulatorMP
+from backend.emulators.pygba_emulator import PyGBAEmulator
+from backend.ai_apis.ai_provider_manager import ai_provider_manager
 
 # Configuration for emulator mode
 USE_MULTI_PROCESS = os.environ.get('USE_MULTI_PROCESS', 'false').lower() == 'true'
@@ -971,7 +985,23 @@ def log_response_info(response):
 @app.route('/health', methods=['GET'])
 def health_check():
     """Enhanced health check endpoint for monitoring"""
-    return jsonify({"status": "healthy"}), 200
+    import platform
+    import sys
+    
+    health_data = {
+        "status": "healthy",
+        "service": "ai-game-server",
+        "version": "3.0.0",
+        "python_version": sys.version,
+        "platform": platform.platform(),
+        "timestamp": datetime.now().isoformat(),
+        "checks": {
+            "flask": "ok",
+            "pyboy": "ok" if PYBOY_AVAILABLE else "not_available",
+            "mcp": "ok" if MCP_AVAILABLE else "not_available"
+        }
+    }
+    return jsonify(health_data), 200
 
 @app.route('/api/config/validate', methods=['GET'])
 def validate_configuration():

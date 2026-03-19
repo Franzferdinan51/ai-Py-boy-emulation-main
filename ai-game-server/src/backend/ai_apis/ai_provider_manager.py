@@ -109,8 +109,12 @@ class AIProviderManager:
             # Special handling for mock provider - no API key needed
             if name == 'mock':
                 api_key = "mock-key"
-            else:
+            elif name == 'tetris-genetic':
+                api_key = None  # No API key required
+            elif env_key:
                 api_key = os.environ.get(env_key)
+            else:
+                api_key = None
 
             # For local providers, check multiple environment variables
             if name == 'openai-compatible':

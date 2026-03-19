@@ -156,38 +156,224 @@ Combined:    "R2 A U3 W START"
 | 0xD16B-0xD16C | Player HP | `100` (2 bytes) |
 | 0xD89C-0xD89D | Enemy HP | `50` (2 bytes) |
 | 0xCC26 | Map ID | `38=Pallet Town` |
+| 0xD18C | Player Pokemon level | `5` |
+| 0xD163 | Player Pokemon species | `4=Charmander` |
+| 0xD883 | Enemy Pokemon species | `19=Rattata` |
 
 ---
 
-## 🎯 Agent Decision Loop
+## 👁️ Vision Workflows
+
+### Standard Vision Loop
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    AGENT GAME LOOP                      │
-├─────────────────────────────────────────────────────────┤
-│  1. GET STATE                                           │
-│     → get_player_position()                             │
-│     → get_party_info()                                  │
-│     → get_money()                                       │
-│                                                         │
-│  2. GET VISION                                          │
-│     → get_screen_base64(include_base64=true)           │
-│     → Analyze with kimi-k2.5                           │
-│                                                         │
-│  3. DECIDE                                              │
-│     → Based on game state + vision                      │
-│     → Set goal if not set                              │
-│                                                         │
-│  4. ACT                                                 │
-│     → emulator_press_sequence(sequence="...")          │
-│                                                         │
-│  5. SAVE (if needed)                                    │
-│     → save_game_state(save_name="checkpoint")          │
-│                                                         │
-│  6. UPDATE SESSION                                      │
-│     → session_set(key="last_action", value="...")      │
-│     → session_set(key="visited_locations", value=[...])│
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│                  VISION GAMEPLAY                     │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  1. GET FRAME                                       │
+│     └─ emulator_get_frame(include_base64=true)     │
+│                                                     │
+│  2. ANALYZE (bailian/kimi-k2.5)                    │
+│     └─ "What should I do in Pokemon Red?"         │
+│                                                     │
+│  3. DECIDE                                          │
+│     └─ Choose button sequence                       │
+│                                                     │
+│  4. ACT                                             │
+│     └─ emulator_press_sequence(sequence="...")     │
+│                                                     │
+│  5. SAVE (if needed)                                │
+│     └─ emulator_save_state(save_name="...")        │
+│                                                     │
+│  6. LOOP                                            │
+│     └─ Repeat from step 1                          │
+└─────────────────────────────────────────────────────┘
+```
+
+### Vision Prompt Templates
+
+#### Screen Analysis Prompt
+
+```
+Analyze this Pokemon game screenshot and tell me:
+1. What screen am I on? (title, menu, battle, overworld)
+2. What's happening in this screen?
+3. What options are available?
+4. What is my likely goal right now?
+5. What button(s) should I press to progress?
+
+Provide specific button inputs.
+```
+
+#### Battle Analysis Prompt
+
+```
+This is a Pokemon battle. Tell me:
+- My Pokemon: [species], Level [X], HP: [Y/Z]
+- Enemy Pokemon: [species], Level [X], HP: [Y/Z]
+- My moves: [list available moves with types]
+
+Analyze the type matchup and tell me:
+1. Do I have type advantage?
+2. Which move is best?
+3. Should I fight, use item, switch, or run?
+4. What's my exact button sequence?
+```
+
+#### Exploration Prompt
+
+```
+I'm exploring in Pokemon Red.
+- Current location: [from memory]
+- My goal: [reach next city / find items / explore]
+
+Looking at this screen:
+1. What do I see? (buildings, paths, items, NPCs)
+2. Where can I go?
+3. What's worth investigating?
+4. What buttons get me there?
+```
+
+#### Menu Navigation Prompt
+
+```
+I need to [open bag / use item / check party / save game].
+Looking at this menu:
+1. What menu is open?
+2. What's selected?
+3. How do I navigate to [goal]?
+4. Button sequence?
+```
+
+---
+
+## 🌲 Decision Trees
+
+### Master Game Loop Decision Tree
+
+```
+START
+  │
+  ├─► GET SCREEN
+  │     emulator_get_frame(include_base64=true)
+  │
+  ├─► ANALYZE WITH VISION
+  │     "What should I do?"
+  │
+  ├─► DETERMINE CONTEXT
+  │     │
+  │     ├─► TITLE SCREEN?
+  │     │     └─► Press START → Select NEW GAME
+  │     │
+  │     ├─► BATTLE?
+  │     │     └─► Analyze matchup → Fight/Item/Switch/Run
+  │     │
+  │     ├─► MENU?
+  │     │     └─► Navigate to goal
+  │     │
+  │     ├─► DIALOGUE?
+  │     │     └─► Press A to continue
+  │     │
+  │     └─► OVERWORLD?
+  │           └─► Navigate to goal
+  │
+  ├─► DECIDE ACTION
+  │     Choose button sequence
+  │
+  ├─► EXECUTE
+  │     emulator_press_sequence(sequence="...")
+  │
+  ├─► SAVE (if needed)
+  │     emulator_save_state(save_name="...")
+  │
+  └─► REPEAT
+```
+
+### Battle Decision Tree
+
+```
+IN BATTLE
+  │
+  ├─► CHECK HP
+  │     │
+  │     ├─► Player HP < 20%?
+  │     │     ├─► Have Potions? → Use Potion
+  │     │     └─► No Potions? → Run/Switch
+  │     │
+  │     └─► Enemy HP < 20%?
+  │           └─→ Can finish! → Attack!
+  │
+  ├─► CHECK TYPE MATCHUP
+  │     │
+  │     ├─► Super effective (2x+) → Attack!
+  │     │
+  │     ├─► Not very effective (<0.5x) → Consider switching
+  │     │
+  │     └─► Neutral → Use best move
+  │
+  ├─► CHECK LEVEL DIFF
+  │     │
+  │     ├─► Player much higher → Safe to attack
+  │     │
+  │     └─► Enemy much higher → Be careful!
+  │
+  ├─► DECIDE
+  │     │
+  │     ├─► FIGHT → Select move, consider types
+  │     ├─► BAG → Use item (Potion, Pokeball)
+  │     ├─► POKEMON → Switch to better match
+  │     └─► RUN → Attempt escape
+  │
+  └─► EXECUTE → Button sequence
+```
+
+### Exploration Decision Tree
+
+```
+OVERWORLD
+  │
+  ├─► CHECK VISIBLE ITEMS
+  │     │
+  │     └─► Items visible? → Navigate and pick up
+  │
+  ├─► CHECK NPCs
+  │     │
+  │     └─► NPCs nearby? → Talk to them (might have items!)
+  │
+  ├─► CHECK BUILDINGS
+  │     │
+  │     └─► Unvisited building? → Enter and explore
+  │
+  ├─► DETERMINE DIRECTION
+  │     │
+  │     ├─► Know destination? → Navigate toward it
+  │     │
+  │     └─► Exploring? → Pick direction, look around
+  │
+  ├─► MOVE
+  │     └─► UP/DOWN/LEFT/RIGHT (hold for multiple tiles)
+  │
+  └─► REPEAT
+```
+
+### Healing Decision Tree
+
+```
+NEED HEALING?
+  │
+  ├─► Near Pokemon Center?
+  │     └─► YES → Walk there, enter, talk to nurse
+  │
+  ├─► Have Potions?
+  │     ├─► YES → Use in battle or overworld
+  │     │
+  │     └─► NO → Need to find Pokemon Center
+  │
+  └─► Pokemon Center far?
+        ├─► YES → Consider grinding, then return
+        │
+        └─► NO → Find one!
 ```
 
 ---
@@ -223,6 +409,7 @@ Combined:    "R2 A U3 W START"
 ## 🔧 Example Agent Prompts
 
 ### Starting a New Game
+
 ```
 You are playing Pokemon Red. Start a new game:
 1. Navigate to title screen
@@ -233,14 +420,51 @@ You are playing Pokemon Red. Start a new game:
 6. Walk to Oak's lab and choose Charmander
 ```
 
-### Exploring
+### Exploring Route 1
+
 ```
-Navigate to Viridian City. Find the Pokemon Center and heal your party. Then explore the city for items. Save your progress before entering any dangerous areas.
+Navigate to Viridian City via Route 1:
+1. Walk DOWN out of Pallet Town
+2. Battle wild Pokemon to gain XP
+3. Catch a Pidgey if possible
+4. Collect visible items along the route
+5. Navigate north to Viridian City
+6. Save your progress before entering the city
 ```
 
-### Battling
+### Fighting a Gym
+
 ```
-A wild Rattata appeared! Your Charmander is at full health. Use Tackle to defeat it. Watch your HP - if it gets below 10, use a Potion. After the battle, check your XP and decide whether to continue or heal.
+Battle Brock in Pewter City Gym:
+1. His Geodude is Rock/Ground type
+2. Use Water or Grass Pokemon if available
+3. If only Charmander, use Ember (it's not very effective but still works)
+4. Keep an eye on HP - use Potions if needed
+5. Save before the battle!
+```
+
+### Managing Items
+
+```
+I have $500 and need supplies:
+1. Go to Viridian City Pokemart
+2. Buy 5 Potions (~$100 each)
+3. Buy 1 Antidote and 1 Paralyze Heal
+4. Save remaining money for more supplies
+5. Return to Pokemon Center to heal
+```
+
+### Catching Pokemon
+
+```
+A wild Rattata appeared:
+- My Charmander is at Level 5 with good HP
+- I want to catch it!
+1. Weaken it with Tackle (don't let it faint)
+2. Open Bag and select Pokeball
+3. Throw ball
+4. If it breaks out, try again
+5. Save after catching
 ```
 
 ---
@@ -265,6 +489,18 @@ Error: "Session not found: xyz"
 Fix: Use session_start to create a session first
 ```
 
+### Vision Not Working
+```
+Problem: Can't get base64 image
+Fix: Ensure include_base64=true in emulator_get_frame
+```
+
+### Buttons Not Responding
+```
+Problem: Button presses don't work
+Fix: Add wait frames (W) between inputs. Try: "W A W A W A"
+```
+
 ---
 
 ## 📁 File Locations
@@ -276,11 +512,10 @@ ai-Py-boy-emulation-main/
 │   ├── openclaw_agent.py           # Python agent
 │   └── requirements.txt
 ├── skills/duckbot/
-│   └── SKILL.md                   # ← Your skill guide
-├── saves/                         # Save states
-│   └── *.state
+│   └── SKILL.md                   # ← DuckBot skill guide
 ├── tools/
-│   ├── spawn-gaming-agent.sh      # Spawn agents
+│   ├── AGENT_QUICKSTART.md        # ← 5-minute setup!
+│   ├── spawn-gaming-agent.sh       # Spawn agents
 │   ├── memory_scan.py             # Find memory values
 │   ├── auto_navigate.py           # Pathfinding
 │   └── battle_ai.py               # Smart combat
@@ -302,6 +537,14 @@ During play:
 - [ ] Use vision for complex situations
 - [ ] Update session with progress
 - [ ] Save before risky areas
+
+---
+
+## 🔗 Related Documentation
+
+- [skills/duckbot/SKILL.md](skills/duckbot/SKILL.md) - DuckBot persona & tips
+- [skills/pyboy/SKILL.md](skills/pyboy/SKILL.md) - PyBoy skill reference
+- [tools/AGENT_QUICKSTART.md](tools/AGENT_QUICKSTART.md) - 5-minute setup
 
 ---
 
