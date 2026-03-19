@@ -1650,19 +1650,66 @@ def api_game_state():
 def api_party():
     state = get_game_state()
     active = state.get('active_emulator')
+    empty = {'party_count': 0, 'party': [], 'timestamp': datetime.now().isoformat()}
     if not state.get('rom_loaded') or not active or active not in emulators:
-        return jsonify({'party_count': 0, 'party_pokemon': [], 'timestamp': datetime.now().isoformat()}), 200
+        return jsonify(empty), 200
     try:
         emulator = emulators[active]
         party = []
         if hasattr(emulator, 'get_party_info'):
             try:
-                party = emulator.get_party_info() or []
+                raw_party = emulator.get_party_info() or []
             except Exception:
-                party = []
-        return jsonify({'party_count': len(party), 'party_pokemon': party, 'timestamp': datetime.now().isoformat()}), 200
+                raw_party = []
+            for idx, mon in enumerate(raw_party, 1):
+                mon = mon or {}
+                party.append({
+                    'slot': mon.get('slot', idx),
+                    'species_id': mon.get('species_id'),
+                    'species_name': mon.get('species_name'),
+                    'level': mon.get('level'),
+                    'hp': mon.get('hp'),
+                    'max_hp': mon.get('max_hp'),
+                    'status': mon.get('status'),
+                    'status_text': mon.get('status_text'),
+                    'type1': mon.get('type1'),
+                    'type2': mon.get('type2'),
+                    'moves': mon.get('moves') or [],
+                    'ot_id': mon.get('ot_id'),
+                    'hp_percent': mon.get('hp_percent')
+                })
+        return jsonify({'party_count': len(party), 'party': party, 'timestamp': datetime.now().isoformat()}), 200
     except Exception as e:
-        return jsonify({'party_count': 0, 'party_pokemon': [], 'timestamp': datetime.now().isoformat(), 'error': str(e)}), 200
+        return jsonify({**empty, 'error': str(e)}), 200
+
+@app.route('/api/inventory', methods=['GET'])
+def api_inventory():
+    state = get_game_state()
+    active = state.get('active_emulator')
+    empty = {'money': 0, 'money_formatted': '¥0', 'item_count': 0, 'items': [], 'timestamp': datetime.now().isoformat()}
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify(empty), 200
+    try:
+        emulator = emulators[active]
+        items = []
+        money = 0
+        if hasattr(emulator, 'get_inventory_info'):
+            try:
+                inv = emulator.get_inventory_info() or {}
+            except Exception:
+                inv = {}
+            money = inv.get('money', 0) or 0
+            for idx, item in enumerate(inv.get('items') or [], 1):
+                item = item or {}
+                items.append({
+                    'slot': item.get('slot', idx),
+                    'id': item.get('id', 0),
+                    'name': item.get('name', 'Unknown'),
+                    'quantity': item.get('quantity', 0)
+                })
+        return jsonify({'money': money, 'money_formatted': f'¥{money:,}', 'item_count': len(items), 'items': items, 'timestamp': datetime.now().isoformat()}), 200
+    except Exception as e:
+        return jsonify({**empty, 'error': str(e)}), 200
 
 @app.route('/api/memory/watch', methods=['GET'])
 def api_memory_watch():
