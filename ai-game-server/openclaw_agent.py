@@ -23,59 +23,72 @@ from PIL import Image
 from io import BytesIO
 import base64
 
-# Model provider configurations
+# Model provider configurations (Updated for Bailian-first 2026)
 MODEL_PROVIDERS = {
-    # Google Gemini
-    'gemini-3-flash': {
-        'model': 'google-gemini-cli/gemini-3-flash-preview',
+    # Alibaba Bailian (Primary - FREE unlimited for most)
+    'kimi-k2.5': {
+        'model': 'bailian/kimi-k2.5',
         'vision': True,
-        'cost': 'unlimited'
+        'cost': 'FREE unlimited'
     },
-    'gemini-3-pro': {
-        'model': 'google-gemini-cli/gemini-3-pro-preview',
-        'vision': True,
-        'cost': '~100/day'
+    'minimax-m2.5': {
+        'model': 'bailian/MiniMax-M2.5',
+        'vision': False,
+        'cost': 'FREE unlimited'
     },
-    
-    # Alibaba Qwen
     'qwen-3.5-plus': {
         'model': 'bailian/qwen3.5-plus',
         'vision': True,
-        'cost': '18K/month'
+        'cost': '18K/month quota'
+    },
+    'qwen3-max': {
+        'model': 'bailian/qwen3-max',
+        'vision': True,
+        'cost': 'shared quota'
     },
     'qwen-vl': {
         'model': 'bailian/qwen-vl-max',
         'vision': True,
-        'cost': 'API credits'
+        'cost': 'shared quota'
     },
     
     # GLM (Z.ai)
     'glm-5': {
-        'model': 'zai/glm-5',
-        'vision': False,
+        'model': 'bailian/glm-5',
+        'vision': True,
         'cost': 'API credits'
     },
     'glm-4.7': {
-        'model': 'zai/glm-4.7',
+        'model': 'bailian/glm-4.7',
         'vision': False,
         'cost': 'API credits'
     },
     
-    # MiniMax
-    'minimax': {
-        'model': 'minimax-portal/MiniMax-M2.5',
-        'vision': False,
-        'cost': 'free'
+    # Legacy / Fallbacks
+    'gemini-3-flash': {
+        'model': 'google-gemini-cli/gemini-3-flash-preview',
+        'vision': True,
+        'cost': 'deprecated (ban risk)'
+    },
+    'gemini-3-pro': {
+        'model': 'google-gemini-cli/gemini-3-pro-preview',
+        'vision': True,
+        'cost': 'deprecated (ban risk)'
     },
     
     # Local LM Studio
     'lmstudio-jan': {
-        'model': 'lmstudio/jan-v3-4b',
+        'model': 'jan-v3-4b-base-instruct',
         'vision': False,
         'cost': 'free (local)'
     },
+    'lmstudio-qwen-vl': {
+        'model': 'qwen/qwen3-vl-8b',
+        'vision': True,
+        'cost': 'free (local)'
+    },
     'lmstudio-glm': {
-        'model': 'lmstudio/glm-4.7-flash',
+        'model': 'zai-org/glm-4.7-flash',
         'vision': False,
         'cost': 'free (local)'
     },

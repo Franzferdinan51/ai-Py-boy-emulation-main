@@ -122,6 +122,96 @@ def press_button(button: str) -> bool:
         return False
 
 
+def press_sequence(sequence: str, delay_ms: int = 100) -> Dict[str, Any]:
+    """Press multiple buttons in sequence"""
+    global emulator, frame_count
+    
+    if emulator is None:
+        logger.error("Emulator not initialized")
+        return {"success": False, "error": "Emulator not initialized"}
+    
+    import re
+    import time
+    
+    # Parse: "A B START" or "A2 R3 U1" (button + count)
+    button_pattern = r'^([AUDLRSX])(\d*)$|^W$|^([A-Z]+)$'
+    
+    tokens = sequence.strip().split()
+    pressed = []
+    errors = []
+    
+    for token in tokens:
+        token = token.upper()
+        
+        if token == 'W':
+            # Wait
+            emulator.tick()
+            frame_count += 1
+            pressed.append("WAIT")
+            continue
+        
+        # Check for count (e.g., "A2" = press A 2 times)
+        if len(token) > 1 and token[-1].isdigit():
+            button = token[:-1]
+            count = int(token[-1])
+        else:
+            button = token
+            count = 1
+        
+        for _ in range(count):
+            if button in ['A', 'B', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'START', 'SELECT']:
+                success = press_button(button)
+                if success:
+                    pressed.append(button)
+                else:
+                    errors.append(f"Failed: {button}")
+            else:
+                errors.append(f"Unknown: {button}")
+        
+        if delay_ms > 0:
+            time.sleep(delay_ms / 1000)
+    
+    return {
+        "success": len(errors) == 0,
+        "pressed": pressed,
+        "errors": errors,
+        "frame": frame_count
+    }
+
+
+def save_screenshot(output_path: str = None) -> Dict[str, Any]:
+    """Save current frame to file"""
+    global emulator, frame_count
+    
+    if emulator is None:
+        return {"success": False, "error": "Emulator not initialized"}
+    
+    try:
+        if output_path is None:
+            output_dir = Path(__file__).parent / "screenshots"
+            output_dir.mkdir(exist_ok=True)
+            output_path = output_dir / f"frame_{frame_count:06d}.png"
+        
+        # Get screen
+        screen = emulator.screen
+        img = screen.image
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # Save
+        img.save(output_path, format='PNG')
+        
+        return {
+            "success": True,
+            "path": str(output_path),
+            "frame": frame_count
+        }
+    except Exception as e:
+        logger.error(f"Save screenshot failed: {e}")
+        return {"success": False, "error": str(e)}
+
+
 def get_frame() -> Optional[Dict[str, Any]]:
     """Get current frame as base64-encoded image"""
     global emulator
@@ -219,11 +309,36 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="emulator_get_frame",
-            description="Get the current screen as a base64-encoded PNG image",
+            name="emulator_press_sequence",
+            description="Press multiple buttons in sequence (e.g., 'A B A UP DOWN')",
             inputSchema={
                 "type": "object",
-                "properties": {}
+                "properties": {
+                    "sequence": {
+                        "type": "string",
+                        "description": "Button sequence separated by spaces (e.g., 'A B START' or 'A2 R3 U1')"
+                    },
+                    "delay": {
+                        "type": "integer",
+                        "description": "Delay in milliseconds between button presses",
+                        "default": 100
+                    }
+                },
+                "required": ["sequence"]
+            }
+        ),
+        Tool(
+            name="emulator_get_frame",
+            description="Get the current screen as a base64-encoded PNG image for vision analysis",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "include_base64": {
+                        "type": "boolean",
+                        "description": "Include full base64 image data (default: false for summary only)",
+                        "default": False
+                    }
+                }
             }
         ),
         Tool(
@@ -236,7 +351,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="emulator_tick",
-            description="Advance the emulation by one frame",
+            description="Advance the emulation by one or more frames",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -244,6 +359,19 @@ async def list_tools() -> list[Tool]:
                         "type": "integer",
                         "description": "Number of frames to advance (default: 1)",
                         "default": 1
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="emulator_save_screenshot",
+            description="Save current screen to a PNG file",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "output_path": {
+                        "type": "string",
+                        "description": "Path to save the screenshot (default: ./screenshots/frame_XXX.png)"
                     }
                 }
             }
@@ -279,21 +407,33 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 text=json.dumps({"success": success, "button": button, "frame": frame_count}, indent=2)
             )]
         
+        elif name == "emulator_press_sequence":
+            sequence = arguments.get("sequence")
+            if not sequence:
+                return [TextContent(type="text", text="Error: sequence required")]
+            
+            delay = arguments.get("delay", 100)
+            result = press_sequence(sequence, delay)
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
         elif name == "emulator_get_frame":
+            include_base64 = arguments.get("include_base64", False)
             frame_data = get_frame()
             if frame_data is None:
                 return [TextContent(type="text", text="Error: Emulator not initialized or failed to capture frame")]
             
-            # Return image data
-            return [TextContent(
-                type="text",
-                text=json.dumps({
-                    "success": True,
-                    "frame": frame_data['frame'],
-                    "dimensions": f"{frame_data['width']}x{frame_data['height']}",
-                    "image_base64": frame_data['base64'][:100] + "...[truncated]"  # Truncate for readability
-                }, indent=2)
-            )]
+            response = {
+                "success": True,
+                "frame": frame_data['frame'],
+                "dimensions": f"{frame_data['width']}x{frame_data['height']}"
+            }
+            
+            if include_base64:
+                response["image_base64"] = frame_data['base64']
+            else:
+                response["image_base64"] = frame_data['base64'][:100] + "...[truncated]"
+            
+            return [TextContent(type="text", text=json.dumps(response, indent=2))]
         
         elif name == "emulator_get_state":
             state = get_state()
@@ -314,6 +454,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 type="text",
                 text=json.dumps({"success": success, "frames": frames, "new_frame": frame_count}, indent=2)
             )]
+        
+        elif name == "emulator_save_screenshot":
+            output_path = arguments.get("output_path")
+            result = save_screenshot(output_path)
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
         else:
             return [TextContent(type="text", text=f"Error: Unknown tool: {name}")]

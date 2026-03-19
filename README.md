@@ -2,9 +2,29 @@
 
 A comprehensive multi-component emulation and AI gaming system featuring Game Boy and Game Boy Advance emulators with integrated AI APIs.
 
-![AI Game System](https://img.shields.io/badge/AI-Game%20System-blue) ![Python](https://img.shields.io/badge/Python-3.8+-green) ![Node.js](https://img.shields.io/badge/Node.js-18+-yellow) ![Windows](https://img.shields.io/badge/OS-Windows-blue)
+![AI Game System](https://img.shields.io/badge/AI-Game%20System-blue) ![Python](https://img.shields.io/badge/Python-3.8+-green) ![Node.js](https://img.shields.io/badge/Node.js-18+-yellow) ![Windows](https://img.shields.io/badge/OS-Windows-blue) ![OpenClaw](https://img.shields.io/badge/OpenClaw-Ready-green)
 
 ## 🚀 Quick Start
+
+### For OpenClaw Agents (Recommended)
+
+OpenClaw agents can directly control the emulator via MCP tools:
+
+```bash
+# 1. Register MCP server
+cd ai-pyboy-emulation/ai-game-server
+mcporter add pyboy-emulator --stdio "python3 mcp_server.py"
+
+# 2. Use in your agent
+# Tools available: emulator_load_rom, emulator_press_button, emulator_get_frame, emulator_get_state, emulator_tick
+
+# 3. Spawn a vision-powered gaming agent
+sessions_spawn --task "Play Pokemon Blue - get a starter Pokemon" --model bailian/kimi-k2.5
+```
+
+See [OPENCLAW-INTEGRATION.md](./OPENCLAW-INTEGRATION.md) for full documentation.
+
+### For Web UI (Windows)
 
 **Windows users:** Simply run `unified_startup.bat` for an automated setup experience!
 
@@ -147,6 +167,35 @@ Models must be specified in the format `vendor/model-name`. Examples:
 - `anthropic/claude-3-opus:beta`
 - `google/gemini-pro-vision`
 - `mistralai/mistral-large`
+
+### Alibaba Bailian (Recommended for OpenClaw)
+
+**Vision Capabilities**: ✅ Required
+**Tool Use**: ✅ Recommended (via OpenClaw Gateway)
+**Cost**: **FREE unlimited** for most models!
+
+Bailian is the recommended provider for OpenClaw agents with zero API costs:
+
+| Model | Vision | Context | Best For |
+|-------|--------|---------|----------|
+| `bailian/kimi-k2.5` | ✅ Yes | 196K | **Primary vision** - FREE unlimited |
+| `bailian/MiniMax-M2.5` | ❌ No | 196K | Planning/reasoning - FREE unlimited |
+| `bailian/qwen3.5-plus` | ✅ Yes | 1M | Complex reasoning - 18K/mo quota |
+| `bailian/qwen3-max` | ✅ Yes | 1M | Advanced reasoning - shared quota |
+| `bailian/glm-5` | ✅ Yes | 128K | Fast coding - API credits |
+
+**Setup for OpenClaw:**
+```bash
+# Already configured in OpenClaw Gateway (localhost:18789)
+# Just use the model ID directly:
+model = "bailian/kimi-k2.5"
+```
+
+**Features**:
+- ✅ **FREE unlimited** for kimi-k2.5 and MiniMax-M2.5
+- ✅ Vision-capable models for screen analysis
+- ✅ Unified billing through OpenClaw
+- ✅ Zero ban risk (unlike Gemini)
 
 ### NVIDIA NIM
 
