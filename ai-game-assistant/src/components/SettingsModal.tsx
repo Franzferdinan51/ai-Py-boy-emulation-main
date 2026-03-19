@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import type { AppSettings } from '../../services/apiService';
+import type { AppSettings, ModelInfo } from '../../services/apiService';
+import apiService from '../../services/apiService';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -13,10 +14,13 @@ interface ProbeStatus {
   message: string;
 }
 
-const VISION_MODELS: Array<{ value: AppSettings['visionModel']; label: string; note: string }> = [
-  { value: 'kimi-k2.5', label: 'Kimi K2.5', note: 'Recommended default for OpenClaw vision.' },
-  { value: 'qwen-vl-plus', label: 'Qwen VL Plus', note: 'Alternative vision profile for inspection-heavy runs.' },
-];
+interface ModelOption {
+  value: string;
+  label: string;
+  note: string;
+  isFree?: boolean;
+  isVisionCapable?: boolean;
+}
 
 const AI_PROVIDERS: Array<{ value: NonNullable<AppSettings['aiProvider']>; label: string; note: string }> = [
   { value: 'openclaw', label: 'OpenClaw MCP', note: 'Local OpenClaw integration (recommended).' },
@@ -67,6 +71,88 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [testingBackend, setTestingBackend] = useState(false);
   const [testingOpenClaw, setTestingOpenClaw] = useState(false);
   const [testingLmStudio, setTestingLmStudio] = useState(false);
+  
+  // Dynamic model lists from OpenClaw
+  const [visionModels, setVisionModels] = useState<ModelOption[]>([]);
+  const [planningModels, setPlanningModels] = useState<ModelOption[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+
+  // Load models from OpenClaw when modal opens
+  useEffect(() => {
+    if (isOpen && !modelsLoaded) {
+      void loadModelsFromOpenClaw();
+    }
+  }, [isOpen]);
+
+  const loadModelsFromOpenClaw = async () => {
+    setLoadingModels(true);
+    try {
+      // Fetch vision and planning models in parallel
+      const [visionResponse, planningResponse] = await Promise.all([
+        apiService.getVisionModels().catch(() => ({ models: [] })),
+        apiService.getPlanningModels().catch(() => ({ models: [] })),
+      ]);
+
+      // Convert to ModelOption format
+      const visionOpts: ModelOption[] = visionResponse.models.map(m => ({
+        value: m.id,
+        label: `${m.name} (${m.provider})`,
+        note: m.description || (m.is_free ? 'FREE' : 'API credits'),
+        isFree: m.is_free,
+        isVisionCapable: m.is_vision_capable,
+      }));
+
+      const planningOpts: ModelOption[] = planningResponse.models.map(m => ({
+        value: m.id,
+        label: `${m.name} (${m.provider})`,
+        note: m.description || (m.is_free ? 'FREE' : 'API credits'),
+        isFree: m.is_free,
+      }));
+
+      // Add fallback models if none discovered
+      if (visionOpts.length === 0) {
+        visionOpts.push(
+          { value: 'bailian/kimi-k2.5', label: 'Kimi K2.5 (Fallback)', note: 'Default vision model (FREE)', isFree: true },
+          { value: 'bailian/qwen-vl-plus', label: 'Qwen VL Plus (Fallback)', note: 'Alternative vision model', isFree: false },
+        );
+      }
+
+      if (planningOpts.length === 0) {
+        planningOpts.push(
+          { value: 'bailian/glm-5', label: 'GLM-5 (Fallback)', note: 'Fast decisions (API credits)', isFree: false },
+          { value: 'bailian/MiniMax-M2.5', label: 'MiniMax M2.5 (Fallback)', note: 'Unlimited FREE model', isFree: true },
+        );
+      }
+
+      setVisionModels(visionOpts);
+      setPlanningModels(planningOpts);
+      setModelsLoaded(true);
+
+      // Update draft with recommended models if not set
+      if (!draft.visionModel && visionOpts.length > 0) {
+        setDraft(prev => ({ ...prev, visionModel: visionOpts[0].value }));
+      }
+      if (!draft.planningModel && planningOpts.length > 0) {
+        setDraft(prev => ({ ...prev, planningModel: planningOpts[0].value }));
+      }
+
+    } catch (error) {
+      console.error('Failed to load models from OpenClaw:', error);
+      // Use fallback models
+      setVisionModels([
+        { value: 'bailian/kimi-k2.5', label: 'Kimi K2.5', note: 'Best for game screen analysis (FREE)', isFree: true },
+        { value: 'bailian/qwen-vl-plus', label: 'Qwen VL Plus', note: 'High quality vision (quota)', isFree: false },
+      ]);
+      setPlanningModels([
+        { value: 'bailian/glm-5', label: 'GLM-5', note: 'Fast decisions, great for games', isFree: false },
+        { value: 'bailian/MiniMax-M2.5', label: 'MiniMax M2.5', note: 'Unlimited, reliable (FREE)', isFree: true },
+      ]);
+      setModelsLoaded(true);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -100,7 +186,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
-  const activeVisionModel = VISION_MODELS.find((model) => model.value === draft.visionModel);
+  const activeVisionModel = visionModels.find((model) => model.value === draft.visionModel);
+  const activePlanningModel = planningModels.find((model) => model.value === draft.planningModel);
 
   const testBackend = async () => {
     setTestingBackend(true);
@@ -385,19 +472,51 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               </label>
 
               <label className="form-field">
-                <span className="form-field__label">Vision profile</span>
+                <span className="form-field__label">Vision Model</span>
                 <select
                   value={draft.visionModel}
-                  onChange={(event) => update('visionModel', event.target.value as AppSettings['visionModel'])}
+                  onChange={(event) => update('visionModel', event.target.value)}
                   className="select-input"
+                  disabled={loadingModels}
                 >
-                  {VISION_MODELS.map((model) => (
-                    <option key={model.value} value={model.value}>
-                      {model.label}
-                    </option>
-                  ))}
+                  {loadingModels ? (
+                    <option>Loading models from OpenClaw...</option>
+                  ) : (
+                    visionModels.map((model) => (
+                      <option key={model.value} value={model.value}>
+                        {model.label} {model.isFree ? '★' : ''}
+                      </option>
+                    ))
+                  )}
                 </select>
-                <span className="form-field__help">{activeVisionModel?.note}</span>
+                <span className="form-field__help">
+                  {activeVisionModel?.note || 'Model for screen/image analysis'}
+                  {loadingModels ? ' (Loading...)' : ''}
+                </span>
+              </label>
+
+              <label className="form-field">
+                <span className="form-field__label">Planning Model</span>
+                <select
+                  value={draft.planningModel || ''}
+                  onChange={(event) => update('planningModel', event.target.value)}
+                  className="select-input"
+                  disabled={loadingModels}
+                >
+                  {loadingModels ? (
+                    <option>Loading models from OpenClaw...</option>
+                  ) : (
+                    planningModels.map((model) => (
+                      <option key={model.value} value={model.value}>
+                        {model.label} {model.isFree ? '★' : ''}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <span className="form-field__help">
+                  {activePlanningModel?.note || 'Model for decision making and reasoning'}
+                  {loadingModels ? ' (Loading...)' : ''}
+                </span>
               </label>
 
               <label className="form-field">

@@ -34,6 +34,18 @@ export type AgentAutonomy = 'passive' | 'moderate' | 'aggressive';
 export type AgentPersonality = 'strategic' | 'casual' | 'speedrun' | 'explorer';
 export type EmulatorType = 'gb' | 'gba';
 
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  capabilities: string[];
+  context_window: number;
+  is_vision_capable: boolean;
+  is_free: boolean;
+  description: string;
+  priority: number;
+}
+
 export interface AppSettings {
   backendUrl: string;
   openclawMcpEndpoint: string;
@@ -42,7 +54,8 @@ export interface AppSettings {
   autoConnect: boolean;
   aiActionInterval: number;
   agentMode: boolean;
-  visionModel: 'kimi-k2.5' | 'qwen-vl-plus';
+  visionModel: string; // Now dynamic instead of hardcoded
+  planningModel?: string; // Separate planning model
   autonomousLevel: AgentAutonomy;
   agentPersonality: AgentPersonality;
   agentObjectives: string;
@@ -187,9 +200,12 @@ export interface InventoryData {
 export interface OpenClawConfig {
   endpoint: string;
   vision_model: AppSettings['visionModel'];
+  planning_model?: string; // NEW: Independent planning model
+  use_dual_model?: boolean; // NEW: Enable dual-model architecture
   objectives: string;
   personality: AgentPersonality;
   timestamp: string;
+  dual_model_status?: DualModelStatus; // NEW: Dual-model status
 }
 
 export interface OpenClawHealthResponse {
@@ -200,6 +216,34 @@ export interface OpenClawHealthResponse {
   error?: string | null;
   checked_at: string;
   details?: Record<string, unknown> | null;
+}
+
+// NEW: Dual-model architecture types
+export interface DualModelConfig {
+  vision_model: string;
+  planning_model: string;
+  use_dual_model: boolean;
+  available_vision_models: ModelOption[];
+  available_planning_models: ModelOption[];
+  dual_model_status?: DualModelStatus;
+  timestamp: string;
+}
+
+export interface ModelOption {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface DualModelStatus {
+  vision_model: string;
+  planning_model: string;
+  openclaw_endpoint: string;
+  last_vision_response?: string;
+  last_planning_response?: string;
+  available_vision_models?: string[];
+  available_planning_models?: string[];
+  timestamp?: string;
 }
 
 class ApiService {
@@ -337,6 +381,8 @@ class ApiService {
   updateOpenClawConfig(payload: {
     endpoint: string;
     vision_model: AppSettings['visionModel'];
+    planning_model?: AppSettings['planningModel'];
+    use_dual_model?: boolean;
     objectives: string;
     personality: AgentPersonality;
   }) {
@@ -387,6 +433,80 @@ class ApiService {
       models: string[];
       timestamp: string;
     }>('/api/lmstudio/models');
+  }
+
+  // OpenClaw Model Discovery endpoints
+  getOpenClawModels(refresh = false) {
+    const params = refresh ? '?refresh=true' : '';
+    return this.request<{
+      models: ModelInfo[];
+      timestamp: string;
+      cached: boolean;
+    }>(`/api/openclaw/models${params}`);
+  }
+
+  getVisionModels(refresh = false) {
+    const params = refresh ? '?refresh=true' : '';
+    return this.request<{
+      models: ModelInfo[];
+      timestamp: string;
+    }>(`/api/openclaw/models/vision${params}`);
+  }
+
+  getPlanningModels(refresh = false) {
+    const params = refresh ? '?refresh=true' : '';
+    return this.request<{
+      models: ModelInfo[];
+      timestamp: string;
+    }>(`/api/openclaw/models/planning${params}`);
+  }
+
+  recommendModel(useCase: 'vision' | 'planning' | 'fast' | 'quality' | 'free', refresh = false) {
+    const params = `?use_case=${useCase}${refresh ? '&refresh=true' : ''}`;
+    return this.request<{
+      model: ModelInfo;
+      use_case: string;
+      timestamp: string;
+    }>(`/api/openclaw/models/recommend${params}`);
+  }
+
+  // NEW: Dual-model architecture API methods
+  
+  /**
+   * Get dual-model configuration (vision + planning models)
+   */
+  getDualModelConfig() {
+    return this.request<DualModelConfig>('/api/dual-model/config');
+  }
+
+  /**
+   * Update dual-model configuration
+   */
+  updateDualModelConfig(payload: {
+    vision_model?: string;
+    planning_model?: string;
+    use_dual_model?: boolean;
+  }) {
+    return this.request<{
+      success: boolean;
+      message: string;
+      config: {
+        vision_model: string;
+        planning_model: string;
+        use_dual_model: boolean;
+      };
+      timestamp: string;
+    }>('/api/dual-model/config', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * Get detailed dual-model status
+   */
+  getDualModelStatus() {
+    return this.request<DualModelStatus>('/api/dual-model/status');
   }
 }
 

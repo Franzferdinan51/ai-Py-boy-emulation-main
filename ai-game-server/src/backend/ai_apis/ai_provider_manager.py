@@ -20,7 +20,6 @@ from .tetris_genetic_ai import TetrisGeneticAI
 from .openclaw_ai_provider import OpenClawAIProvider
 from .lmstudio_connector import LMStudioConnector
 from .dual_model_provider import DualModelProvider
-from .dual_model_provider import DualModelProvider
 
 class ProviderStatus(Enum):
     """Provider status enumeration"""

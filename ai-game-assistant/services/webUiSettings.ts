@@ -8,6 +8,9 @@ export const SETTINGS_STORAGE_KEY = 'openclaw_webui_settings';
  * Dual-model architecture is enabled by default:
  * - Vision Model: kimi-k2.5 (excellent at game screen analysis)
  * - Planning Model: glm-5 (fast, capable decision making)
+ * 
+ * Note: Models are now dynamically discovered from OpenClaw.
+ * These defaults are fallbacks when OpenClaw is unavailable.
  */
 export const DEFAULT_SETTINGS: AppSettings = {
   backendUrl: resolveDefaultBackendUrl(),
@@ -19,8 +22,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   agentMode: true,
   
   // Dual-model architecture settings (NEW)
-  visionModel: 'kimi-k2.5', // Vision model for screen analysis
-  planningModel: 'glm-5', // Planning model for decisions
+  visionModel: 'bailian/kimi-k2.5', // Vision model for screen analysis (will be updated from OpenClaw)
+  planningModel: 'bailian/glm-5', // Planning model for decisions (will be updated from OpenClaw)
   useDualModel: true, // Enable dual-model by default
   
   // Legacy settings
@@ -28,26 +31,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   agentPersonality: 'strategic',
   agentObjectives: 'Complete Pokemon Red with safe exploration and clear progress.',
 };
-
-/**
- * Available vision models with descriptions
- */
-export const VISION_MODEL_OPTIONS = [
-  { value: 'kimi-k2.5', label: 'Kimi K2.5', description: 'Best for game screen analysis (FREE)' },
-  { value: 'qwen-vl-plus', label: 'Qwen VL Plus', description: 'High quality vision (quota)' },
-  { value: 'glm-4v-flash', label: 'GLM-4V Flash', description: 'Fast vision model' },
-  { value: 'MiniMax-M2.7', label: 'MiniMax M2.7', description: 'Multimodal with vision (FREE)' },
-] as const;
-
-/**
- * Available planning models with descriptions
- */
-export const PLANNING_MODEL_OPTIONS = [
-  { value: 'glm-5', label: 'GLM-5', description: 'Fast decisions, great for games (API credits)' },
-  { value: 'qwen3.5-plus', label: 'Qwen 3.5 Plus', description: 'Best reasoning (quota)' },
-  { value: 'MiniMax-M2.7', label: 'MiniMax M2.7', description: 'Balanced, multimodal (FREE)' },
-  { value: 'MiniMax-M2.5', label: 'MiniMax M2.5', description: 'Unlimited, reliable (FREE)' },
-] as const;
 
 export const normalizeSettings = (value: Partial<AppSettings> | null | undefined): AppSettings => ({
   ...DEFAULT_SETTINGS,

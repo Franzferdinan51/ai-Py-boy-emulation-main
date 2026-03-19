@@ -352,6 +352,10 @@ game_state = {
     "current_model": None
 }
 
+# Background live emulation loop state
+emulation_loop_running = False
+emulation_loop_thread = None
+
 # AI provider manager is imported from ai_provider_manager
 
 def get_game_state():
@@ -396,6 +400,56 @@ def sync_loaded_rom_state(emulator_type: str, rom_path: str, rom_name: Optional[
         "rom_name": rom_name or os.path.basename(rom_path),
         "frame_count": frame_count,
     })
+
+
+def _live_emulation_loop():
+    """Continuously advance the active emulator so the WebUI shows a true live view."""
+    global emulation_loop_running
+    logger.info("Starting background live emulation loop")
+    while emulation_loop_running:
+        try:
+            current_state = get_game_state()
+            active = current_state.get("active_emulator")
+            if current_state.get("rom_loaded") and active in emulators:
+                emulator = emulators[active]
+                # Prefer direct PyBoy ticking when available for a reliable live view.
+                if hasattr(emulator, 'pyboy') and getattr(emulator, 'pyboy', None):
+                    try:
+                        emulator.pyboy.tick(1, False)
+                    except Exception:
+                        pass
+                elif hasattr(emulator, 'step'):
+                    try:
+                        emulator.step('NOOP', 1)
+                    except Exception:
+                        pass
+                if hasattr(emulator, 'get_info'):
+                    try:
+                        info = emulator.get_info()
+                        if isinstance(info, dict) and 'frame_count' in info:
+                            update_game_state({"frame_count": info['frame_count']})
+                    except Exception:
+                        pass
+                elif hasattr(emulator, 'get_frame_count'):
+                    try:
+                        update_game_state({"frame_count": emulator.get_frame_count()})
+                    except Exception:
+                        pass
+            time.sleep(1/30)
+        except Exception as exc:
+            logger.debug(f"Live emulation loop iteration failed: {exc}")
+            time.sleep(0.1)
+    logger.info("Background live emulation loop stopped")
+
+
+def ensure_emulation_loop_running():
+    """Start the background emulation loop if not already running."""
+    global emulation_loop_running, emulation_loop_thread
+    if emulation_loop_running and emulation_loop_thread and emulation_loop_thread.is_alive():
+        return
+    emulation_loop_running = True
+    emulation_loop_thread = threading.Thread(target=_live_emulation_loop, daemon=True)
+    emulation_loop_thread.start()
 
 def read_emulator_memory_value(emulator, address: int, size: int = 1) -> Optional[int]:
     """Read emulator memory using the best available API across emulator modes."""
@@ -1139,6 +1193,127 @@ def get_models():
     models = ai_provider_manager.get_models(provider_name)
     return jsonify({"models": models}), 200
 
+@app.route('/api/openclaw/models', methods=['GET'])
+def get_openclaw_models():
+    """Get all available models from OpenClaw Gateway"""
+    try:
+        force_refresh = request.args.get('refresh', 'false').lower() == 'true'
+        discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
+        models = discovery.get_available_models(force_refresh=force_refresh)
+        
+        return jsonify({
+            "models": [
+                {
+                    "id": model.id,
+                    "name": model.name,
+                    "provider": model.provider,
+                    "capabilities": model.capabilities,
+                    "context_window": model.context_window,
+                    "is_vision_capable": model.is_vision_capable,
+                    "is_free": model.is_free,
+                    "description": model.description,
+                    "priority": model.priority
+                }
+                for model in models
+            ],
+            "timestamp": datetime.now().isoformat(),
+            "cached": not force_refresh and discovery._is_cache_valid()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to get OpenClaw models: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/openclaw/models/vision', methods=['GET'])
+def get_vision_models():
+    """Get only vision-capable models from OpenClaw"""
+    try:
+        force_refresh = request.args.get('refresh', 'false').lower() == 'true'
+        discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
+        models = discovery.get_vision_models()
+        
+        return jsonify({
+            "models": [
+                {
+                    "id": model.id,
+                    "name": model.name,
+                    "provider": model.provider,
+                    "capabilities": model.capabilities,
+                    "context_window": model.context_window,
+                    "is_free": model.is_free,
+                    "description": model.description,
+                    "priority": model.priority
+                }
+                for model in models
+            ],
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to get vision models: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/openclaw/models/planning', methods=['GET'])
+def get_planning_models():
+    """Get models suitable for planning/decision making"""
+    try:
+        force_refresh = request.args.get('refresh', 'false').lower() == 'true'
+        discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
+        models = discovery.get_planning_models()
+        
+        return jsonify({
+            "models": [
+                {
+                    "id": model.id,
+                    "name": model.name,
+                    "provider": model.provider,
+                    "capabilities": model.capabilities,
+                    "context_window": model.context_window,
+                    "is_free": model.is_free,
+                    "description": model.description,
+                    "priority": model.priority
+                }
+                for model in models
+            ],
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to get planning models: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/openclaw/models/recommend', methods=['GET'])
+def recommend_model():
+    """Get model recommendation for a specific use case"""
+    try:
+        use_case = request.args.get('use_case', 'planning')
+        force_refresh = request.args.get('refresh', 'false').lower() == 'true'
+        discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
+        model = discovery.recommend_model(use_case)
+        
+        if model:
+            return jsonify({
+                "model": {
+                    "id": model.id,
+                    "name": model.name,
+                    "provider": model.provider,
+                    "capabilities": model.capabilities,
+                    "context_window": model.context_window,
+                    "is_vision_capable": model.is_vision_capable,
+                    "is_free": model.is_free,
+                    "description": model.description,
+                    "priority": model.priority
+                },
+                "use_case": use_case,
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        else:
+            return jsonify({"error": "No model found for this use case"}), 404
+            
+    except Exception as e:
+        logger.error(f"Failed to recommend model: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/upload-rom', methods=['POST'])
 def upload_rom():
     """Upload a ROM file and load it into the specified emulator with enhanced security"""
@@ -1299,16 +1474,18 @@ def upload_rom():
 
                 if hasattr(emulator, 'pyboy') and emulator.pyboy:
                     try:
-                        # Run a few test frames with proper tick API
-                        for i in range(5):
-                            result = emulator.pyboy.tick(1, False)  # Don't render for test
-                            if not result:
-                                logger.warning(f"Test frame {i} returned False")
+                        # Run a short warm-up with a rendered final frame so the
+                        # live WebUI has a meaningful framebuffer immediately.
+                        for i in range(120):
+                            render_this_frame = (i == 119)
+                            result = emulator.pyboy.tick(1, render_this_frame)
+                            if result is False and i > 0:
+                                logger.warning(f"Warm-up frame {i} returned False")
                         test_success = True
-                        logger.info("Emulator test frames completed successfully")
+                        logger.info("Emulator warm-up frames completed successfully")
                     except Exception as tick_error:
                         test_error = str(tick_error)
-                        logger.error(f"Emulator test frames failed: {tick_error}")
+                        logger.error(f"Emulator warm-up frames failed: {tick_error}")
                 else:
                     test_error = "Emulator has no pyboy attribute"
                     logger.warning("Emulator has no pyboy attribute")
@@ -1322,6 +1499,7 @@ def upload_rom():
                 logger.info(f"UI status: {ui_status}")
                 rom_name = file.filename or safe_filename
                 sync_loaded_rom_state(emulator_type, temp_rom_path, rom_name=rom_name)
+                ensure_emulation_loop_running()
 
                 # Prepare comprehensive response
                 response_data = {
@@ -4149,6 +4327,11 @@ def get_agent_status_api():
         # Normalize mode for frontend (return 'auto' for any auto_* mode)
         frontend_mode = "auto" if actual_mode.startswith("auto_") else actual_mode
         
+        # Get dual-model status
+        dual_model_status = None
+        if hasattr(ai_provider_manager, 'get_dual_model_status'):
+            dual_model_status = ai_provider_manager.get_dual_model_status()
+        
         agent_status = {
             "connected": current_state["rom_loaded"],
             "agent_name": "OpenClaw",
@@ -4161,7 +4344,11 @@ def get_agent_status_api():
             "game_running": current_state["rom_loaded"],
             "objectives": openclaw_runtime_state["objectives"],
             "personality": openclaw_runtime_state["personality"],
+            # Dual-model architecture (NEW)
             "vision_model": openclaw_runtime_state["vision_model"],
+            "planning_model": openclaw_runtime_state["planning_model"],
+            "use_dual_model": openclaw_runtime_state["use_dual_model"],
+            "dual_model_status": dual_model_status,
             "timestamp": datetime.now().isoformat()
         }
         
@@ -4799,6 +4986,7 @@ def load_rom_api():
         
         if success:
             sync_loaded_rom_state(emulator_type, rom_path)
+            ensure_emulation_loop_running()
             
             # Get emulator info
             emulator = emulator_instance
@@ -4970,6 +5158,139 @@ def get_agent_mode():
         }), 200
     except Exception as e:
         logger.error(f"Error getting agent mode: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
+# DUAL-MODEL ARCHITECTURE API ENDPOINTS
+# ============================================================================
+
+@app.route('/api/dual-model/config', methods=['GET'])
+def get_dual_model_config():
+    """
+    Get dual-model architecture configuration.
+    
+    Returns current vision and planning model settings.
+    """
+    try:
+        config = {
+            "vision_model": openclaw_runtime_state["vision_model"],
+            "planning_model": openclaw_runtime_state["planning_model"],
+            "use_dual_model": openclaw_runtime_state["use_dual_model"],
+            "available_vision_models": [
+                {"id": "kimi-k2.5", "name": "Kimi K2.5", "description": "Best for game screen analysis (FREE)"},
+                {"id": "qwen-vl-plus", "name": "Qwen VL Plus", "description": "High quality vision (quota)"},
+                {"id": "glm-4v-flash", "name": "GLM-4V Flash", "description": "Fast vision model"},
+                {"id": "MiniMax-M2.7", "name": "MiniMax M2.7", "description": "Multimodal with vision (FREE)"},
+            ],
+            "available_planning_models": [
+                {"id": "glm-5", "name": "GLM-5", "description": "Fast decisions, great for games"},
+                {"id": "qwen3.5-plus", "name": "Qwen 3.5 Plus", "description": "Best reasoning (quota)"},
+                {"id": "MiniMax-M2.7", "name": "MiniMax M2.7", "description": "Balanced, multimodal (FREE)"},
+                {"id": "MiniMax-M2.5", "name": "MiniMax M2.5", "description": "Unlimited, reliable (FREE)"},
+            ],
+            "dual_model_status": ai_provider_manager.get_dual_model_status() if hasattr(ai_provider_manager, 'get_dual_model_status') else None,
+            "timestamp": datetime.now().isoformat()
+        }
+        return jsonify(config), 200
+    except Exception as e:
+        logger.error(f"Error getting dual-model config: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/dual-model/config', methods=['POST'])
+def set_dual_model_config():
+    """
+    Configure dual-model architecture.
+    
+    Body:
+        vision_model: Vision model ID (kimi-k2.5, qwen-vl-plus, etc.)
+        planning_model: Planning model ID (glm-5, qwen3.5-plus, etc.)
+        use_dual_model: Enable/disable dual-model (true/false)
+    """
+    try:
+        data = request.get_json() or {}
+        
+        allowed_vision_models = {"kimi-k2.5", "qwen-vl-plus", "glm-4v-flash", "MiniMax-M2.7"}
+        allowed_planning_models = {"glm-5", "qwen3.5-plus", "MiniMax-M2.7", "MiniMax-M2.5"}
+        
+        vision_model = data.get("vision_model")
+        planning_model = data.get("planning_model")
+        use_dual_model = data.get("use_dual_model")
+        
+        changes = []
+        
+        if vision_model is not None:
+            if vision_model not in allowed_vision_models:
+                return jsonify({
+                    "error": f"Invalid vision model. Allowed: {sorted(allowed_vision_models)}"
+                }), 400
+            openclaw_runtime_state["vision_model"] = vision_model
+            changes.append(f"vision_model: {vision_model}")
+        
+        if planning_model is not None:
+            if planning_model not in allowed_planning_models:
+                return jsonify({
+                    "error": f"Invalid planning model. Allowed: {sorted(allowed_planning_models)}"
+                }), 400
+            openclaw_runtime_state["planning_model"] = planning_model
+            changes.append(f"planning_model: {planning_model}")
+        
+        if use_dual_model is not None:
+            openclaw_runtime_state["use_dual_model"] = bool(use_dual_model)
+            changes.append(f"use_dual_model: {use_dual_model}")
+        
+        # Update the AI provider manager
+        if hasattr(ai_provider_manager, 'configure_dual_model'):
+            result = ai_provider_manager.configure_dual_model(
+                vision_model=openclaw_runtime_state["vision_model"],
+                planning_model=openclaw_runtime_state["planning_model"],
+                use_dual_model=openclaw_runtime_state["use_dual_model"]
+            )
+        
+        logger.info(f"Dual-model config updated: {', '.join(changes)}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Dual-model configuration updated: {', '.join(changes)}",
+            "config": {
+                "vision_model": openclaw_runtime_state["vision_model"],
+                "planning_model": openclaw_runtime_state["planning_model"],
+                "use_dual_model": openclaw_runtime_state["use_dual_model"],
+            },
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error setting dual-model config: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/dual-model/status', methods=['GET'])
+def get_dual_model_status():
+    """
+    Get detailed dual-model provider status.
+    
+    Returns last vision and planning responses, model availability, etc.
+    """
+    try:
+        if hasattr(ai_provider_manager, 'get_dual_model_status'):
+            status = ai_provider_manager.get_dual_model_status()
+            status["timestamp"] = datetime.now().isoformat()
+            return jsonify(status), 200
+        else:
+            return jsonify({
+                "available": False,
+                "error": "Dual-model provider not initialized",
+                "config": {
+                    "vision_model": openclaw_runtime_state["vision_model"],
+                    "planning_model": openclaw_runtime_state["planning_model"],
+                    "use_dual_model": openclaw_runtime_state["use_dual_model"],
+                },
+                "timestamp": datetime.now().isoformat()
+            }), 503
+    except Exception as e:
+        logger.error(f"Error getting dual-model status: {e}")
         return jsonify({"error": str(e)}), 500
 
 
