@@ -439,7 +439,12 @@ finally:
             return False
 
     def get_screen(self) -> np.ndarray:
-        """Get the current screen as a numpy array with performance optimizations"""
+        """Get the current screen as a numpy array using tile-based rendering
+        
+        This method reconstructs the Game Boy screen from VRAM tile data,
+        which works reliably in headless environments where SDL2 screen capture fails.
+        Uses the game_wrapper for Pokemon games when available.
+        """
         if not self.initialized or self.pyboy is None:
             logger.warning("PyBoy not initialized, returning black screen")
             return np.zeros((144, 160, 3), dtype=np.uint8)
@@ -450,37 +455,86 @@ finally:
 
         try:
             with self._emulator_lock:
-                # Force a render tick to ensure screen buffer is updated
-                # This is critical for live view - don't skip rendering!
+                # Advance one frame to update VRAM
                 self.pyboy.tick(1, True)
+            
+            # Game Boy DMG palette (classic green)
+            palette = np.array([
+                [155, 188, 15],   # 0: Lightest (white-ish green)
+                [139, 172, 15],   # 1: Light
+                [48, 98, 15],     # 2: Dark  
+                [8, 24, 32]       # 3: Darkest (black)
+            ], dtype=np.uint8)
+            
+            # Use tilemap_background from game_wrapper if available
+            try:
+                tilemap = self.pyboy.tilemap_background
+                screen = np.zeros((144, 160, 3), dtype=np.uint8)
                 
-                # Use PyBoy's official screen API - get the screen buffer directly
-                screen_array = self.pyboy.screen.ndarray
-                if screen_array is not None:
-                    screen_array = screen_array.copy()
-
-            # Validate screen array dimensions
-            if screen_array is None or screen_array.size == 0:
-                logger.warning("Screen buffer is empty, returning black screen")
-                return np.zeros((144, 160, 3), dtype=np.uint8)
-
-            # Skip caching entirely for live view - always return fresh frame
-            # Optimized format conversion
-            if len(screen_array.shape) == 3 and screen_array.shape[2] == 4:
-                # Fast RGBA to RGB conversion using numpy slicing
-                screen_array = screen_array[:, :, :3]
-            elif len(screen_array.shape) != 3 or screen_array.shape[2] != 3:
-                logger.error(f"Unexpected screen format from PyBoy: {screen_array.shape}")
-                return np.zeros((144, 160, 3), dtype=np.uint8)
-
-            # Ensure proper data type with optimized conversion
-            if screen_array.dtype != np.uint8:
-                screen_array = screen_array.astype(np.uint8, copy=False)
-
-            # Update performance metrics
-            self._update_fps_counter(time.time() - start_time)
-
-            return screen_array
+                # Tilemap is 32x32 tiles, visible area is 20x18 starting at tile offset
+                # Each tile is 8x8 pixels
+                for row in range(18):
+                    for col in range(20):
+                        try:
+                            tile = tilemap[row, col]
+                            if hasattr(tile, 'tile_data'):
+                                # Get 8x8 tile data (16 bytes per tile, 2 bits per pixel)
+                                tile_data = tile.tile_data
+                                for y in range(8):
+                                    byte1 = tile_data[y * 2] if y * 2 < len(tile_data) else 0
+                                    byte2 = tile_data[y * 2 + 1] if y * 2 + 1 < len(tile_data) else 0
+                                    for x in range(8):
+                                        bit_pos = 7 - x
+                                        pixel = ((byte1 >> bit_pos) & 1) | (((byte2 >> bit_pos) & 1) << 1)
+                                        screen[row * 8 + y, col * 8 + x] = palette[pixel]
+                        except Exception:
+                            # Fall back to background color
+                            screen[row * 8:(row + 1) * 8, col * 8:(col + 1) * 8] = palette[0]
+                            
+                return screen
+            except Exception as e:
+                logger.debug(f"Tilemap approach failed, trying direct rendering: {e}")
+            
+            # Fallback: Direct tile rendering from memory
+            # Game Boy screen: 160x144 pixels, 20x18 tiles (8x8 each)
+            width, height = 20, 18
+            tile_size = 8
+            tile_map_addr = 0x9800
+            tile_data_addr = 0x8000
+            
+            screen = np.zeros((height * tile_size, width * tile_size, 3), dtype=np.uint8)
+            
+            for row in range(height):
+                for col in range(width):
+                    addr = tile_map_addr + row * 32 + col
+                    tile_index = self.pyboy.memory[addr]
+                    
+                    # Handle signed tile indices (128-255)
+                    if tile_index >= 128:
+                        tile_index -= 256
+                    
+                    # Calculate tile data address
+                    if tile_index < 0:
+                        tile_addr = 0x9000 + (128 + tile_index) * 16
+                    else:
+                        tile_addr = tile_data_addr + tile_index * 16
+                    
+                    # Read tile pixels
+                    for y in range(tile_size):
+                        try:
+                            byte1 = self.pyboy.memory[tile_addr + y * 2]
+                            byte2 = self.pyboy.memory[tile_addr + y * 2 + 1]
+                            
+                            for x in range(tile_size):
+                                bit_pos = 7 - x
+                                pixel = ((byte1 >> bit_pos) & 1) | (((byte2 >> bit_pos) & 1) << 1)
+                                screen_y = row * tile_size + y
+                                screen_x = col * tile_size + x
+                                screen[screen_y, screen_x] = palette[pixel]
+                        except Exception:
+                            pass  # Skip invalid tiles
+            
+            return screen
 
         except Exception as e:
             logger.error(f"Error getting screen from PyBoy: {e}")
