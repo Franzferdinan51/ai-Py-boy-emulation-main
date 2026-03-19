@@ -1,10 +1,16 @@
 """
 PyBoy emulator implementation with performance optimizations
+
+SDL_WINDOW_HIDDEN=1 - Creates invisible window for screen rendering
+SDL_AUDIODRIVER=disk - Disables audio for performance
 """
+import os
+os.environ['SDL_WINDOW_HIDDEN'] = '1'
+os.environ['SDL_AUDIODRIVER'] = 'disk'
+
 import numpy as np
 from typing import List, Tuple, Optional, Any
 import io
-import os
 import sys
 import logging
 import subprocess
@@ -92,12 +98,18 @@ class PyBoyEmulator(EmulatorInterface):
                 # Initialize PyBoy using the official API pattern
                 logger.info(f"Initializing PyBoy with ROM: {os.path.basename(rom_path)}")
 
-                # Use SDL2 window for proper screen buffer rendering
+                # Use SDL2 window with hidden display for proper screen rendering
+                # PyBoy requires actual SDL2 window to populate screen buffer
+                # SDL_WINDOW_HIDDEN makes window invisible while still rendering
+                import os
+                os.environ['SDL_WINDOW_HIDDEN'] = '1'
+                os.environ['SDL_AUDIODRIVER'] = 'disk'
+                
                 self.pyboy = PyBoy(
                     rom_path,
-                    window="SDL2",  # SDL2 for proper screen capture
+                    window="SDL2",
                     scale=2,
-                    sound_emulated=False,  # Disable sound to prevent buffer overrun crashes
+                    sound_emulated=False,
                     sound_volume=0
                 )
 
@@ -438,6 +450,10 @@ finally:
 
         try:
             with self._emulator_lock:
+                # Force a render tick to ensure screen buffer is updated
+                # This is critical for live view - don't skip rendering!
+                self.pyboy.tick(1, True)
+                
                 # Use PyBoy's official screen API - get the screen buffer directly
                 screen_array = self.pyboy.screen.ndarray
                 if screen_array is not None:
@@ -448,15 +464,7 @@ finally:
                 logger.warning("Screen buffer is empty, returning black screen")
                 return np.zeros((144, 160, 3), dtype=np.uint8)
 
-            # Check cache if enabled
-            if self._screen_cache_enabled:
-                screen_hash = self._calculate_screen_hash(screen_array)
-                if screen_hash == self._last_screen_hash and screen_hash in self._screen_cache:
-                    self._performance_stats['cache_hits'] += 1
-                    self._update_fps_counter(time.time() - start_time)
-                    return self._screen_cache[screen_hash]
-                self._last_screen_hash = screen_hash
-
+            # Skip caching entirely for live view - always return fresh frame
             # Optimized format conversion
             if len(screen_array.shape) == 3 and screen_array.shape[2] == 4:
                 # Fast RGBA to RGB conversion using numpy slicing
@@ -468,14 +476,6 @@ finally:
             # Ensure proper data type with optimized conversion
             if screen_array.dtype != np.uint8:
                 screen_array = screen_array.astype(np.uint8, copy=False)
-
-            # Cache the processed screen
-            if self._screen_cache_enabled and screen_hash:
-                self._screen_cache[screen_hash] = screen_array.copy()
-                # Limit cache size to prevent memory issues
-                if len(self._screen_cache) > 10:
-                    oldest_key = next(iter(self._screen_cache))
-                    del self._screen_cache[oldest_key]
 
             # Update performance metrics
             self._update_fps_counter(time.time() - start_time)
@@ -1122,7 +1122,11 @@ class PyBoyEmulatorMP(EmulatorInterface):
     def _pyboy_worker(self, rom_path: str, command_queue: Queue, result_queue: Queue, stop_event: Event):
         """Worker function that runs PyBoy in a separate process"""
         try:
-            # Initialize PyBoy in worker process with SDL2 for proper rendering
+            # Initialize PyBoy in worker process with hidden SDL2 for screen buffer
+            import os
+            os.environ['SDL_WINDOW_HIDDEN'] = '1'
+            os.environ['SDL_AUDIODRIVER'] = 'disk'
+            
             pyboy = PyBoy(
                 rom_path,
                 window="SDL2",

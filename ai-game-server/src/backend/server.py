@@ -431,9 +431,11 @@ def _live_emulation_loop():
             active = current_state.get("active_emulator")
             if current_state.get("rom_loaded") and active in emulators:
                 emulator = emulators[active]
-                if hasattr(emulator, 'advance_idle_frames'):
+                # Directly tick PyBoy with rendering enabled to update screen buffer
+                # This is critical - step() doesn't render by default!
+                if hasattr(emulator, 'pyboy') and emulator.pyboy:
                     try:
-                        emulator.advance_idle_frames(1)
+                        emulator.pyboy.tick(1, True)  # Render every frame for live view
                     except Exception:
                         pass
                 elif hasattr(emulator, 'step'):
