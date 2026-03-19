@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { Database, RefreshCw, Plus, X, Eye, EyeOff } from 'lucide-react';
 
 interface MemoryAddress {
   address: number;
@@ -10,12 +11,16 @@ interface MemoryInspectorProps {
   backendUrl: string;
   className?: string;
   maxWatchAddresses?: number;
+  isRomLoaded?: boolean;
 }
+
+const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(' ');
 
 const MemoryInspector: React.FC<MemoryInspectorProps> = ({
   backendUrl,
   className = '',
   maxWatchAddresses = 10,
+  isRomLoaded = true,
 }) => {
   const [watchedAddresses, setWatchedAddresses] = useState<MemoryAddress[]>([]);
   const [newAddress, setNewAddress] = useState('');
@@ -27,38 +32,56 @@ const MemoryInspector: React.FC<MemoryInspectorProps> = ({
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const addWatchAddress = useCallback(() => {
-    const address = parseInt(newAddress, 16);
+    const addressStr = (newAddress ?? '').trim();
+    if (!addressStr) {
+      setError('Enter an address to watch.');
+      return;
+    }
+
+    const address = addressStr.startsWith('0x') || addressStr.startsWith('0X')
+      ? parseInt(addressStr, 16)
+      : parseInt(addressStr, 10);
+
     if (isNaN(address) || address < 0 || address > 0xFFFF) {
       setError('Invalid address. Enter hex (e.g., 0xFF00) or decimal.');
       return;
     }
+
     if (watchedAddresses.length >= maxWatchAddresses) {
       setError(`Maximum ${maxWatchAddresses} watch addresses allowed.`);
       return;
     }
+
     if (watchedAddresses.some(a => a.address === address)) {
       setError('Address already being watched.');
       return;
     }
-    const label = newLabel.trim() || undefined;
+
+    const label = (newLabel ?? '').trim() || undefined;
     setWatchedAddresses(prev => [...prev, { address, value: 0, label }]);
     setNewAddress('');
     setNewLabel('');
     setError(null);
-  }, [newAddress, newLabel, watchedAddresses.length, maxWatchAddresses]);
+  }, [newAddress, newLabel, watchedAddresses, maxWatchAddresses]);
 
   const removeWatchAddress = useCallback((address: number) => {
     setWatchedAddresses(prev => prev.filter(a => a.address !== address));
   }, []);
 
   const updateLabel = useCallback((address: number, label: string) => {
-    setWatchedAddresses(prev => prev.map(a => a.address === address ? { ...a, label: label || undefined } : a));
+    setWatchedAddresses(prev =>
+      prev.map(a => a.address === address ? { ...a, label: label || undefined } : a)
+    );
   }, []);
 
   const refreshMemory = useCallback(async () => {
-    if (!backendUrl || watchedAddresses.length === 0) return;
+    if (!backendUrl || watchedAddresses.length === 0) {
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
+
     try {
       const addresses = watchedAddresses.map(a => a.address);
       const response = await fetch(`${backendUrl}/api/memory`, {
@@ -66,12 +89,19 @@ const MemoryInspector: React.FC<MemoryInspectorProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ addresses }),
       });
-      if (!response.ok) throw new Error(`Failed to read memory: ${response.statusText}`);
+
+      if (!response.ok) {
+        throw new Error(`Failed to read memory: ${response.statusText}`);
+      }
+
       const data = await response.json();
       const newValues = new Map<number, number>();
+
       for (const addr of addresses) {
-        newValues.set(addr, data[addr.toString(16)] || data[addr] || 0);
+        const value = data[addr.toString(16)] ?? data[addr] ?? 0;
+        newValues.set(addr, typeof value === 'number' ? value : 0);
       }
+
       setMemoryValues(newValues);
     } catch (err) {
       console.error('Memory read error:', err);
@@ -82,23 +112,40 @@ const MemoryInspector: React.FC<MemoryInspectorProps> = ({
   }, [backendUrl, watchedAddresses]);
 
   useEffect(() => {
-    if (!autoRefresh || watchedAddresses.length === 0) return;
-    refreshMemory();
-    const interval = setInterval(refreshMemory, 1000);
-    return () => clearInterval(interval);
-  }, [autoRefresh, watchedAddresses.length, refreshMemory]);
+    if (!autoRefresh || watchedAddresses.length === 0 || !isRomLoaded) {
+      return;
+    }
 
-  const formatValue = (value: number): string => {
-    if (value === undefined || value === null) return '--';
+    void refreshMemory();
+    const interval = setInterval(refreshMemory, 2000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, watchedAddresses.length, refreshMemory, isRomLoaded]);
+
+  const formatValue = (value: number | null | undefined): string => {
+    if (value === null || value === undefined) {
+      return '--';
+    }
+
+    const num = typeof value === 'number' ? value : 0;
+
     switch (displayMode) {
-      case 'hex': return `0x${value.toString(16).toUpperCase().padStart(4, '0')}`;
-      case 'dec': return value.toString().padStart(5, ' ');
-      case 'binary': return value.toString(2).padStart(8, '0');
-      default: return value.toString();
+      case 'hex':
+        return `0x${num.toString(16).toUpperCase().padStart(4, '0')}`;
+      case 'dec':
+        return num.toString().padStart(5, ' ');
+      case 'binary':
+        return num.toString(2).padStart(8, '0');
+      default:
+        return num.toString();
     }
   };
 
-  const getByteColor = (value: number): string => value > 127 ? 'text-red-400' : 'text-green-400';
+  const getByteColor = (value: number | null | undefined): string => {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    return value > 127 ? 'memory-value--high' : 'memory-value--low';
+  };
 
   const commonAddresses = [
     { address: 0x8000, label: 'VRAM Start' },
@@ -106,83 +153,172 @@ const MemoryInspector: React.FC<MemoryInspectorProps> = ({
     { address: 0xFF00, label: 'I/O Registers' },
     { address: 0xFF04, label: 'DIV Register' },
     { address: 0xFF44, label: 'LY (LCD Y)' },
-    { address: 0xFF45, label: 'LYC' },
   ];
 
   const quickAddAddress = (addr: number, label?: string) => {
-    if (!watchedAddresses.some(a => a.address === addr)) {
-      setWatchedAddresses(prev => [...prev, { address: addr, value: 0, label }]);
+    if (watchedAddresses.some(a => a.address === addr)) {
+      return;
     }
+
+    setWatchedAddresses(prev => [...prev, { address: addr, value: 0, label }]);
   };
 
-  return (
-    <div className={`bg-neutral-900 border border-neutral-800 rounded-lg overflow-hidden ${className}`}>
-      <div className="flex items-center justify-between p-3 bg-neutral-800/50 border-b border-neutral-700">
-        <div className="flex items-center space-x-2">
-          <span className="font-semibold text-neutral-200">🔍 Memory Inspector</span>
-          {isLoading && <div className="w-3 h-3 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex text-xs">
-            {(['hex', 'dec', 'binary'] as const).map(mode => (
-              <button key={mode} onClick={() => setDisplayMode(mode)}
-                className={`px-2 py-1 ${displayMode === mode ? 'bg-cyan-600 text-white' : 'bg-neutral-700 text-neutral-400 hover:bg-neutral-600'} ${mode === 'hex' ? 'rounded-l' : ''} ${mode === 'binary' ? 'rounded-r' : ''}`}>
-                {mode.toUpperCase()}
-              </button>
-            ))}
+  if (!isRomLoaded) {
+    return (
+      <section className={classNames('data-panel memory-panel', className)}>
+        <div className="data-panel__header">
+          <div>
+            <span className="data-panel__eyebrow">Memory</span>
+            <h3 className="data-panel__title">Memory Inspector</h3>
+            <p className="data-panel__subtitle">Load a ROM to inspect memory addresses.</p>
           </div>
-          <button onClick={() => setAutoRefresh(!autoRefresh)} className={`px-2 py-1 text-xs rounded ${autoRefresh ? 'bg-green-600 text-white' : 'bg-neutral-700 text-neutral-400'}`} title="Auto-refresh">🔄</button>
-          <button onClick={refreshMemory} disabled={isLoading || watchedAddresses.length === 0} className="px-2 py-1 text-xs bg-neutral-700 text-neutral-300 rounded hover:bg-neutral-600 disabled:opacity-50">Refresh</button>
+          <Database className="data-panel__icon" />
+        </div>
+        <div className="data-panel__body">
+          <div className="empty-panel">Load a ROM to inspect memory addresses.</div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className={classNames('data-panel memory-panel', className)}>
+      <div className="data-panel__header">
+        <div>
+          <span className="data-panel__eyebrow">Memory</span>
+          <h3 className="data-panel__title">Memory Inspector</h3>
+          <p className="data-panel__subtitle">
+            {watchedAddresses.length > 0
+              ? `${watchedAddresses.length}/${maxWatchAddresses} addresses watched`
+              : 'Add addresses to watch memory values.'}
+          </p>
+        </div>
+        <div className="memory-panel__actions">
+          <button
+            type="button"
+            className="memory-panel__toggle"
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            title={autoRefresh ? 'Auto-refresh enabled' : 'Auto-refresh disabled'}
+          >
+            {autoRefresh ? <Eye size={16} /> : <EyeOff size={16} />}
+          </button>
+          <button
+            type="button"
+            className="memory-panel__refresh"
+            onClick={() => void refreshMemory()}
+            disabled={isLoading || watchedAddresses.length === 0}
+          >
+            <RefreshCw size={16} className={isLoading ? 'spin' : ''} />
+          </button>
         </div>
       </div>
 
-      {error && <div className="p-2 bg-red-900/30 border-b border-red-800 text-red-400 text-sm">{error}</div>}
-
-      <div className="p-3 bg-neutral-800/30 border-b border-neutral-700">
-        <div className="flex gap-2">
-          <input type="text" value={newAddress} onChange={e => setNewAddress(e.target.value)} placeholder="Address (e.g., 0xC000)"
-            className="flex-1 px-3 py-1.5 bg-neutral-800 border border-neutral-600 rounded text-sm text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-cyan-500" onKeyDown={e => e.key === 'Enter' && addWatchAddress()} />
-          <input type="text" value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="Label (optional)"
-            className="w-32 px-3 py-1.5 bg-neutral-800 border border-neutral-600 rounded text-sm text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-cyan-500" onKeyDown={e => e.key === 'Enter' && addWatchAddress()} />
-          <button onClick={addWatchAddress} disabled={!newAddress} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">+ Add</button>
+      <div className="data-panel__body memory-panel__body">
+        {/* Address input */}
+        <div className="memory-input-row">
+          <input
+            type="text"
+            value={newAddress}
+            onChange={e => setNewAddress(e.target.value)}
+            placeholder="Address (e.g., 0xC000)"
+            className="memory-input memory-input--address"
+            onKeyDown={e => e.key === 'Enter' && addWatchAddress()}
+          />
+          <input
+            type="text"
+            value={newLabel}
+            onChange={e => setNewLabel(e.target.value)}
+            placeholder="Label (optional)"
+            className="memory-input memory-input--label"
+            onKeyDown={e => e.key === 'Enter' && addWatchAddress()}
+          />
+          <button
+            type="button"
+            onClick={addWatchAddress}
+            disabled={!newAddress.trim()}
+            className="memory-add-button"
+          >
+            <Plus size={16} />
+          </button>
         </div>
-        <div className="flex flex-wrap gap-1 mt-2">
-          <span className="text-xs text-neutral-500 mr-1">Quick:</span>
+
+        {/* Quick-add buttons */}
+        <div className="memory-quick-add">
+          <span className="memory-quick-add__label">Quick:</span>
           {commonAddresses.map(({ address, label }) => (
-            <button key={address} onClick={() => quickAddAddress(address, label)} className="text-xs px-2 py-0.5 bg-neutral-700 text-neutral-400 rounded hover:bg-neutral-600">{label || `0x${address.toString(16).toUpperCase()}`}</button>
+            <button
+              key={address}
+              type="button"
+              onClick={() => quickAddAddress(address, label)}
+              className="memory-quick-add__button"
+            >
+              {label ?? `0x${address.toString(16).toUpperCase()}`}
+            </button>
           ))}
         </div>
-      </div>
 
-      <div className="p-3">
-        {watchedAddresses.length === 0 ? (
-          <div className="text-center py-8 text-neutral-500 text-sm">No addresses being watched.<br />Add addresses above or use quick-add buttons.</div>
-        ) : (
-          <div className="space-y-1">
-            <div className="flex items-center text-xs text-neutral-500 px-2 py-1">
-              <span className="w-12">Addr</span>
-              <span className="w-24 ml-2">Label</span>
-              <span className="flex-1 text-right">Value</span>
-              <span className="w-16 text-right ml-4">Binary</span>
-              <span className="w-8"></span>
+        {/* Display mode toggle */}
+        <div className="memory-display-toggle">
+          {(['hex', 'dec', 'binary'] as const).map(mode => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setDisplayMode(mode)}
+              className={classNames(
+                'memory-display-toggle__button',
+                displayMode === mode && 'memory-display-toggle__button--active'
+              )}
+            >
+              {mode.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
+        {/* Error */}
+        {error && <div className="error-banner">{error}</div>}
+
+        {/* Watch list */}
+        <div className="memory-watch-list">
+          {watchedAddresses.length === 0 ? (
+            <div className="empty-panel empty-panel--compact">
+              No addresses being watched. Add addresses above or use quick-add buttons.
             </div>
-            {watchedAddresses.map(({ address, label }) => {
+          ) : (
+            watchedAddresses.map(({ address, label }) => {
               const value = memoryValues.get(address) ?? 0;
               return (
-                <div key={address} className="flex items-center px-2 py-1.5 bg-neutral-800/50 rounded hover:bg-neutral-800">
-                  <span className="w-12 font-mono text-xs text-cyan-400">0x{address.toString(16).toUpperCase().padStart(4, '0')}</span>
-                  <input type="text" value={label || ''} onChange={e => updateLabel(address, e.target.value)} placeholder="Label..."
-                    className="w-24 ml-2 px-2 py-0.5 bg-neutral-900 border border-neutral-700 rounded text-xs text-neutral-300 placeholder-neutral-600 focus:outline-none focus:border-cyan-500" />
-                  <span className={`flex-1 text-right font-mono text-sm ${getByteColor(value)}`}>{formatValue(value)}</span>
-                  <span className="w-16 text-right font-mono text-xs text-neutral-500">{value.toString(2).padStart(8, '0')}</span>
-                  <button onClick={() => removeWatchAddress(address)} className="w-8 text-center text-neutral-500 hover:text-red-400" title="Remove">×</button>
+                <div key={address} className="memory-row">
+                  <div className="memory-row__address">
+                    <span className="memory-row__hex">0x{address.toString(16).toUpperCase().padStart(4, '0')}</span>
+                    <input
+                      type="text"
+                      value={label ?? ''}
+                      onChange={e => updateLabel(address, e.target.value)}
+                      placeholder="Label..."
+                      className="memory-row__label-input"
+                    />
+                  </div>
+                  <div className="memory-row__value-group">
+                    <span className={classNames('memory-row__value', getByteColor(value))}>
+                      {formatValue(value)}
+                    </span>
+                    <span className="memory-row__binary">{value.toString(2).padStart(8, '0')}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeWatchAddress(address)}
+                    className="memory-row__remove"
+                    title="Remove"
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+        </div>
       </div>
-    </div>
+    </section>
   );
 };
 

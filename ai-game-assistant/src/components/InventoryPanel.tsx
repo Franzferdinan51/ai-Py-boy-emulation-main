@@ -11,8 +11,8 @@ const INVENTORY_REFRESH_MS = 10000;
 
 const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(' ');
 
-const getCategory = (itemName: string) => {
-  const label = itemName.toLowerCase();
+const getCategory = (itemName: string | null | undefined): string => {
+  const label = (itemName ?? '').toLowerCase();
 
   if (label.includes('ball')) {
     return 'pokeball';
@@ -41,10 +41,10 @@ const getCategory = (itemName: string) => {
   return 'general';
 };
 
-const getCategoryLabel = (category: string) => {
+const getCategoryLabel = (category: string): string => {
   switch (category) {
     case 'pokeball':
-      return 'Poke Ball';
+      return 'Poké Ball';
     case 'medicine':
       return 'Medicine';
     case 'badge':
@@ -110,24 +110,29 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ isRomLoaded, onInventor
     };
   }, [isRomLoaded, onInventoryUpdate]);
 
+  const money = inventoryData?.money ?? 0;
+  const moneyFormatted = inventoryData?.money_formatted ?? `¥${money.toLocaleString()}`;
+  const itemCount = inventoryData?.item_count ?? 0;
+  const items = inventoryData?.items ?? [];
+
   return (
-    <section className="data-panel">
+    <section className="data-panel inventory-panel">
       <div className="data-panel__header">
         <div>
           <span className="data-panel__eyebrow">Inventory</span>
-          <h3 className="data-panel__title">Bag contents</h3>
+          <h3 className="data-panel__title">Bag Contents</h3>
           <p className="data-panel__subtitle">
             {isRomLoaded
               ? inventoryData
-                ? `${inventoryData.item_count} tracked items`
-                : 'Reading bag data'
+                ? `${itemCount} tracked items`
+                : 'Reading bag data...'
               : 'Load a ROM to inspect the bag.'}
           </p>
         </div>
         {loading ? <Activity className="data-panel__icon data-panel__icon--spin" /> : <Backpack className="data-panel__icon" />}
       </div>
 
-      <div className="data-panel__body">
+      <div className="data-panel__body inventory-panel__body">
         {!isRomLoaded ? (
           <div className="empty-panel">Load a ROM to inspect the bag.</div>
         ) : (
@@ -139,22 +144,20 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ isRomLoaded, onInventor
                     <Coins className="money-card__icon" />
                     Cash on hand
                   </span>
-                  <strong className="money-card__value">
-                    {inventoryData.money_formatted || `¥${inventoryData.money.toLocaleString()}`}
-                  </strong>
+                  <strong className="money-card__value">{moneyFormatted}</strong>
                 </div>
               </div>
             )}
 
             {error && <div className="error-banner">{error}</div>}
 
-            {!error && inventoryData && inventoryData.items.length === 0 && (
+            {!error && items.length === 0 && (
               <div className="empty-panel">No inventory items detected yet.</div>
             )}
 
             <div className="inventory-list">
-              {inventoryData?.items.map((item) => (
-                <InventoryRow key={item.slot} item={item} />
+              {items.map((item) => (
+                <InventoryRow key={`item-${item.slot}-${item.id}`} item={item} />
               ))}
             </div>
           </>
@@ -165,14 +168,16 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ isRomLoaded, onInventor
 };
 
 const InventoryRow: React.FC<{ item: InventoryItem }> = ({ item }) => {
-  const category = getCategory(item.name);
+  const itemName = item.name ?? 'Unknown Item';
+  const category = getCategory(itemName);
+  const quantity = item.quantity ?? 0;
 
   return (
     <article className="inventory-row">
       <div className="inventory-row__meta">
         <div className="inventory-row__title">
           <span className="inventory-row__slot">#{item.slot}</span>
-          <strong>{item.name}</strong>
+          <strong>{itemName}</strong>
         </div>
         <span className={classNames('inventory-tag', `inventory-tag--${category}`)}>
           {getCategoryLabel(category)}
@@ -181,7 +186,7 @@ const InventoryRow: React.FC<{ item: InventoryItem }> = ({ item }) => {
 
       <div className="inventory-quantity">
         <Package className="inventory-quantity__icon" />
-        <span>x{item.quantity}</span>
+        <span>x{quantity}</span>
       </div>
     </article>
   );

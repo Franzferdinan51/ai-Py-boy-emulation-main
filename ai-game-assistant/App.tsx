@@ -6,11 +6,14 @@ import {
   FolderOpen,
   Gamepad2,
   Keyboard,
+  Map as MapIcon,
   RefreshCw,
   Save,
   Settings,
   ShieldAlert,
+  Target,
   Upload,
+  Users,
 } from 'lucide-react';
 import apiService, {
   type AgentStatus,
@@ -24,9 +27,15 @@ import apiService, {
   type OpenClawHealthResponse,
   type PartyData,
 } from './services/apiService';
-import InventoryPanel from './src/components/InventoryPanel';
-import PartyPanel from './src/components/PartyPanel';
-import SettingsModal from './src/components/SettingsModal';
+import {
+  InventoryPanel,
+  MemoryInspector,
+  Minimap,
+  NPCPanel,
+  PartyPanel,
+  SettingsModal,
+  StrategyPanel,
+} from './src/components';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './services/webUiSettings';
 
 const STATUS_REFRESH_MS = 3000;
@@ -66,7 +75,7 @@ const EMPTY_MEMORY_STATE: MemoryWatch = {
 };
 
 type ConnectionStatus = 'checking' | 'connected' | 'disconnected';
-type InsightTab = 'party' | 'inventory' | 'memory';
+type InsightTab = 'party' | 'inventory' | 'memory' | 'map' | 'npc' | 'strategy';
 type StatusTone = ConnectionStatus | 'standby';
 type MetricTone = 'berry' | 'olive' | 'amber' | 'slate';
 
@@ -1012,23 +1021,17 @@ const App: React.FC = () => {
         </section>
 
         <aside className="desk-column desk-column--insights">
-          <PanelCard
-            eyebrow="Runtime State"
-            title="Party, Bag, and Memory"
-            subtitle="Operational data stays readable without intruding on the handheld."
-            action={
-              <div className="insight-tabs">
-                <InsightButton active={insightTab === 'party'} label="Party" onClick={() => setInsightTab('party')} />
-                <InsightButton active={insightTab === 'inventory'} label="Inventory" onClick={() => setInsightTab('inventory')} />
-                <InsightButton active={insightTab === 'memory'} label="Memory" onClick={() => setInsightTab('memory')} />
-              </div>
-            }
-          >
-            <p className="panel-card__note">
-              These panels are tools for the operator, not overlays on the game itself.
-            </p>
-          </PanelCard>
+          {/* Tab navigation for data panels */}
+          <div className="insight-tab-bar">
+            <InsightButton active={insightTab === 'party'} label="Party" icon={<Activity size={14} />} onClick={() => setInsightTab('party')} />
+            <InsightButton active={insightTab === 'inventory'} label="Bag" icon={<FolderOpen size={14} />} onClick={() => setInsightTab('inventory')} />
+            <InsightButton active={insightTab === 'memory'} label="Memory" icon={<RefreshCw size={14} />} onClick={() => setInsightTab('memory')} />
+            <InsightButton active={insightTab === 'map'} label="Map" icon={<MapIcon size={14} />} onClick={() => setInsightTab('map')} />
+            <InsightButton active={insightTab === 'npc'} label="NPCs" icon={<Users size={14} />} onClick={() => setInsightTab('npc')} />
+            <InsightButton active={insightTab === 'strategy'} label="AI" icon={<Target size={14} />} onClick={() => setInsightTab('strategy')} />
+          </div>
 
+          {/* Party Tab */}
           {insightTab === 'party' && (
             <PartyPanel
               isRomLoaded={gameState.rom_loaded}
@@ -1036,6 +1039,7 @@ const App: React.FC = () => {
             />
           )}
 
+          {/* Inventory Tab */}
           {insightTab === 'inventory' && (
             <InventoryPanel
               isRomLoaded={gameState.rom_loaded}
@@ -1043,13 +1047,41 @@ const App: React.FC = () => {
             />
           )}
 
+          {/* Memory Tab */}
           {insightTab === 'memory' && (
-            <MemorySummaryCard
+            <MemoryInspector
+              backendUrl={settings.backendUrl}
               isRomLoaded={gameState.rom_loaded}
-              memoryState={memoryState}
+              maxWatchAddresses={8}
             />
           )}
 
+          {/* Map Tab */}
+          {insightTab === 'map' && (
+            <Minimap
+              backendUrl={settings.backendUrl}
+              isRomLoaded={gameState.rom_loaded}
+            />
+          )}
+
+          {/* NPC Tab */}
+          {insightTab === 'npc' && (
+            <NPCPanel
+              backendUrl={settings.backendUrl}
+              isRomLoaded={gameState.rom_loaded}
+            />
+          )}
+
+          {/* Strategy Tab */}
+          {insightTab === 'strategy' && (
+            <StrategyPanel
+              backendUrl={settings.backendUrl}
+              isRomLoaded={gameState.rom_loaded}
+              agentEnabled={agentState.enabled}
+            />
+          )}
+
+          {/* Session snapshot - always visible */}
           <PanelCard
             eyebrow="Quick Read"
             title="Session Snapshot"
@@ -1063,6 +1095,7 @@ const App: React.FC = () => {
             </div>
           </PanelCard>
 
+          {/* System log - always visible */}
           <PanelCard
             eyebrow="System Log"
             title="Backend Events"
@@ -1187,12 +1220,13 @@ const EmptyLog: React.FC<{ message: string }> = ({ message }) => (
   </div>
 );
 
-const InsightButton: React.FC<{ active: boolean; label: string; onClick: () => void }> = ({ active, label, onClick }) => (
+const InsightButton: React.FC<{ active: boolean; label: string; icon?: React.ReactNode; onClick: () => void }> = ({ active, label, icon, onClick }) => (
   <button
     type="button"
     onClick={onClick}
     className={classNames('insight-tab', active && 'insight-tab--active')}
   >
+    {icon}
     {label}
   </button>
 );
