@@ -1,108 +1,124 @@
-# 🦆 DuckBot's AI-PyBoy-Emulation
+# 🤖 AI-PyBoy-Emulation - Agent-First Game Boy Control
 
-**AI-powered Game Boy emulation with OpenClaw agent control**
-
----
-
-## 🏆 Status: DuckBot Active (March 19, 2026)
-
-DuckBot is actively playing **Pokemon Red** using this framework!
-
-### DuckBot's Game Stats
-- **Current Game:** Pokemon Red
-- **ROM Location:** `/Users/duckets/.openclaw/workspace/mcp-pyboy/roms/pokemon-red.gb`
-- **Save Files:** `saves/duckbot_*.state`
-- **Model:** `bailian/kimi-k2.5` (FREE unlimited vision!)
+**OpenClaw agent framework for autonomous Game Boy gameplay**
 
 ---
 
-## 🚀 Quick Start
+## ⚡ AGENTS: Start Here
 
-### Option 1: Use MCP Tools Directly
+### Your Workflow
 
-```bash
-# Register MCP server
-cd /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server
-mcporter add duckbot-emulator --stdio "python3 mcp_server.py"
+```json
+// 1. Load ROM
+{"tool": "duckbot-emulator.emulator_load_rom", "args": {"rom_path": "/Users/duckets/.openclaw/workspace/mcp-pyboy/roms/pokemon-red.gb"}}
 
-# Load a ROM
-mcporter call duckbot-emulator.emulator_load_rom rom_path="/Users/duckets/.openclaw/workspace/mcp-pyboy/roms/pokemon-red.gb"
+// 2. Start Session
+{"tool": "duckbot-emulator.session_start", "args": {"goal": "Beat Pokemon Red"}}
 
-# Press buttons
-mcporter call duckbot-emulator.emulator_press_button button="A"
-mcporter call duckbot-emulator.emulator_press_sequence sequence="W W START"
+// 3. Get Vision
+{"tool": "duckbot-emulator.get_screen_base64", "args": {"include_base64": true}}
+// → Analyze with bailian/kimi-k2.5
 
-# Get screenshot for AI vision
-mcporter call duckbot-emulator.emulator_get_frame include_base64=true
+// 4. Act
+{"tool": "duckbot-emulator.emulator_press_sequence", "args": {"sequence": "W W W START"}}
+
+// 5. Save
+{"tool": "duckbot-emulator.save_game_state", "args": {"save_name": "checkpoint"}}
 ```
 
-### Option 2: Use Spawn Script
+### Key MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `emulator_load_rom` | Load game |
+| `emulator_press_sequence` | Control game |
+| `get_screen_base64` | Vision input |
+| `get_player_position` | Read player coordinates |
+| `get_party_info` | Read Pokemon party |
+| `get_money` | Read money |
+| `session_start` | Start agent session |
+| `session_set` | Remember game state |
+| `auto_battle` | Auto-fight |
+| `auto_explore` | Auto-walk |
+| `auto_grind` | Grind XP |
+
+### Session Persistence
+
+```json
+// Remember your progress
+{"tool": "duckbot-emulator.session_set", "args": {"session_id": "main", "key": "visited", "value": ["Pallet Town", "Viridian"]}}
+
+// Remember what happened
+{"tool": "duckbot-emulator.session_set", "args": {"session_id": "main", "key": "last_action", "value": "Chose Charmander"}}
+```
+
+### Memory Reading
+
+| Address | Data |
+|---------|------|
+| 0xD062 | Player X |
+| 0xD063 | Player Y |
+| 0xD6F5-0xD6F7 | Money |
+| 0xD057 | Battle status |
+| 0xD16B | Player HP |
+
+### Agent Decision Loop
+
+```
+1. GET STATE → get_player_position, get_party_info
+2. GET VISION → get_screen_base64 → analyze with kimi-k2.5
+3. DECIDE → Based on state + vision
+4. ACT → emulator_press_sequence
+5. SAVE → save_game_state (before risky stuff)
+6. UPDATE SESSION → session_set with progress
+```
+
+### Full Reference
+
+**See [AGENTS.md](AGENTS.md)** for complete agent guide.
+
+---
+
+---
+
+# 👤 HUMANS: Quick Reference
+
+**DuckBot is playing Pokemon Red!** 🦆
+
+---
+
+## 🎮 What's This?
+
+AI-powered Game Boy emulator that AI agents can control to play games autonomously.
+
+- **DuckBot** (AI): Playing Pokemon Red
+- **Model**: `bailian/kimi-k2.5` (FREE unlimited vision!)
+
+---
+
+## 🏆 Current Status
+
+| Detail | Value |
+|--------|-------|
+| **Game** | Pokemon Red |
+| **Status** | Actively playing |
+| **Model** | bailian/kimi-k2.5 |
+| **Save Location** | `saves/duckbot_*.state` |
+
+---
+
+## 🚀 Quick Commands
 
 ```bash
 # List available ROMs
 ./tools/spawn-gaming-agent.sh list
 
-# Show spawn command for a game
-./tools/spawn-gaming-agent.sh spawn pokemon-red.gb
-
 # Run autonomous gameplay
 ./tools/spawn-gaming-agent.sh auto pokemon-red.gb bailian/kimi-k2.5 50
+
+# Spawn agent manually
+./tools/spawn-gaming-agent.sh spawn pokemon-red.gb
 ```
-
-### Option 3: Run DuckBot Agent Directly
-
-```bash
-# Run AI agent with vision
-cd /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server
-python openclaw_agent.py --rom "/Users/duckets/.openclaw/workspace/mcp-pyboy/roms/pokemon-red.gb" --model "bailian/kimi-k2.5" --turns 10
-```
-
----
-
-## 🎮 Features
-
-| Feature | Description |
-|---------|-------------|
-| **MCP Server** | Full emulator control via MCP tools |
-| **Vision AI** | Screen analysis with Bailian kimi-k2.5 |
-| **Memory Reading** | Read player position, money, badges |
-| **Save States** | Save/restore game progress |
-| **Auto-Play** | AI-driven autonomous gameplay |
-| **Spawn Scripts** | Quick agent launching |
-
----
-
-## 🛠️ Tools Available
-
-### Core Controls
-- `emulator_load_rom` - Load ROM file
-- `emulator_press_button` - Press single button
-- `emulator_press_sequence` - Press multiple buttons
-- `emulator_tick` - Advance frames
-- `emulator_get_state` - Get emulator status
-
-### Vision & Screenshots
-- `emulator_get_frame` - Get screen as base64
-- `emulator_save_screenshot` - Save PNG
-
-### Memory
-- `emulator_read_memory` - Read RAM at address
-- `emulator_get_game_state` - Read player data
-
-### Save States
-- `emulator_save_state` - Save progress
-- `emulator_load_state` - Restore progress
-- `emulator_list_saves` - List saves
-
----
-
-## 🤖 Recommended Models
-
-| Model | Vision | Cost | Status |
-|-------|--------|------|--------|
-| `bailian/kimi-k2.5` | ✅ Yes | **FREE** | ✅ Recommended |
-| `bailian/MiniMax-M2.5` | ❌ No | **FREE** | ✅ Good for planning |
-| `bailian/qwen3.5-plus` | ✅ Yes | 18K/mo | ⚠️ Limited |
 
 ---
 
@@ -110,103 +126,70 @@ python openclaw_agent.py --rom "/Users/duckets/.openclaw/workspace/mcp-pyboy/rom
 
 ```
 ai-Py-boy-emulation-main/
+├── AGENTS.md              # ← Agent guide (for AI)
+├── README.md              # ← This file (for humans)
 ├── ai-game-server/
-│   ├── mcp_server.py          # MCP server (agent-first design)
-│   ├── openclaw_agent.py      # AI agent with vision
-│   ├── vision_bridge.py       # Screenshot utilities
-│   └── requirements.txt       # Dependencies
-├── skills/
-│   ├── duckbot/
-│   │   └── SKILL.md          # 🎯 DuckBot primary skill (NEW!)
-│   ├── pyboy/
-│   │   └── SKILL.md          # Core PyBoy skill
-│   └── game-emulation/
-│       └── SKILL.md          # Legacy skill
+│   ├── mcp_server.py      # MCP tools
+│   └── openclaw_agent.py  # Python agent
+├── skills/duckbot/
+│   └── SKILL.md           # DuckBot skill
 ├── tools/
-│   └── spawn-gaming-agent.sh # 🆕 Spawn script for gaming agents
-├── saves/                     # Save states
-├── README.md                  # This file
-└── OPENCLAW-INTEGRATION.md   # OpenClaw setup
+│   └── spawn-gaming-agent.sh
+└── saves/                 # Save states
 ```
 
 ---
 
-## 🔧 Dependencies
+## 🛠️ Setup
 
 ```bash
-pip install pyboy pillow openai mcp
-```
-
----
-
-## 🦆 DuckBot Skill
-
-The **DuckBot Skill** (`skills/duckbot/SKILL.md`) provides:
-
-- **Agent-first documentation** - Designed for autonomous AI agents
-- **Complete MCP tool reference** - All tools with examples
-- **Vision-based gameplay workflow** - See → Analyze → Act loop
-- **Memory reading guide** - Pokemon Red memory addresses
-- **DuckBot persona** - System prompts for authentic gameplay
-- **Troubleshooting** - Common issues and fixes
-
-### Quick DuckBot Workflow
-
-```
-1. Load ROM → emulator_load_rom
-2. Get Screen → emulator_get_frame(include_base64=true)
-3. Analyze → Use bailian/kimi-k2.5 to understand screen
-4. Act → emulator_press_button or emulator_press_sequence
-5. Save → emulator_save_state (before risky stuff)
-6. Repeat!
-```
-
----
-
-## 🎯 Spawn Script Usage
-
-```bash
-# List available ROMs
-./tools/spawn-gaming-agent.sh list
-
-# Spawn agent (shows commands)
-./tools/spawn-gaming-agent.sh spawn pokemon-red.gb
-
-# Run autonomous gameplay
-./tools/spawn-gaming-agent.sh auto pokemon-red.gb bailian/kimi-k2.5 50
-
 # Register MCP server
-./tools/spawn-gaming-agent.sh register
+mcporter add duckbot-emulator --stdio "python3 ai-game-server/mcp_server.py"
+
+# Run agent
+python ai-game-server/openclaw_agent.py --rom roms/pokemon-red.gb --model bailian/kimi-k2.5
 ```
 
 ---
 
-## 🦆 About DuckBot
+## 🎯 DuckBot's Goal
 
-DuckBot is an OpenClaw agent running on Bailian models:
-- **Primary Model:** `bailian/kimi-k2.5` (FREE unlimited vision!)
-- **Planning:** `bailian/MiniMax-M2.5` (FREE unlimited)
-- **Vibe:** Strategic, patient, resource-conscious
+Beat Pokemon Red and become Champion!
 
-### DuckBot's Pokemon Red Adventure
-
-| Detail | Value |
-|--------|-------|
-| **Started** | March 19, 2026 ~3:00 AM |
-| **Starter** | Charmander |
-| **Current** | Actively playing! |
-| **Goal** | Beat the Elite 4! |
+- Started: March 19, 2026
+- Starter: Charmander
+- Current: Exploring the world!
 
 ---
 
-## 📚 Links
+## 📚 Documentation
 
-- [skills/duckbot/SKILL.md](skills/duckbot/SKILL.md) - 🎯 DuckBot primary skill
-- [skills/pyboy/SKILL.md](skills/pyboy/SKILL.md) - Core PyBoy reference
-- [OPENCLAW-INTEGRATION.md](OPENCLAW-INTEGRATION.md) - OpenClaw setup guide
+- **[AGENTS.md](AGENTS.md)** - Complete guide for AI agents
+- **[skills/duckbot/SKILL.md](skills/duckbot/SKILL.md)** - DuckBot skill reference
+- **[skills/pyboy/SKILL.md](skills/pyboy/SKILL.md)** - PyBoy reference
 
 ---
 
-**🦆 Quack! Let's play some Pokemon!**
+## 💾 Save Files
+
+- Location: `saves/duckbot_*.state`
+- Auto-saved frequently during gameplay
+
+---
+
+## 🆘 Help
+
+```bash
+# Check MCP registration
+mcporter list | grep duckbot
+
+# Re-register if needed
+mcporter remove duckbot-emulator
+mcporter add duckbot-emulator --stdio "python3 ai-game-server/mcp_server.py"
+```
+
+---
+
+**DuckBot** 🦆 - *Quack! Let's play!*
 
 *Autonomous Game Boy gameplay powered by OpenClaw + Bailian AI*

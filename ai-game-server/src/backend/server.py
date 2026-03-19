@@ -112,7 +112,7 @@ except ImportError:
     else:
         # Default configuration if config.py is not found
         HOST = "0.0.0.0"
-        PORT = 5000
+        PORT = int(os.environ.get("BACKEND_PORT", 5002))
         # Security: Debug mode should be disabled in production
         flask_env = os.environ.get('FLASK_ENV', 'production').lower()
         flask_debug = os.environ.get('FLASK_DEBUG', 'false').lower()
