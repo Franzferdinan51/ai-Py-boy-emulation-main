@@ -3,14 +3,13 @@
 OpenClaw MCP Server for AI Py-Boy Emulation
 Exposes emulator controls as MCP tools for OpenClaw agents
 
-Version: 3.0.0 - Agent-First with Auto-Play & Sessions
-- Auto-play modes: auto_explore, auto_battle, auto_grind
-- Session persistence for agents (remembers state)
-- All responses include success/error, timing, metadata
-- Actionable errors with suggested fixes
-- Memory reading tools for game state
-- Auto-battle AI functionality
-- Enhanced debugging and logging
+Version: 4.0.0 - Enhanced with Best Practices from Popular MCP Servers
+- FastMCP-style clean error handling
+- Structured error codes for programmatic handling
+- Better typed tool definitions
+- Enhanced session management with TTL
+- Resource and prompt support
+- Server capabilities advertisement
 
 Tools:
 - emulator_load_rom: Load a ROM file
@@ -38,9 +37,12 @@ import base64
 import logging
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from io import BytesIO
 from datetime import datetime
+from enum import Enum
+from dataclasses import dataclass, field, asdict
+from functools import wraps
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -72,10 +74,115 @@ logging.basicConfig(
 logger = logging.getLogger("emulator-mcp")
 
 # Server version and metadata
-SERVER_VERSION = "3.0.0"
+SERVER_VERSION = "4.0.0"
 SERVER_START_TIME = datetime.now().isoformat()
 
-# Agent-first: Enhanced JSON response with timing and metadata
+
+# ========== Error Handling Patterns (from FastMCP) ==========
+# Error codes for programmatic handling by agents
+
+class EmulatorErrorCode:
+    """Error code constants for programmatic error handling"""
+    NOT_INITIALIZED = "EMULATOR_NOT_INITIALIZED"
+    ROM_NOT_FOUND = "ROM_NOT_FOUND"
+    INVALID_ROM = "INVALID_ROM"
+    BUTTON_INVALID = "BUTTON_INVALID"
+    MEMORY_READ_ERROR = "MEMORY_READ_ERROR"
+    SAVE_NOT_FOUND = "SAVE_NOT_FOUND"
+    SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
+    INVALID_PARAMETER = "INVALID_PARAMETER"
+    OPERATION_FAILED = "OPERATION_FAILED"
+
+
+class EmulatorError(Exception):
+    """Custom exception with error codes for better error handling"""
+    def __init__(self, message: str, code: str, suggestions: List[str] = None):
+        super().__init__(message)
+        self.code = code
+        self.suggestions = suggestions or []
+
+
+def handle_tool_error(func):
+    """Decorator for consistent error handling in tools"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except EmulatorError as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "error_code": e.code,
+                "suggestions": e.suggestions
+            }
+        except Exception as e:
+            logger.error(f"{func.__name__} failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "error_code": EmulatorErrorCode.OPERATION_FAILED,
+                "suggestions": ["Check emulator state", "Try reloading the ROM"]
+            }
+    return wrapper
+
+
+# Response formatter with timing and metadata
+def format_response(
+    success: bool,
+    data: Any = None,
+    error: str = None,
+    error_code: str = None,
+    suggestions: List[str] = None,
+    tool_name: str = None,
+    timing_ms: float = None,
+    include_state: bool = False
+) -> Dict[str, Any]:
+    """Clean response format - inspired by FastMCP"""
+    response = {"success": success}
+    
+    if data is not None:
+        response["data"] = data
+    
+    if error:
+        response["error"] = error
+        if error_code:
+            response["error_code"] = error_code
+        if suggestions:
+            response["suggestions"] = suggestions
+    
+    if tool_name:
+        response["tool"] = tool_name
+    
+    if timing_ms is not None:
+        response["timing_ms"] = round(timing_ms, 2)
+    
+    if include_state:
+        response["server"] = {
+            "version": SERVER_VERSION,
+            "uptime_seconds": (datetime.now() - datetime.fromisoformat(SERVER_START_TIME)).total_seconds()
+        }
+    
+    return response
+
+
+# Button enum for type safety
+class GameButton(str, Enum):
+    """Valid game controller buttons"""
+    A = "A"
+    B = "B"
+    UP = "UP"
+    DOWN = "DOWN"
+    LEFT = "LEFT"
+    RIGHT = "RIGHT"
+    START = "START"
+    SELECT = "SELECT"
+    
+    @classmethod
+    def values(cls) -> List[str]:
+        return [b.value for b in cls]
+
+# ========== Legacy agent_response (kept for backward compatibility) ==========
+# Use format_response() for new code
 def agent_response(
     success: bool, 
     data: Any = None, 
@@ -84,57 +191,18 @@ def agent_response(
     suggestions: List[str] = None,
     timing_ms: float = None
 ) -> str:
-    """
-    Standard JSON response format for agents with:
-    - success/error fields
-    - timing information
-    - server state info
-    - actionable error suggestions
-    - descriptive metadata
-    """
-    response = {
-        "success": success,
-        "timestamp": datetime.now().isoformat(),
-        "server": {
-            "version": SERVER_VERSION,
-            "started": SERVER_START_TIME,
-            "uptime_seconds": (datetime.now() - datetime.fromisoformat(SERVER_START_TIME)).total_seconds()
-        }
-    }
-    
-    if data is not None:
-        response["data"] = data
-    
-    if error is not None:
-        response["error"] = error
-        # Add actionable suggestions for common errors
-        if suggestions:
-            response["suggestions"] = suggestions
-        elif "not initialized" in error.lower():
-            response["suggestions"] = [
-                "Call emulator_load_rom first with a valid .gb ROM file path",
-                "Check that the ROM file exists and is valid"
-            ]
-        elif "not found" in error.lower():
-            response["suggestions"] = [
-                "Check the file path is correct",
-                "Use emulator_list_saves to see available save files"
-            ]
-        elif "memory" in error.lower():
-            response["suggestions"] = [
-                "Check the memory address is valid (0x0000-0xFFFF)",
-                "Some addresses may be ROM and not readable"
-            ]
-    
-    if tool_name:
-        response["tool"] = tool_name
-    
-    if timing_ms is not None:
-        response["timing_ms"] = round(timing_ms, 2)
-    
-    # Always include emulator state for debugging
+    """Legacy response format - wraps format_response with emulator state"""
+    response = format_response(
+        success=success,
+        data=data,
+        error=error,
+        suggestions=suggestions,
+        tool_name=tool_name,
+        timing_ms=timing_ms,
+        include_state=True
+    )
     response["emulator_state"] = get_state()
-    
+    response["timestamp"] = datetime.now().isoformat()
     return json.dumps(response, indent=2)
 
 
@@ -160,8 +228,18 @@ def debug_log(level: str, message: str, data: Dict = None):
     elif level == "ERROR":
         logger.error(json.dumps(log_entry))
 
-# Initialize MCP server
-server = Server("pyboy-emulator")
+# Initialize MCP server with capabilities
+# MCP server can advertise resources and prompts in addition to tools
+server = Server(
+    "pyboy-emulator",
+    capabilities={
+        "tools": {},
+        # Uncomment when using MCP SDK that supports these:
+        # "resources": {"subscribe": True, "list": True},
+        # "prompts": {"list": True},
+    }
+)
+server_version = SERVER_VERSION
 
 # Global emulator state
 emulator: Optional[PyBoy] = None
@@ -170,12 +248,24 @@ frame_count: int = 0
 
 
 def init_emulator(rom_file: str) -> bool:
-    """Initialize PyBoy emulator with ROM"""
+    """Initialize PyBoy emulator with ROM with improved error handling"""
     global emulator, rom_path, frame_count
     
     if not PYBOY_AVAILABLE:
         logger.error("PyBoy not available")
-        return False
+        raise EmulatorError(
+            "PyBoy library not available. Install with: pip install pyboy",
+            EmulatorErrorCode.OPERATION_FAILED,
+            ["Install pyboy: pip install pyboy"]
+        )
+    
+    # Check if file exists first
+    if not os.path.exists(rom_file):
+        raise EmulatorError(
+            f"ROM file not found: {rom_file}",
+            EmulatorErrorCode.ROM_NOT_FOUND,
+            ["Check the file path is correct", "Verify the ROM file exists"]
+        )
     
     try:
         emulator = PyBoy(rom_file, window="null")
@@ -185,55 +275,70 @@ def init_emulator(rom_file: str) -> bool:
         return True
     except Exception as e:
         logger.error(f"Failed to load ROM: {e}")
-        return False
+        raise EmulatorError(
+            f"Failed to load ROM: {str(e)}",
+            EmulatorErrorCode.INVALID_ROM,
+            ["Verify ROM file is valid Game Boy format", "Try a different ROM file"]
+        )
 
 
 def press_button(button: str) -> bool:
-    """Press a controller button"""
+    """Press a controller button with validation"""
     global emulator, frame_count
     
     if emulator is None:
-        logger.error("Emulator not initialized")
-        return False
+        raise EmulatorError(
+            "Emulator not initialized. Load a ROM first.",
+            EmulatorErrorCode.NOT_INITIALIZED,
+            ["Call emulator_load_rom first with a valid .gb ROM file path"]
+        )
+    
+    # Validate button
+    button_upper = button.upper()
+    try:
+        game_button = GameButton(button_upper)
+    except ValueError:
+        raise EmulatorError(
+            f"Invalid button: {button}. Valid buttons: {GameButton.values()}",
+            EmulatorErrorCode.BUTTON_INVALID,
+            [f"Use one of: {', '.join(GameButton.values())}"]
+        )
     
     button_map = {
-        'A': WindowEvent.PRESS_BUTTON_A,
-        'B': WindowEvent.PRESS_BUTTON_B,
-        'UP': WindowEvent.PRESS_ARROW_UP,
-        'DOWN': WindowEvent.PRESS_ARROW_DOWN,
-        'LEFT': WindowEvent.PRESS_ARROW_LEFT,
-        'RIGHT': WindowEvent.PRESS_ARROW_RIGHT,
-        'START': WindowEvent.PRESS_BUTTON_START,
-        'SELECT': WindowEvent.PRESS_BUTTON_SELECT,
+        GameButton.A: WindowEvent.PRESS_BUTTON_A,
+        GameButton.B: WindowEvent.PRESS_BUTTON_B,
+        GameButton.UP: WindowEvent.PRESS_ARROW_UP,
+        GameButton.DOWN: WindowEvent.PRESS_ARROW_DOWN,
+        GameButton.LEFT: WindowEvent.PRESS_ARROW_LEFT,
+        GameButton.RIGHT: WindowEvent.PRESS_ARROW_RIGHT,
+        GameButton.START: WindowEvent.PRESS_BUTTON_START,
+        GameButton.SELECT: WindowEvent.PRESS_BUTTON_SELECT,
     }
     
     release_map = {
-        'A': WindowEvent.RELEASE_BUTTON_A,
-        'B': WindowEvent.RELEASE_BUTTON_B,
-        'UP': WindowEvent.RELEASE_ARROW_UP,
-        'DOWN': WindowEvent.RELEASE_ARROW_DOWN,
-        'LEFT': WindowEvent.RELEASE_ARROW_LEFT,
-        'RIGHT': WindowEvent.RELEASE_ARROW_RIGHT,
-        'START': WindowEvent.RELEASE_BUTTON_START,
-        'SELECT': WindowEvent.RELEASE_BUTTON_SELECT,
+        GameButton.A: WindowEvent.RELEASE_BUTTON_A,
+        GameButton.B: WindowEvent.RELEASE_BUTTON_B,
+        GameButton.UP: WindowEvent.RELEASE_ARROW_UP,
+        GameButton.DOWN: WindowEvent.RELEASE_ARROW_DOWN,
+        GameButton.LEFT: WindowEvent.RELEASE_ARROW_LEFT,
+        GameButton.RIGHT: WindowEvent.RELEASE_ARROW_RIGHT,
+        GameButton.START: WindowEvent.RELEASE_BUTTON_START,
+        GameButton.SELECT: WindowEvent.RELEASE_BUTTON_SELECT,
     }
     
     try:
-        button_upper = button.upper()
-        if button_upper not in button_map:
-            logger.error(f"Unknown button: {button}")
-            return False
-        
-        # Press and release
-        emulator.send_input(button_map[button_upper])
+        emulator.send_input(button_map[game_button])
         emulator.tick()
-        emulator.send_input(release_map[button_upper])
+        emulator.send_input(release_map[game_button])
         frame_count += 1
-        logger.info(f"Pressed button: {button}")
+        logger.debug(f"Pressed button: {button}")
         return True
     except Exception as e:
         logger.error(f"Button press failed: {e}")
-        return False
+        raise EmulatorError(
+            f"Failed to press button: {str(e)}",
+            EmulatorErrorCode.OPERATION_FAILED
+        )
 
 
 def press_sequence(sequence: str, delay_ms: int = 100) -> Dict[str, Any]:
@@ -375,8 +480,11 @@ def tick() -> bool:
     global emulator, frame_count
     
     if emulator is None:
-        logger.error("Emulator not initialized")
-        return False
+        raise EmulatorError(
+            "Emulator not initialized. Load a ROM first.",
+            EmulatorErrorCode.NOT_INITIALIZED,
+            ["Call emulator_load_rom first"]
+        )
     
     try:
         emulator.tick()
@@ -952,35 +1060,72 @@ def load_game_state(save_name: str = None) -> Dict[str, Any]:
     return result
 
 
-# ========== Agent Session Management ==========
+# ========== Agent Session Management with TTL ==========
+# Sessions now have expiration (TTL) for better resource management
 
 # Session storage for agents - persists across tool calls
-# Format: {session_id: {"data": {}, "created": timestamp, "last_update": timestamp}}
+# Format: {session_id: {"data": {}, "created": timestamp, "last_update": timestamp, "ttl_seconds": 3600}}
 agent_sessions: Dict[str, Dict[str, Any]] = {}
+SESSION_DEFAULT_TTL = 3600  # 1 hour default TTL
 
 
-def session_start(session_id: str = None, goal: str = None) -> Dict[str, Any]:
+def _is_session_expired(session: Dict[str, Any]) -> bool:
+    """Check if a session has expired based on TTL"""
+    if "ttl_seconds" not in session:
+        return False  # No TTL means never expires
+    import time
+    elapsed = time.time() - session.get("last_timestamp", time.time())
+    return elapsed > session["ttl_seconds"]
+
+
+def _clean_expired_sessions():
+    """Remove expired sessions to free resources"""
+    expired = [sid for sid, sess in agent_sessions.items() if _is_session_expired(sess)]
+    for sid in expired:
+        del agent_sessions[sid]
+    if expired:
+        logger.info(f"Cleaned {len(expired)} expired sessions")
+    return len(expired)
+
+
+def session_start(session_id: str = None, goal: str = None, ttl_seconds: int = None) -> Dict[str, Any]:
     """
     Start a new agent session for persistent state.
     Sessions allow agents to remember context across multiple tool calls.
+    
+    Args:
+        session_id: Optional session ID (auto-generated if not provided)
+        goal: Agent's goal for this session
+        ttl_seconds: Time-to-live in seconds (default: 3600 = 1 hour)
     """
     start_time = time.time()
+    
+    # Clean expired sessions first
+    _clean_expired_sessions()
     
     if session_id is None:
         session_id = f"session_{int(time.time() * 1000)}"
     
     if session_id in agent_sessions:
-        return {
-            "success": True,
-            "tool": "session_start",
-            "data": {
-                "session_id": session_id,
-                "message": "Session already exists",
-                "session_data": agent_sessions[session_id]["data"],
-                "created": agent_sessions[session_id]["created"]
-            },
-            "timing_ms": round((time.time() - start_time) * 1000, 2)
-        }
+        # Check if existing session is still valid
+        if _is_session_expired(agent_sessions[session_id]):
+            del agent_sessions[session_id]
+        else:
+            return {
+                "success": True,
+                "tool": "session_start",
+                "data": {
+                    "session_id": session_id,
+                    "message": "Session already exists",
+                    "session_data": agent_sessions[session_id]["data"],
+                    "created": agent_sessions[session_id]["created"],
+                    "ttl_seconds": agent_sessions[session_id].get("ttl_seconds", SESSION_DEFAULT_TTL)
+                },
+                "timing_ms": round((time.time() - start_time) * 1000, 2)
+            }
+    
+    import time as time_module
+    ttl = ttl_seconds if ttl_seconds is not None else SESSION_DEFAULT_TTL
     
     agent_sessions[session_id] = {
         "data": {
@@ -993,7 +1138,9 @@ def session_start(session_id: str = None, goal: str = None) -> Dict[str, Any]:
             "notes": []
         },
         "created": datetime.now().isoformat(),
-        "last_update": datetime.now().isoformat()
+        "last_update": datetime.now().isoformat(),
+        "last_timestamp": time_module.time(),
+        "ttl_seconds": ttl
     }
     
     return {
@@ -1002,7 +1149,8 @@ def session_start(session_id: str = None, goal: str = None) -> Dict[str, Any]:
         "data": {
             "session_id": session_id,
             "message": "New session created",
-            "goal": goal or "Play the game autonomously"
+            "goal": goal or "Play the game autonomously",
+            "ttl_seconds": ttl
         },
         "timing_ms": round((time.time() - start_time) * 1000, 2)
     }
@@ -2018,10 +2166,10 @@ async def list_tools() -> List[Tool]:
                 "properties": {}
             }
         ),
-        # === NEW: Session Management Tools ===
+        # === NEW: Session Management Tools (with TTL) ===
         Tool(
             name="session_start",
-            description="Start a new agent session for persistent state across tool calls. Sessions allow agents to remember context.",
+            description="Start a new agent session for persistent state across tool calls. Sessions allow agents to remember context with automatic expiration (TTL).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -2032,6 +2180,13 @@ async def list_tools() -> List[Tool]:
                     "goal": {
                         "type": "string",
                         "description": "Agent's goal for this session (e.g., 'Beat the Elite 4')"
+                    },
+                    "ttl_seconds": {
+                        "type": "integer",
+                        "description": "Session time-to-live in seconds (default: 3600 = 1 hour). Session auto-expires after this time.",
+                        "default": 3600,
+                        "minimum": 60,
+                        "maximum": 86400
                     }
                 }
             }
@@ -2210,23 +2365,42 @@ async def call_tool(name: str, arguments: dict) :
         if name == "emulator_load_rom":
             rom_path = arguments.get("rom_path")
             if not rom_path:
-                return [TextContent(type="text", text="Error: rom_path required")]
+                return [TextContent(type="text", text=json.dumps(format_response(
+                    False, 
+                    error="rom_path is required", 
+                    error_code=EmulatorErrorCode.INVALID_PARAMETER,
+                    suggestions=["Provide a valid path to a .gb or .gba ROM file"]
+                )))]
             
-            success = init_emulator(rom_path)
+            # init_emulator now raises EmulatorError on failure
+            init_emulator(rom_path)
             return [TextContent(
                 type="text",
-                text=json.dumps({"success": success, "rom": rom_path}, indent=2)
+                text=json.dumps(format_response(
+                    True, 
+                    data={"rom": rom_path, "frame": frame_count},
+                    tool_name="emulator_load_rom"
+                ))
             )]
         
         elif name == "emulator_press_button":
             button = arguments.get("button")
             if not button:
-                return [TextContent(type="text", text="Error: button required")]
+                return [TextContent(type="text", text=json.dumps(format_response(
+                    False,
+                    error="button is required",
+                    error_code=EmulatorErrorCode.INVALID_PARAMETER,
+                    suggestions=[f"Provide a button name: {', '.join(GameButton.values())}"]
+                )))]
             
-            success = press_button(button)
+            press_button(button)
             return [TextContent(
                 type="text",
-                text=json.dumps({"success": success, "button": button, "frame": frame_count}, indent=2)
+                text=json.dumps(format_response(
+                    True,
+                    data={"button": button, "frame": frame_count},
+                    tool_name="emulator_press_button"
+                ))
             )]
         
         elif name == "emulator_press_sequence":
@@ -2384,7 +2558,8 @@ async def call_tool(name: str, arguments: dict) :
         elif name == "session_start":
             session_id = arguments.get("session_id")
             goal = arguments.get("goal")
-            result = session_start(session_id, goal)
+            ttl_seconds = arguments.get("ttl_seconds")
+            result = session_start(session_id, goal, ttl_seconds)
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
         elif name == "session_get":
@@ -2452,16 +2627,31 @@ async def call_tool(name: str, arguments: dict) :
             error_msg = f"Unknown tool: {name}"
             return [TextContent(type="text", text=json.dumps({"success": False, "error": error_msg}))]
     
+    except EmulatorError as e:
+        # Handle custom emulator errors with error codes
+        logger.error(f"Emulator error in {name}: {e.code} - {e}")
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(e),
+            "error_code": e.code,
+            "suggestions": e.suggestions
+        }))]
     except Exception as e:
         logger.error(f"Tool call failed: {e}")
         error_str = str(e)
-        return [TextContent(type="text", text=json.dumps({"success": False, "error": error_str}))]
+        return [TextContent(type="text", text=json.dumps({
+            "success": False, 
+            "error": error_str,
+            "error_code": EmulatorErrorCode.OPERATION_FAILED,
+            "suggestions": ["Check emulator state", "Try reloading the ROM"]
+        }))]
 
 
 async def main():
     """Run the MCP server"""
-    logger.info("Starting PyBoy Emulator MCP Server...")
+    logger.info(f"Starting PyBoy Emulator MCP Server v{SERVER_VERSION}...")
     logger.info(f"PyBoy available: {PYBOY_AVAILABLE}")
+    logger.info("Server capabilities: tools")
     
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
