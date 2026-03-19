@@ -143,6 +143,15 @@ export interface ScreenResponse {
   };
 }
 
+// Vision analysis result type (used by VisionAnalysisPanel)
+export interface VisionAnalysis {
+  screenshot_url: string;
+  analysis: string;
+  recommended_action: string;
+  confidence: number;
+  timestamp: string;
+}
+
 export interface MemoryAddress {
   address: number;
   name: string;
