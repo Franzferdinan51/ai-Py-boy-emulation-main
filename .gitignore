@@ -136,7 +136,16 @@ build/
 *.md
 !README.md
 !CLAUDE.md
+!CLAUDEPLAYER-INTEGRATION.md
+!ENHANCEMENTS.md
+!MODELS.md
+!TROUBLESHOOTING.md
+!EXAMPLES.md
+!OPENCLAW-INTEGRATION.md
+!AGENTS.md
 !ai-game-server/README.md
+!skills/**/*.md
+!guides/*.md
 
 # Test results
 test_results.json
