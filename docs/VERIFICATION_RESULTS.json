@@ -1,0 +1,84 @@
+{
+  "timestamp": "2026-03-19T19:33:22.683397",
+  "tests": [
+    {
+      "name": "Save/Load to memory",
+      "passed": true,
+      "bytes": 167677
+    },
+    {
+      "name": "Load saved state",
+      "passed": true,
+      "memory_match": true
+    },
+    {
+      "name": "Multiple cycles",
+      "passed": true,
+      "cycles": [
+        {
+          "cycle": 1,
+          "passed": true
+        },
+        {
+          "cycle": 2,
+          "passed": true
+        },
+        {
+          "cycle": 3,
+          "passed": true
+        },
+        {
+          "cycle": 4,
+          "passed": true
+        },
+        {
+          "cycle": 5,
+          "passed": true
+        },
+        {
+          "cycle": 6,
+          "passed": true
+        },
+        {
+          "cycle": 7,
+          "passed": true
+        },
+        {
+          "cycle": 8,
+          "passed": true
+        },
+        {
+          "cycle": 9,
+          "passed": true
+        },
+        {
+          "cycle": 10,
+          "passed": true
+        }
+      ],
+      "cycles_passed": 10,
+      "total_cycles": 10
+    },
+    {
+      "name": "State file compatibility",
+      "passed": true,
+      "file_size": 167677
+    },
+    {
+      "name": "Screen hash consistency",
+      "passed": true,
+      "unique_hashes": 1,
+      "hashes": [
+        "58163f527d0e4f0c",
+        "58163f527d0e4f0c",
+        "58163f527d0e4f0c",
+        "58163f527d0e4f0c",
+        "58163f527d0e4f0c"
+      ]
+    }
+  ],
+  "overall_passed": true,
+  "findings": [],
+  "total_passed": 5,
+  "total_tests": 5
+}
