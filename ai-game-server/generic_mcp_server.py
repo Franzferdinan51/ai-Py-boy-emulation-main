@@ -32,7 +32,7 @@ DEFAULT_BACKEND_URL = os.environ.get("GB_BACKEND_URL", "http://localhost:5002")
 try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
-    from mcp.types import Tool, TextContent
+    from mcp.types import Tool, TextContent, ImageContent
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
@@ -527,14 +527,17 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
         
         elif name == "get_screen":
             result = api_get("/api/screen")
-            if "image" in result:
-                # Return just confirmation, actual image is in result
-                return [TextContent(type="text", text=json.dumps({
-                    "success": True,
-                    "frame": result.get("pyboy_frame"),
-                    "image_size": len(result.get("image", "")),
-                    "message": "Screen captured"
-                }))]
+            if "image" in result and result.get("image"):
+                return [
+                    TextContent(type="text", text=json.dumps({
+                        "success": True,
+                        "frame": result.get("pyboy_frame"),
+                        "shape": result.get("shape"),
+                        "timestamp": result.get("timestamp"),
+                        "message": "Screen captured and attached as image content"
+                    })),
+                    ImageContent(type="image", data=result.get("image"), mimeType="image/jpeg")
+                ]
             return [TextContent(type="text", text=json.dumps(result))]
         
         elif name == "tick":
@@ -596,7 +599,18 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
         
         elif name == "screenshot":
             result = api_get("/api/screen")
-            return [TextContent(type="text", text=json.dumps({"success": True, "frame": result.get("pyboy_frame"), "size": len(result.get("image", ""))}))]
+            if "image" in result and result.get("image"):
+                return [
+                    TextContent(type="text", text=json.dumps({
+                        "success": True,
+                        "frame": result.get("pyboy_frame"),
+                        "shape": result.get("shape"),
+                        "timestamp": result.get("timestamp"),
+                        "message": "Screenshot attached as image content"
+                    })),
+                    ImageContent(type="image", data=result.get("image"), mimeType="image/jpeg")
+                ]
+            return [TextContent(type="text", text=json.dumps({"success": False, "error": "No image returned from backend"}))]
         
         elif name == "press_button_combo":
             combo = arguments.get("combo", "").upper()
