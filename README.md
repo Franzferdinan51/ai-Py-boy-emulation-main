@@ -1,6 +1,6 @@
 # 🎮 AI GameBoy Emulator
 
-OpenClaw Agent-powered emulation for Game Boy, Game Boy Color, and Game Boy Advance games. Now with **MCP v4.0.0** and autonomous AI gameplay!
+OpenClaw Agent-powered emulation for Game Boy, Game Boy Color, and Game Boy Advance games. Now with **MCP v5.0.0** and autonomous AI gameplay!
 
 ## What This Is
 
@@ -11,17 +11,16 @@ An MCP server + web interface that lets AI agents control Game Boy emulation. Ag
 - Make intelligent decisions with auto-play modes
 - Manage persistent gaming sessions
 
-## ✨ New in v4.0.0
+## ✨ New in v5.0.0
 
 | Feature | Description |
 |---------|-------------|
-| **Smart Session Management** | Persistent sessions with TTL, goal tracking, and data storage |
-| **Auto-Catch** | AI automatically catches wild Pokemon |
-| **Auto-Item Use** | AI uses items strategically |
-| **Auto-NPC Talk** | AI interacts with NPCs autonomously |
-| **Enhanced Memory Access** | Read memory ranges and single bytes |
-| **Error Codes** | Programmatic error handling with error codes |
-| **Better Type Hints** | Improved code quality |
+| **Enhanced Tool Definitions** | JSON Schema validation, detailed descriptions, and examples |
+| **Streaming Vision** | Chunked base64 transfer for large screen captures |
+| **Session Persistence** | Sessions saved to disk, survive server restarts |
+| **Memory Manipulation** | Read/write any memory address with validation |
+| **Error Recovery** | Structured errors with recovery suggestions |
+| **Auto Modes** | Auto-explore and auto-battle with AI decision-making |
 
 ## Supported Systems
 
@@ -99,7 +98,6 @@ mcporter add gameboy --stdio "python3 /path/to/ai-game-server/mcp_server.py"
 |------|-------------|
 | `emulator_load_rom` | Load a ROM file |
 | `emulator_press_button` | Press GB button (A/B/START/SELECT/UP/DOWN/LEFT/RIGHT) |
-| `emulator_press_sequence` | Press multiple buttons in sequence |
 | `emulator_tick` | Advance N frames |
 | `emulator_get_state` | Get emulator state |
 
@@ -108,22 +106,18 @@ mcporter add gameboy --stdio "python3 /path/to/ai-game-server/mcp_server.py"
 | Tool | Description |
 |------|-------------|
 | `get_screen_base64` | Get screen as base64 for AI vision |
-| `emulator_get_frame` | Get current game frame |
-| `emulator_save_screenshot` | Save screenshot to file |
 
 ### Memory Reading
 
 | Tool | Description |
 |------|-------------|
+| `get_memory_address` | Read memory at address with description |
+| `set_memory_address` | Write to memory address (⚠️ can corrupt game state) |
 | `get_player_position` | Get player X,Y coordinates |
-| `get_party_info` | Get all Pokemon in party |
-| `get_inventory` | Get bag items |
+| `get_party_pokemon` | Get all Pokemon in party with stats |
+| `get_inventory` | Get bag items with quantities |
 | `get_map_location` | Get current location |
 | `get_money` | Get player money |
-| `emulator_read_memory` | Read raw RAM at address |
-| `get_memory_range` | Read memory range |
-| `get_memory_byte` | Read single byte |
-| `read_game_state` | Get full game state snapshot |
 
 ### Save States
 
@@ -131,18 +125,13 @@ mcporter add gameboy --stdio "python3 /path/to/ai-game-server/mcp_server.py"
 |------|-------------|
 | `save_game_state` | Save game progress |
 | `load_game_state` | Load saved game |
-| `emulator_list_saves` | List all saves |
 
 ### Auto-Play Modes 🤖
 
 | Tool | Description |
 |------|-------------|
-| `auto_battle` | AI fights Pokemon automatically |
-| `auto_explore` | AI explores the world |
-| `auto_grind` | AI grinds for XP/money |
-| `auto_catch` | AI catches wild Pokemon |
-| `auto_item_use` | AI uses items strategically |
-| `auto_npc_talk` | AI talks to NPCs |
+| `auto_battle_mode` | AI fights Pokemon automatically |
+| `auto_explore_mode` | AI explores the world |
 
 ### Session Management
 

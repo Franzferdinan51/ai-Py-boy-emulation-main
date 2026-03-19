@@ -3858,11 +3858,15 @@ def get_agent_status_api():
     """Get agent status - connected, mode, last action"""
     try:
         current_state = get_game_state()
+        actual_mode = agent_mode_state["mode"]
+        # Normalize mode for frontend (return 'auto' for any auto_* mode)
+        frontend_mode = "auto" if actual_mode.startswith("auto_") else actual_mode
         
         agent_status = {
             "connected": current_state["rom_loaded"],
             "agent_name": "OpenClaw Agent",
-            "mode": agent_mode_state["mode"],
+            "mode": frontend_mode,  # Frontend-friendly mode
+            "actual_mode": actual_mode,  # Actual mode for advanced use
             "autonomous_level": agent_mode_state["autonomous_level"],
             "current_action": agent_mode_state["current_action"],
             "last_decision": agent_mode_state["last_decision"],
@@ -3893,16 +3897,19 @@ def press_game_button():
         if not current_state["rom_loaded"] or not current_state["active_emulator"]:
             return jsonify({"error": "No ROM loaded"}), 400
         
-        # Execute action
+        # Execute action using emulator's step method
         emulator = emulators[current_state["active_emulator"]]
-        action_result = execute_action_internal(emulator, button)
+        success = emulator.step(button, 1)
         
         # Update agent state
         agent_mode_state["current_action"] = button
         agent_mode_state["last_decision"] = f"Pressed {button}"
         
+        # Also add to action history
+        add_to_action_history(button)
+        
         return jsonify({
-            "success": True,
+            "success": success,
             "button": button,
             "timestamp": datetime.now().isoformat()
         }), 200
@@ -4552,6 +4559,7 @@ def screen_stream():
 # Valid agent modes
 VALID_AGENT_MODES = [
     "idle",           # No automatic actions
+    "auto",           # Alias for auto_explore (frontend compatibility)
     "auto_explore",   # Automatically explore the map
     "auto_battle",    # Automatically battle wild Pokemon
     "auto_train",     # Train Pokemon automatically
@@ -4563,6 +4571,11 @@ VALID_AGENT_MODES = [
     "manual"          # Manual control only
 ]
 
+# Mode aliases for frontend compatibility
+MODE_ALIASES = {
+    "auto": "auto_explore",  # Map 'auto' to 'auto_explore'
+}
+
 
 @app.route('/api/agent/mode', methods=['POST'])
 def set_agent_mode():
@@ -4570,7 +4583,7 @@ def set_agent_mode():
     Set the agent's automation mode.
     
     Body:
-        mode: One of 'idle', 'auto_explore', 'auto_battle', 'auto_train', 
+        mode: One of 'idle', 'auto', 'auto_explore', 'auto_battle', 'auto_train', 
               'auto_fish', 'auto_walk', 'auto_center', 'auto_shop', 'speedrun', 'manual'
         enabled: Enable/disable agent (default: true)
         autonomous_level: 'passive', 'moderate', or 'aggressive' (default: 'moderate')
@@ -4594,6 +4607,9 @@ def set_agent_mode():
                 "error": f"Invalid mode. Valid modes: {VALID_AGENT_MODES}"
             }), 400
         
+        # Resolve mode alias (e.g., 'auto' -> 'auto_explore')
+        actual_mode = MODE_ALIASES.get(mode, mode)
+        
         # Validate autonomous level
         valid_levels = ['passive', 'moderate', 'aggressive']
         if autonomous_level not in valid_levels:
@@ -4603,17 +4619,17 @@ def set_agent_mode():
         
         # Validate direction for auto_walk
         valid_directions = ['UP', 'DOWN', 'LEFT', 'RIGHT']
-        if mode == 'auto_walk' and direction and direction not in valid_directions:
+        if actual_mode == 'auto_walk' and direction and direction not in valid_directions:
             return jsonify({
                 "error": f"Invalid direction for auto_walk. Valid directions: {valid_directions}"
             }), 400
         
         # Update agent state
-        agent_mode_state["mode"] = mode
+        agent_mode_state["mode"] = actual_mode
         agent_mode_state["enabled"] = enabled
         agent_mode_state["autonomous_level"] = autonomous_level
-        agent_mode_state["current_action"] = f"Mode set to {mode}"
-        agent_mode_state["last_decision"] = f"Agent mode changed to {mode} (level: {autonomous_level})"
+        agent_mode_state["current_action"] = f"Mode set to {actual_mode}"
+        agent_mode_state["last_decision"] = f"Agent mode changed to {actual_mode} (level: {autonomous_level})"
         
         # Store additional parameters
         if direction:
@@ -4621,16 +4637,20 @@ def set_agent_mode():
         if target:
             agent_mode_state["target"] = target
         
-        logger.info(f"Agent mode set: {mode}, enabled: {enabled}, level: {autonomous_level}")
+        logger.info(f"Agent mode set: {mode} -> {actual_mode}, enabled: {enabled}, level: {autonomous_level}")
+        
+        # Normalize mode for frontend response (return 'auto' for any auto_* mode)
+        frontend_mode = "auto" if actual_mode.startswith("auto_") else actual_mode
         
         return jsonify({
             "success": True,
-            "message": f"Agent mode set to {mode}",
-            "mode": mode,
+            "message": f"Agent mode set to {actual_mode}",
+            "mode": frontend_mode,  # Frontend-friendly mode
+            "actual_mode": actual_mode,  # Actual mode for advanced use
             "enabled": enabled,
             "autonomous_level": autonomous_level,
-            "direction": direction if mode == 'auto_walk' else None,
-            "target": target if mode in ['auto_center', 'auto_shop'] else None,
+            "direction": direction if actual_mode == 'auto_walk' else None,
+            "target": target if actual_mode in ['auto_center', 'auto_shop'] else None,
             "valid_modes": VALID_AGENT_MODES,
             "timestamp": datetime.now().isoformat()
         }), 200
@@ -4646,8 +4666,13 @@ def get_agent_mode():
     Get the current agent mode and settings.
     """
     try:
+        actual_mode = agent_mode_state["mode"]
+        # Normalize mode for frontend (return 'auto' for any auto_* mode)
+        frontend_mode = "auto" if actual_mode.startswith("auto_") else actual_mode
+        
         return jsonify({
-            "mode": agent_mode_state["mode"],
+            "mode": frontend_mode,  # Frontend-friendly mode
+            "actual_mode": actual_mode,  # Actual mode for advanced use
             "enabled": agent_mode_state["enabled"],
             "autonomous_level": agent_mode_state["autonomous_level"],
             "current_action": agent_mode_state["current_action"],

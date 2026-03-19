@@ -69,10 +69,12 @@ export async function getScreen(baseUrl: string): Promise<Blob> {
 
 export async function sendAction(baseUrl: string, action: GameAction): Promise<void> {
   try {
-    const response = await fetch(`${baseUrl}/api/action`, {
+    // Use /api/game/button endpoint with 'button' parameter
+    // GameAction is a string type ('UP' | 'DOWN' | 'LEFT' | 'RIGHT' | 'A' | 'B' | 'START' | 'SELECT')
+    const response = await fetch(`${baseUrl}/api/game/button`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(action),
+      body: JSON.stringify({ button: action }),
     });
     if (!response.ok) {
       throw new Error(`Backend error: ${response.statusText}`);

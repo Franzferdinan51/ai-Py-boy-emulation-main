@@ -1637,12 +1637,18 @@ def create_tool_definitions() -> List[Tool]:
 
 # ========== MCP Server Setup ==========
 
-server = Server(
-    "pyboy-emulator",
-    capabilities={
-        "tools": {},
-    }
-)
+# Note: Server initialization varies by MCP version
+# Try different initialization patterns for compatibility
+try:
+    server = Server("pyboy-emulator")
+except TypeError:
+    # Older MCP versions may require different args
+    try:
+        server = Server(name="pyboy-emulator")
+    except Exception as e:
+        logger.warning(f"Server initialization warning: {e}")
+        server = Server("pyboy-emulator")
+
 server_version = SERVER_VERSION
 
 

@@ -8,7 +8,7 @@
 
 The MCP server exposes Game Boy emulator controls as MCP (Model Context Protocol) tools. Agents can load ROMs, press buttons, read game memory, and use autonomous play modes.
 
-**Server Version:** 4.0.0  
+**Server Version:** 5.0.0  
 **Location:** `ai-game-server/mcp_server.py`
 
 ---
@@ -23,7 +23,6 @@ The MCP server exposes Game Boy emulator controls as MCP (Model Context Protocol
    - [Save States](#save-states)
    - [Auto-Play Modes](#auto-play-modes)
    - [Session Management](#session-management)
-   - [Advanced Automation](#advanced-automation)
 3. [HTTP API Endpoints](#http-api-endpoints)
 4. [Error Codes](#error-codes)
 5. [Response Format](#response-format)
@@ -87,12 +86,10 @@ Load a ROM file into the emulator.
 {
   "success": true,
   "data": {
-    "rom_loaded": "pokemon-red.gb",
-    "rom_size": 1048576,
-    "game_title": "POKEMON RED",
-    "cgb_support": true
+    "rom": "/path/to/pokemon-red.gb",
+    "frame": 0
   },
-  "timing_ms": 150
+  "tool": "emulator_load_rom"
 }
 ```
 
@@ -121,47 +118,8 @@ Press a single emulator button.
 ```json
 {
   "success": true,
-  "data": {"button": "A", "action": "pressed"},
-  "timing_ms": 5
-}
-```
-
----
-
-#### `emulator_press_sequence`
-
-Press multiple buttons in sequence with timing.
-
-| Property | Value |
-|----------|-------|
-| **Description** | Execute a sequence of button presses |
-| **Parameters** | `sequence` (string, required) - Button sequence |
-
-**Sequence Syntax:**
-- Single press: `A`, `B`, `START`
-- Hold: `A2` (hold A for 2 ticks)
-- Wait: `W` (wait 1 frame), `W10` (wait 10 frames)
-- Direction combos: `UP`, `DOWN`, `LEFT`, `RIGHT`
-- Combined: `R2 A U3 W START`
-
-**Example Request:**
-```json
-{
-  "tool": "emulator_press_sequence",
-  "args": {"sequence": "DOWN DOWN START"}
-}
-```
-
-**Example Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "sequence": "DOWN DOWN START",
-    "buttons_pressed": 3,
-    "total_wait": 0
-  },
-  "timing_ms": 25
+  "data": {"button": "A", "frame": 1},
+  "tool": "emulator_press_button"
 }
 ```
 
@@ -198,13 +156,10 @@ Get current emulator state.
 **Example Response:**
 ```json
 {
-  "success": true,
-  "data": {
-    "rom_loaded": "pokemon-red.gb",
-    "emulator_running": true,
-    "frame_count": 12345,
-    "speed": 1.0
-  }
+  "initialized": true,
+  "rom_path": "/path/to/pokemon-red.gb",
+  "frame_count": 12345,
+  "pyboy_available": true
 }
 ```
 
@@ -233,58 +188,70 @@ Get the current game screen as a base64-encoded image.
 ```json
 {
   "success": true,
-  "data": {
-    "screen": "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkp...",
-    "width": 160,
-    "height": 144,
-    "format": "png",
-    "size_bytes": 4523
-  },
+  "frame": 100,
+  "dimensions": {"width": 160, "height": 144},
+  "image_base64": "iVBORw0KGgoAAAANSUhEUg...",
   "timing_ms": 45
-}
-```
-
-**Usage with Vision AI:**
-```bash
-# Get screen and send to vision model for analysis
-screen_data=$(get_screen_base64)
-echo "$screen_data" | base64 -d > /tmp/screen.png
-# Send to vision model for analysis
-```
-
----
-
-#### `emulator_get_frame`
-
-Get current frame (alias for get_screen_base64).
-
-| Property | Value |
-|----------|-------|
-| **Description** | Get current game frame |
-| **Parameters** | `include_base64` (boolean, optional) |
-
----
-
-#### `emulator_save_screenshot`
-
-Save screen to a file.
-
-| Property | Value |
-|----------|-------|
-| **Description** | Save current screen to file |
-| **Parameters** | `output_path` (string, required) - File path to save |
-
-**Example Request:**
-```json
-{
-  "tool": "emulator_save_screenshot",
-  "args": {"output_path": "/tmp/screenshot.png"}
 }
 ```
 
 ---
 
 ### Memory Reading
+
+#### `get_memory_address`
+
+Read a specific memory address.
+
+| Property | Value |
+|----------|-------|
+| **Description** | Read memory at address with description |
+| **Parameters** | `address` (integer or string, required) - Memory address (e.g., 54370 or "0xD062") |
+
+**Example Request:**
+```json
+{
+  "tool": "get_memory_address",
+  "args": {"address": "0xD062"}
+}
+```
+
+**Example Response:**
+```json
+{
+  "success": true,
+  "tool": "get_memory_address",
+  "data": {
+    "address": "0xd062",
+    "value": 12,
+    "value_hex": "0xc",
+    "value_binary": "0b1100",
+    "description": "Player X position = 12"
+  },
+  "frame": 100
+}
+```
+
+---
+
+#### `set_memory_address`
+
+Write to a specific memory address (⚠️ can corrupt game state!).
+
+| Property | Value |
+|----------|-------|
+| **Description** | Write byte to memory address |
+| **Parameters** | `address` (integer or string, required), `value` (integer 0-255, required) |
+
+**Example Request:**
+```json
+{
+  "tool": "set_memory_address",
+  "args": {"address": "0xD062", "value": 20}
+}
+```
+
+---
 
 #### `get_player_position`
 
@@ -299,46 +266,47 @@ Read player X,Y coordinates from game memory.
 ```json
 {
   "success": true,
-  "data": {
-    "x": 12,
-    "y": 8,
-    "map_id": 38,
-    "map_name": "Pallet Town"
-  }
+  "tool": "get_player_position",
+  "data": {"x": 12, "y": 8}
 }
 ```
 
 ---
 
-#### `get_party_info`
+#### `get_party_pokemon`
 
-Read party Pokemon/monsters from memory.
+Get detailed party Pokemon information.
 
 | Property | Value |
 |----------|-------|
-| **Description** | Get all Pokemon in party |
+| **Description** | Get all Pokemon in party with stats |
 | **Parameters** | None |
 
 **Example Response:**
 ```json
 {
   "success": true,
+  "tool": "get_party_pokemon",
   "data": {
+    "party_count": 1,
     "party": [
       {
-        "slot": 0,
+        "slot": 1,
         "species_id": 4,
         "species_name": "Charmander",
         "level": 5,
         "current_hp": 20,
         "max_hp": 20,
-        "attack": 12,
-        "defense": 9,
-        "speed": 10,
-        "moves": ["Scratch", "Growl", "Tail Whip", "Ember"]
+        "hp_percent": 100.0,
+        "status": "healthy"
       }
     ],
-    "party_count": 1
+    "summary": {
+      "total_hp": "20/20",
+      "health_percent": 100.0,
+      "average_level": 5.0,
+      "status": "ready"
+    }
   }
 }
 ```
@@ -358,12 +326,19 @@ Read inventory/bag items from memory.
 ```json
 {
   "success": true,
+  "tool": "get_inventory",
   "data": {
+    "unique_items": 2,
+    "total_items": 15,
     "items": [
-      {"item_id": 13, "name": "Potion", "quantity": 5},
-      {"item_id": 5, "name": "Poke Ball", "quantity": 10}
+      {"slot": 1, "item_id": 13, "item_name": "Potion", "quantity": 5, "category": "healing"},
+      {"slot": 2, "item_id": 25, "item_name": "Poke Ball", "quantity": 10, "category": "poke_balls"}
     ],
-    "item_count": 2
+    "summary": {
+      "poke_balls": 10,
+      "healing_items": 5,
+      "other_items": 0
+    }
   }
 }
 ```
@@ -383,11 +358,8 @@ Read current map/location ID from memory.
 ```json
 {
   "success": true,
-  "data": {
-    "map_id": 38,
-    "map_name": "Pallet Town",
-    "area_type": "town"
-  }
+  "tool": "get_map_location",
+  "data": {"map_id": 38, "map_hex": "0x26"}
 }
 ```
 
@@ -406,112 +378,10 @@ Read player money/currency from memory.
 ```json
 {
   "success": true,
-  "data": {
-    "money": 3000,
-    "formatted": "$3,000"
-  }
+  "tool": "get_money",
+  "data": {"money": 3000, "formatted": "$3,000"}
 }
 ```
-
----
-
-#### `emulator_read_memory`
-
-Read raw RAM at a specific address.
-
-| Property | Value |
-|----------|-------|
-| **Description** | Read raw memory at address |
-| **Parameters** | `address` (string, required) - Hex address (e.g., "0xD000") |
-| | `length` (integer, optional) - Number of bytes |
-
-**Example Request:**
-```json
-{
-  "tool": "emulator_read_memory",
-  "args": {"address": "0xD000", "length": 16}
-}
-```
-
----
-
-#### `get_memory_range`
-
-Read a range of memory bytes.
-
-| Property | Value |
-|----------|-------|
-| **Description** | Read multiple memory bytes |
-| **Parameters** | `start` (integer, required) - Start address |
-| | `length` (integer, required) - Number of bytes |
-
-**Example Request:**
-```json
-{
-  "tool": "get_memory_range",
-  "args": {"start": 53248, "length": 16}
-}
-```
-
----
-
-#### `get_memory_byte`
-
-Read a single memory byte.
-
-| Property | Value |
-|----------|-------|
-| **Description** | Read single memory address |
-| **Parameters** | `address` (integer, required) - Memory address |
-
-**Example Request:**
-```json
-{
-  "tool": "get_memory_byte",
-  "args": {"address": 53248}
-}
-```
-
----
-
-#### `emulator_get_game_state`
-
-Get complete game state snapshot.
-
-| Property | Value |
-|----------|-------|
-| **Description** | Get full game state |
-| **Parameters** | None |
-
-**Example Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "player": {
-      "x": 12,
-      "y": 8,
-      "money": 3000,
-      "badges": []
-    },
-    "party": [...],
-    "inventory": [...],
-    "map_id": 38,
-    "game_time": 1234
-  }
-}
-```
-
----
-
-#### `read_game_state`
-
-Alias for emulator_get_game_state with enhanced data.
-
-| Property | Value |
-|----------|-------|
-| **Description** | Get complete game state |
-| **Parameters** | None |
 
 ---
 
@@ -538,11 +408,8 @@ Save current emulator state to file.
 ```json
 {
   "success": true,
-  "data": {
-    "save_name": "my-checkpoint",
-    "filepath": "saves/duckbot_my-checkpoint.state",
-    "size_bytes": 2048
-  }
+  "path": "saves/my-checkpoint.state",
+  "frame": 12345
 }
 ```
 
@@ -567,179 +434,44 @@ Load a previously saved state.
 
 ---
 
-#### `emulator_list_saves`
-
-List all available save files.
-
-| Property | Value |
-|----------|-------|
-| **Description** | List all saves |
-| **Parameters** | None |
-
-**Example Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "saves": [
-      {"name": "my-checkpoint", "created": "2026-03-19T10:00:00"},
-      {"name": "before-battle", "created": "2026-03-19T10:15:00"}
-    ]
-  }
-}
-```
-
----
-
 ### Auto-Play Modes
 
-#### `auto_battle`
-
-Let AI automatically fight Pokemon.
-
-| Property | Value |
-|----------|-------|
-| **Description** | AI-controlled battle |
-| **Parameters** | `max_moves` (integer, optional) - Max battle turns |
-
-**Example Request:**
-```json
-{
-  "tool": "auto_battle",
-  "args": {"max_moves": 10}
-}
-```
-
-**Example Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "moves_executed": 5,
-    "battle_result": "won",
-    "exp_gained": 25,
-    "actions": [
-      {"move": "Ember", "damage": 10, "result": "hit"},
-      {"move": "Scratch", "damage": 6, "result": "hit"}
-    ]
-  }
-}
-```
-
----
-
-#### `auto_explore`
+#### `auto_explore_mode`
 
 Autonomous world exploration.
 
 | Property | Value |
 |----------|-------|
 | **Description** | AI explores game world |
-| **Parameters** | `steps` (integer, optional) - Steps to take |
+| **Parameters** | `steps` (integer, optional, default: 20) - Steps to take |
+| | `avoid_battles` (boolean, optional, default: true) - Avoid wild battles |
 | | `session_id` (string, optional) - Session for tracking |
 
 **Example Request:**
 ```json
 {
-  "tool": "auto_explore",
-  "args": {"steps": 20, "session_id": "session_abc123"}
+  "tool": "auto_explore_mode",
+  "args": {"steps": 20, "avoid_battles": true}
 }
 ```
 
 ---
 
-#### `auto_grind`
+#### `auto_battle_mode`
 
-Grind for XP or money.
+AI-powered battle mode.
 
 | Property | Value |
 |----------|-------|
-| **Description** | Farm XP or money |
-| **Parameters** | `target_level` (integer, optional) - Level to reach |
-| | `max_battles` (integer, optional) - Max battles |
-| | `heal_after` (integer, optional) - Battles before healing |
+| **Description** | AI fights in battles |
+| **Parameters** | `max_moves` (integer, optional, default: 15) - Max battle turns |
+| | `strategy` (string, optional, default: "aggressive") - "aggressive", "defensive", or "balanced" |
 
 **Example Request:**
 ```json
 {
-  "tool": "auto_grind",
-  "args": {"target_level": 20, "max_battles": 50, "heal_after": 5}
-}
-```
-
----
-
-### Advanced Automation
-
-#### `auto_catch`
-
-Automatically catch Pokemon in the wild.
-
-| Property | Value |
-|----------|-------|
-| **Description** | AI catches wild Pokemon |
-| **Parameters** | `max_attempts` (integer, optional, default: 30) - Max catch attempts |
-| | `use_best_ball` (boolean, optional, default: true) - Use best ball available |
-
-**Example Request:**
-```json
-{
-  "tool": "auto_catch",
-  "args": {"max_attempts": 30, "use_best_ball": true}
-}
-```
-
-**Example Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "attempts": 5,
-    "caught": true,
-    "pokemon": "Pidgey",
-    "level": 3,
-    "ball_used": "Poke Ball"
-  }
-}
-```
-
----
-
-#### `auto_item_use`
-
-Automatically use items.
-
-| Property | Value |
-|----------|-------|
-| **Description** | AI uses items from inventory |
-| **Parameters** | `item_id` (integer, optional) - Specific item to use |
-| | `target` (string, optional, default: "self") - Target for item |
-
-**Example Request:**
-```json
-{
-  "tool": "auto_item_use",
-  "args": {"item_id": 13, "target": "self"}
-}
-```
-
----
-
-#### `auto_npc_talk`
-
-Talk to NPCs automatically.
-
-| Property | Value |
-|----------|-------|
-| **Description** | AI interacts with NPCs |
-| **Parameters** | `interact_distance` (integer, optional, default: 1) - Talk range |
-| | `max_attempts` (integer, optional, default: 20) - Max interactions |
-
-**Example Request:**
-```json
-{
-  "tool": "auto_npc_talk",
-  "args": {"interact_distance": 1, "max_attempts": 20}
+  "tool": "auto_battle_mode",
+  "args": {"max_moves": 10, "strategy": "aggressive"}
 }
 ```
 
@@ -755,8 +487,8 @@ Start a new agent session.
 |----------|-------|
 | **Description** | Create new session for tracking progress |
 | **Parameters** | `session_id` (string, optional) - Custom session ID |
-| | `goal` (string, required) - Session goal |
-| | `ttl_seconds` (integer, optional) - Session TTL |
+| | `goal` (string, optional) - Session goal |
+| | `ttl_seconds` (integer, optional, default: 3600) - Session TTL |
 
 **Example Request:**
 ```json
@@ -770,10 +502,12 @@ Start a new agent session.
 ```json
 {
   "success": true,
+  "tool": "session_start",
   "data": {
-    "session_id": "session_abc123",
+    "session_id": "session_1710844800000",
+    "message": "New session created (persisted to disk)",
     "goal": "Beat Elite 4 and become Champion",
-    "created_at": "2026-03-19T10:00:00"
+    "ttl_seconds": 3600
   }
 }
 ```
@@ -788,13 +522,13 @@ Get session data.
 |----------|-------|
 | **Description** | Retrieve session value |
 | **Parameters** | `session_id` (string, required) |
-| | `key` (string, required) - Data key |
+| | `key` (string, optional) - Specific data key |
 
 **Example Request:**
 ```json
 {
   "tool": "session_get",
-  "args": {"session_id": "session_abc123", "key": "goal"}
+  "args": {"session_id": "session_1710844800000", "key": "goal"}
 }
 ```
 
@@ -806,7 +540,7 @@ Store data in session.
 
 | Property | Value |
 |----------|-------|
-| **Description** | Save session data |
+| **Description** | Save session data (persisted to disk) |
 | **Parameters** | `session_id` (string, required) |
 | | `key` (string, required) - Data key |
 | | `value` (any, required) - Data value |
@@ -816,9 +550,9 @@ Store data in session.
 {
   "tool": "session_set",
   "args": {
-    "session_id": "session_abc123",
+    "session_id": "session_1710844800000",
     "key": "visited_locations",
-    "value": ["Pallet Town", "Viridian City", "Pewter City"]
+    "value": ["Pallet Town", "Viridian City"]
   }
 }
 ```
@@ -831,7 +565,7 @@ List all sessions.
 
 | Property | Value |
 |----------|-------|
-| **Description** | List all sessions |
+| **Description** | List all active sessions |
 | **Parameters** | None |
 
 ---
@@ -842,7 +576,7 @@ Delete a session.
 
 | Property | Value |
 |----------|-------|
-| **Description** | Delete session |
+| **Description** | Delete session and remove from disk |
 | **Parameters** | `session_id` (string, required) |
 
 ---
@@ -864,11 +598,30 @@ The server also exposes HTTP endpoints for non-MCP access:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/load_rom` | POST | Load ROM file |
-| `/api/action` | POST | Send button input |
+| `/api/load_rom` | POST | Load ROM file (body: `{"rom_path": "..."}`) |
+| `/api/upload-rom` | POST | Upload ROM file (multipart form) |
+| `/api/action` | POST | Send button input (body: `{"action": "A"}`) |
+| `/api/game/button` | POST | Press button (body: `{"button": "A"}`) |
 | `/api/ai-action` | POST | Get AI-recommended action |
-| `/api/screen` | GET | Get screen image |
-| `/api/upload-rom` | POST | Upload ROM file |
+| `/api/screen` | GET | Get screen as JSON with base64 image |
+
+### Game State
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/game/state` | GET | Get game state (running, rom_name, etc.) |
+| `/api/agent/status` | GET | Get agent status (mode, current_action, etc.) |
+| `/api/agent/mode` | GET/POST | Get or set agent mode |
+
+### Memory & State
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/memory/<address>` | GET | Read memory address (query: `size`, `format`) |
+| `/api/memory/<address>` | POST | Write to memory (body: `{"value": 255}`) |
+| `/api/memory/watch` | GET | Get watched memory addresses |
+| `/api/party` | GET | Get party Pokemon info |
+| `/api/inventory` | GET | Get inventory items |
 
 ### Save States
 
@@ -878,15 +631,6 @@ The server also exposes HTTP endpoints for non-MCP access:
 | `/api/load_state` | POST | Load game state |
 | `/save_state` | POST | Alternative save endpoint |
 | `/load_state` | POST | Alternative load endpoint |
-
-### Memory & State
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/memory` | POST | Read memory |
-| `/characters` | GET | Get character sprite data |
-| `/tilemap` | GET | Get tilemap data |
-| `/sprites` | GET | Get sprite data |
 
 ### AI & Chat
 
@@ -905,15 +649,6 @@ The server also exposes HTTP endpoints for non-MCP access:
 | `/api/ui/restart` | POST | Restart UI |
 | `/api/ui/status` | GET | UI status |
 
-### Tetris (when applicable)
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/tetris/train` | POST | Train Tetris AI |
-| `/api/tetris/status` | GET | Tetris status |
-| `/api/tetris/save` | POST | Save Tetris state |
-| `/api/tetris/load` | POST | Load Tetris state |
-
 ### Performance
 
 | Endpoint | Method | Description |
@@ -927,33 +662,35 @@ The server also exposes HTTP endpoints for non-MCP access:
 ## Error Codes
 
 | Code | Meaning | Resolution |
-|------|---------|-------------|
+|------|---------|------------|
 | `EMULATOR_NOT_INITIALIZED` | Emulator not running | Load ROM first |
 | `ROM_NOT_FOUND` | ROM file doesn't exist | Check file path |
 | `INVALID_ROM` | Invalid ROM format | Use valid .gb/.gbc/.gba |
 | `BUTTON_INVALID` | Invalid button pressed | Use valid button |
 | `MEMORY_READ_ERROR` | Memory read failed | Try different address |
+| `MEMORY_WRITE_ERROR` | Memory write failed | Address may be read-only |
 | `SAVE_NOT_FOUND` | Save file doesn't exist | Check save name |
 | `SESSION_NOT_FOUND` | Session doesn't exist | Create session first |
+| `SESSION_EXPIRED` | Session TTL exceeded | Create new session |
 | `INVALID_PARAMETER` | Invalid parameter | Check parameter values |
 | `OPERATION_FAILED` | Operation failed | Check logs for details |
+| `BATTLE_NOT_ACTIVE` | Not in a battle | Enter battle first |
+| `INVALID_ADDRESS` | Memory address out of range | Use 0x0000-0xFFFF |
+| `STREAM_ERROR` | Screen streaming failed | Try non-streaming method |
 
 ---
 
 ## Response Format
 
-All responses follow this format:
+All MCP tool responses follow this format:
 
 ```json
 {
   "success": true,
-  "timestamp": "2026-03-19T10:00:00.000Z",
-  "server": {
-    "version": "4.0.0",
-    "started": "2026-03-19T09:00:00.000Z"
-  },
+  "tool": "tool_name",
   "data": { ... },
-  "timing_ms": 15
+  "frame": 12345,
+  "timing_ms": 15.5
 }
 ```
 
@@ -962,12 +699,10 @@ Error responses:
 ```json
 {
   "success": false,
-  "error": {
-    "code": "ROM_NOT_FOUND",
-    "message": "ROM file not found",
-    "suggestion": "Check the file path is correct"
-  },
-  "timing_ms": 5
+  "error": "Error message",
+  "error_code": "ERROR_CODE",
+  "suggestions": ["Suggestion 1", "Suggestion 2"],
+  "recoverable": true
 }
 ```
 
