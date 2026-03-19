@@ -457,11 +457,209 @@ class MetricsCollector:
 
 ---
 
+## Additional Research: GitHub AI Game Boy Projects
+
+*Research conducted: March 2026*
+
+### 1. mcp-pyboy (SSimonitch)
+**URL:** https://github.com/ssimonitch/mcp-pyboy
+
+**Unique Features:**
+- Full MCP server for PyBoy Game Boy emulator
+- Knowledge persistence (notebook-style notes about game state)
+- Save/load game states with naming
+- Input sequences (multiple button presses)
+- Hold/release button for continuous input
+- Web interface for game control
+
+**MCP Integration Patterns:**
+```
+Tools: load_rom, reset_game, press_button, hold_button, release_button, 
+       send_input_sequence, capture_screen, save_state, load_state,
+       create_note, update_note, search_notes, list_notes
+```
+
+---
+
+### 2. mcp-gameboy (Mario Andreschak)
+**URL:** https://github.com/mario-andreschak/mcp-gameboy
+
+**Unique Features:**
+- LLM-focused GameBoy emulator MCP server
+- Supports both stdio and SSE transport modes
+- Web interface at http://localhost:3001/emulator for ROM selection
+- Screen capture returning ImageContent
+- Direct ROM loading and control
+
+**MCP Integration Patterns:**
+- Built-in web interface for non-technical users
+- Smithery.ai automatic installation for Claude Desktop
+- Environment-based ROM path configuration
+
+---
+
+### 3. PokemonRedExperiments (PWhiddy)
+**URL:** https://github.com/PWhiddy/PokemonRedExperiments
+
+**Unique Features:**
+- Reinforcement learning for Pokemon Red
+- Coordinate-based exploration reward system
+- Global training broadcast to shared game map
+- TensorBoard integration for training metrics
+- Weights & Biases (wandb) logging integration
+- V2 baseline with faster training and less memory
+
+**AI Approaches:**
+- Deep Q-Learning with frame stacking
+- Coordinate-based exploration rewards (vs KNN)
+- Training broadcast wrapper for global visualization
+- Pre-trained model available for interactive play
+
+---
+
+### 4. rl_retro (yg-smile)
+**URL:** https://github.com/yg-smile/rl_retro
+
+**Unique Features:**
+- Game Boy Advance games with RL
+- Double Deep Q Learning (DDQN)
+- Bootstrap DDQN for exploration
+- Gym-retro integration for environment wrapping
+- Custom reward functions based on game variables
+
+**AI Approaches:**
+- DDQN with epsilon-greedy exploration
+- Bootstrap heads for deep exploration
+- Reward: negative of boss HP loss
+- State: 160x240 grayscale, stacked 2 frames
+- Actions: 8 discrete (attack, jump, directions, dash)
+
+---
+
+### 5. Piglet (danShumway)
+**URL:** https://github.com/danShumway/Piglet
+
+**Unique Features:**
+- LUA-driven AI for GameBoy Color games
+- Experimentation-based learning
+- Auto-save states on start
+- Automatic rollback when "bored"
+- Visual Boy Advance integration
+
+**AI Approaches:**
+- Experimentation through trial-and-error
+- Savestate-based recovery system
+- No pre-programmed game knowledge
+
+---
+
+### 6. PyBoy (Baekalfen) - The Foundation
+**URL:** https://github.com/Baekalfen/PyBoy
+
+**Unique Features:**
+- Pure Python Game Boy emulator
+- API for memory access and screen capture
+- Gym integration for RL
+- Multiple example games (Kirby, Tetris, Super Mario Land)
+- High performance with frame-skip options (up to 395x realtime)
+- Link cable support
+- Debugger support (VSCode, GDB, terminal)
+
+**Performance Optimization:**
+- Full rendering: 124x realtime
+- Frame-skip 15: 344x realtime  
+- No rendering: 395x realtime
+
+---
+
+### 7. Other Notable Mentions
+
+| Project | URL | Notes |
+|---------|-----|-------|
+| coffee-gb-bot | https://github.com/draknyte1/coffee-gb-bot | Java 8 + Deep Learning |
+| gameboy (augustye) | https://github.com/augustye/gameboy | Hardware emulator for Deep RL |
+| gameboy.live | https://github.com/HFO4/gameboy.live | Terminal cloud gaming |
+| gameboy-emulator-chatgpt-app | https://github.com/brunobuddy/gameboy-emulator-chatgpt-app | ChatGPT App integration |
+
+---
+
+## Recommended New Features to Add
+
+### Priority Features Based on Research
+
+#### 11. 🤖 MCP Server Integration
+**Priority: HIGH** | **Effort: Medium**
+
+Follow mcp-pyboy pattern to create an official MCP server for this project.
+
+**What it adds:**
+- Standard MCP tools for LLM interaction
+- Enables Claude Code, Cline, and other MCP clients
+- Web interface for manual control
+- Persistent game knowledge notes
+
+**Implementation approach:**
+```python
+# MCP tools to implement:
+- load_rom
+- reset_game  
+- press_button
+- capture_screen
+- save_state / load_state
+- create_note (game knowledge)
+- search_notes
+```
+
+---
+
+#### 12. 📡 Training Broadcast & Visualization
+**Priority: MEDIUM** | **Effort: Medium**
+
+Based on PokemonRedExperiments' StreamWrapper.
+
+**What it adds:**
+- Real-time training progress map
+- TensorBoard metrics
+- Weights & Biases integration
+- Session replay capability
+
+---
+
+#### 13. 🎯 Reinforcement Learning Framework
+**Priority: MEDIUM** | **Effort: High**
+
+Implement RL training based on PokemonRedExperiments/rl_retro.
+
+**What it adds:**
+- DDQN implementation
+- Experience replay buffer
+- Exploration reward system
+- Pre-trained model support
+
+---
+
+#### 14. 🔄 Experiment-Based Auto-Learning
+**Priority: LOW** | **Effort: Medium**
+
+Similar to Piglet's experimentation approach.
+
+**What it adds:**
+- Trial-and-error learning without pre-programmed knowledge
+- Automatic state save/rollback
+- "Boredom" detection and recovery
+
+---
+
 ## Credits
 
 - **gpt-play-pokemon-firered** - Architecture inspiration
 - **PokemonRedExperiments** - RL approach
 - **poke.AI** - CNN + SLAM + DQN methods
 - **PyBoy** - Emulator foundation
+- **mcp-pyboy** - MCP server implementation
+- **mcp-gameboy** - Web-based MCP GameBoy
+- **rl_retro** - GBA RL implementation
+- **Piglet** - LUA experimentation AI
 
 *Document created: March 2026*
+*Research section added: March 2026*
