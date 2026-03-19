@@ -187,3 +187,6 @@ backup*/
 *.pem
 *.key
 credentials.json
+
+# Save states
+saves/*.state

@@ -174,15 +174,32 @@ except ImportError:
     OPTIMIZATION_CACHE_SIZE = int(os.environ.get('OPTIMIZATION_CACHE_SIZE', 500))
     OPTIMIZATION_MONITORING_INTERVAL = int(os.environ.get('OPTIMIZATION_MONITORING_INTERVAL', 5))
 
-# Set up logging
+# Keep backend logs in the server tree by default, but don't crash startup if the
+# filesystem is read-only (common in containers and managed deploys).
+SERVER_ROOT = os.path.dirname(os.path.dirname(__file__))
+LOG_FILE = os.environ.get("LOG_FILE", os.path.join(SERVER_ROOT, "ai_game_server.log"))
+
+def _build_log_handlers():
+    handlers = [logging.StreamHandler()]
+
+    if not LOG_FILE:
+        return handlers
+
+    try:
+        log_dir = os.path.dirname(LOG_FILE)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        handlers.insert(0, logging.FileHandler(LOG_FILE))
+    except OSError as exc:
+        print(f"Warning: failed to open log file {LOG_FILE}: {exc}. Falling back to stdout only.")
+
+    return handlers
+
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper()),
     format=LOG_FORMAT,
     style='{',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler()
-    ]
+    handlers=_build_log_handlers()
 )
 logger = logging.getLogger(__name__)
 
@@ -356,6 +373,48 @@ def add_to_action_history(action):
         # Keep history within limits
         if len(action_history) > ACTION_HISTORY_LIMIT:
             action_history.pop(0)
+
+def configure_emulator_launch_ui(emulator, enabled: bool):
+    """Apply UI launch preference to emulator implementations when supported."""
+    if hasattr(emulator, 'set_auto_launch_ui'):
+        emulator.set_auto_launch_ui(enabled)
+    elif hasattr(emulator, 'auto_launch_ui'):
+        emulator.auto_launch_ui = enabled
+
+def sync_loaded_rom_state(emulator_type: str, rom_path: str, rom_name: Optional[str] = None):
+    """Update shared game state after a ROM loads successfully."""
+    emulator = emulators[emulator_type]
+    frame_count = emulator.get_frame_count() if hasattr(emulator, 'get_frame_count') else 0
+
+    update_game_state({
+        "rom_loaded": True,
+        "active_emulator": emulator_type,
+        "rom_path": rom_path,
+        "rom_name": rom_name or os.path.basename(rom_path),
+        "frame_count": frame_count,
+    })
+
+def read_emulator_memory_value(emulator, address: int, size: int = 1) -> Optional[int]:
+    """Read emulator memory using the best available API across emulator modes."""
+    try:
+        if hasattr(emulator, 'get_memory'):
+            raw_value = emulator.get_memory(address, size)
+            if isinstance(raw_value, (bytes, bytearray)) and len(raw_value) >= size:
+                return int.from_bytes(raw_value[:size], byteorder='big')
+
+        if hasattr(emulator, 'pyboy') and emulator.pyboy:
+            if size == 1:
+                return emulator.pyboy.memory[address]
+            return int.from_bytes(bytes(emulator.pyboy.memory[address:address + size]), byteorder='big')
+
+        if hasattr(emulator, 'memory'):
+            if size == 1:
+                return emulator.memory[address]
+            return int.from_bytes(bytes(emulator.memory[address:address + size]), byteorder='big')
+    except Exception as exc:
+        logger.debug(f"Memory read failed at {hex(address)}: {exc}")
+
+    return None
 
 def timeout_handler(timeout_seconds):
     """Decorator to add timeout handling to functions"""
@@ -1183,6 +1242,8 @@ def upload_rom():
 
         # Use the mapped emulator type
         emulator_type = mapped_emulator_type
+        emulator_instance = emulators[emulator_type]
+        configure_emulator_launch_ui(emulator_instance, launch_ui)
 
         logger.info(f"Loading ROM into {emulator_type} emulator...")
 
@@ -1223,11 +1284,11 @@ def upload_rom():
         logger.info(f"Loading ROM into {emulator_type} emulator...")
 
         try:
-            success = emulators[emulator_type].load_rom(temp_rom_path)
+            success = emulator_instance.load_rom(temp_rom_path)
 
             if success:
                 # Initialize emulator and run a few frames to ensure it's working
-                emulator = emulators[emulator_type]
+                emulator = emulator_instance
 
             # Test emulator functionality with proper error handling
                 test_success = False
@@ -1256,11 +1317,13 @@ def upload_rom():
                 ui_status = emulator.get_ui_status() if hasattr(emulator, 'get_ui_status') else {"running": False}
 
                 logger.info(f"UI status: {ui_status}")
+                rom_name = file.filename or safe_filename
+                sync_loaded_rom_state(emulator_type, temp_rom_path, rom_name=rom_name)
 
                 # Prepare comprehensive response
                 response_data = {
                     "message": "ROM loaded successfully",
-                    "rom_name": safe_filename,
+                    "rom_name": rom_name,
                     "original_filename": file.filename,
                     "emulator_type": emulator_type,
                     "rom_size": os.path.getsize(temp_rom_path),
@@ -1268,6 +1331,7 @@ def upload_rom():
                     "ui_status": ui_status,
                     "test_success": test_success,
                     "test_error": test_error,
+                    "frame_count": emulator.get_frame_count() if hasattr(emulator, 'get_frame_count') else 0,
                     "temp_path": temp_rom_path
                 }
 
@@ -1275,7 +1339,7 @@ def upload_rom():
                 auto_launch_enabled = ui_status.get("auto_launch_enabled", True)
                 ui_process_running = ui_status.get("running", False)
 
-                if not ui_process_running and auto_launch_enabled and launch_ui == 'true':
+                if not ui_process_running and auto_launch_enabled and launch_ui:
                     logger.warning("UI process failed to launch automatically")
                     # Add helpful information for manual UI launch
                     response_data["ui_help"] = {
@@ -3993,7 +4057,7 @@ def get_game_state_api():
             "screen_available": current_state["rom_loaded"],
             "frame_count": current_state.get("frame_count", 0),
             "fps": current_state.get("fps", 0),
-            "emulator": current_state.get("active_emulator", "gb"),
+            "emulator": current_state.get("active_emulator") or "gb",
             "timestamp": datetime.now().isoformat()
         }
         
@@ -4096,14 +4160,15 @@ def get_memory_watch():
             # Try to read actual memory if available
             for addr_info in watched_addresses:
                 try:
-                    if hasattr(emulator, 'memory'):
-                        value = emulator.memory[addr_info["address"]]
-                    else:
-                        value = 0
+                    value = read_emulator_memory_value(
+                        emulator,
+                        addr_info["address"],
+                        addr_info.get("size", 1)
+                    )
                     memory_data.append({
                         **addr_info,
                         "value": value,
-                        "hex": hex(value)
+                        "hex": hex(value) if value is not None else "N/A"
                     })
                 except Exception:
                     memory_data.append({
@@ -4652,21 +4717,18 @@ def load_rom_api():
         
         emulator_type = mapped_emulator
         
+        emulator_instance = emulators[emulator_type]
+        configure_emulator_launch_ui(emulator_instance, launch_ui)
+
         # Load ROM
         logger.info(f"Loading ROM: {rom_path} with emulator: {emulator_type}")
-        success = emulators[emulator_type].load_rom(rom_path)
+        success = emulator_instance.load_rom(rom_path)
         
         if success:
-            # Update game state
-            update_game_state({
-                "rom_loaded": True,
-                "active_emulator": emulator_type,
-                "rom_path": rom_path,
-                "rom_name": os.path.basename(rom_path)
-            })
+            sync_loaded_rom_state(emulator_type, rom_path)
             
             # Get emulator info
-            emulator = emulators[emulator_type]
+            emulator = emulator_instance
             ui_status = emulator.get_ui_status() if hasattr(emulator, 'get_ui_status') else {"running": False}
             
             return jsonify({
