@@ -192,7 +192,39 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="get_position",
-            description="Get player position (Pokemon games only)",
+            description="Get player X,Y position on current map",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_map",
+            description="Get current map/location name",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_money",
+            description="Get player money",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_badges",
+            description="Get earned badges",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="screenshot",
+            description="Take a screenshot of the current game screen",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -201,6 +233,79 @@ async def list_tools() -> List[Tool]:
         Tool(
             name="get_game_info",
             description="Get information about the currently loaded game",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="press_button_combo",
+            description="Press a button combo (e.g., UP+A for jump)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "combo": {
+                        "type": "string",
+                        "description": "Button combo (e.g., UP+A, DOWN+B, LEFT+A)"
+                    }
+                },
+                "required": ["combo"]
+            }
+        ),
+        Tool(
+            name="hold_button",
+            description="Hold a button for N frames",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "button": {
+                        "type": "string",
+                        "description": "Button to hold",
+                        "enum": ["A", "B", "UP", "DOWN", "LEFT", "RIGHT", "START", "SELECT"]
+                    },
+                    "frames": {
+                        "type": "integer",
+                        "description": "Frames to hold (default 30)"
+                    }
+                },
+                "required": ["button"]
+            }
+        ),
+        Tool(
+            name="quick_save",
+            description="Quick save current game state",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="quick_load",
+            description="Quick load saved game state",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="list_save_slots",
+            description="List all save state slots",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_wild_pokemon",
+            description="Get info about wild Pokemon in battle",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_enemy_info",
+            description="Get enemy Pokemon info in battle",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -315,8 +420,69 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
             return [TextContent(type="text", text=json.dumps(result))]
         
         elif name == "get_position":
-            result = api_get("/api/memory/0xD362")  # Player X
+            player_x = api_get("/api/memory/0xD362")
+            player_y = api_get("/api/memory/0xD361")
+            return [TextContent(type="text", text=json.dumps({"x": player_x.get("value"), "y": player_y.get("value")}))]
+        
+        elif name == "get_map":
+            map_id = api_get("/api/memory/0xD35E")
+            map_names = {0: "Pallet Town", 1: "Viridian City", 2: "Pewter City", 3: "Cerulean City",
+                        4: "Lavender Town", 5: "Vermilion City", 6: "Celadon City", 7: "Saffron City",
+                        8: "Fuchsia City", 9: "Cinnabar Island", 10: "Indigo Plateau", 38: "Player's House"}
+            mid = map_id.get("value", 0)
+            return [TextContent(type="text", text=json.dumps({"map_id": mid, "map_name": map_names.get(mid, f"Unknown ({mid})")}))]
+        
+        elif name == "get_money":
+            result = api_get("/api/memory/0xD347")
+            return [TextContent(type="text", text=json.dumps({"money_hex": result.get("value")}))]
+        
+        elif name == "get_badges":
+            badges = api_get("/api/memory/0xD356")
+            badge_names = ["Boulder", "Cascade", "Thunder", "Rainbow", "Soul", "Marsh", "Volcano", "Earth"]
+            b = badges.get("value", 0)
+            earned = [badge_names[i] for i in range(8) if (b >> i) & 1]
+            return [TextContent(type="text", text=json.dumps({"earned": earned, "count": len(earned)}))]
+        
+        elif name == "screenshot":
+            result = api_get("/api/screen")
+            return [TextContent(type="text", text=json.dumps({"success": True, "frame": result.get("pyboy_frame"), "size": len(result.get("image", ""))}))]
+        
+        elif name == "press_button_combo":
+            combo = arguments.get("combo", "").upper()
+            buttons = combo.replace("+", " ").split()
+            for btn in buttons:
+                api_post("/api/game/button", {"button": btn})
+            return [TextContent(type="text", text=json.dumps({"success": True, "combo": combo}))]
+        
+        elif name == "hold_button":
+            btn = arguments.get("button", "A").upper()
+            frames = arguments.get("frames", 30)
+            for _ in range(frames):
+                api_post("/api/game/button", {"button": btn})
+            return [TextContent(type="text", text=json.dumps({"success": True, "button": btn, "frames": frames}))]
+        
+        elif name == "quick_save":
+            result = api_post("/api/game/save", {"name": "quick_save"})
             return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "quick_load":
+            result = api_post("/api/game/load", {"name": "quick_save"})
+            return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "list_save_slots":
+            result = api_get("/api/game/saves")
+            return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "get_wild_pokemon":
+            enemy_species = api_get("/api/memory/0xD4B1")
+            enemy_hp = api_get("/api/memory/0xD4B2")
+            return [TextContent(type="text", text=json.dumps({"species_id": enemy_species.get("value"), "hp": enemy_hp.get("value")}))]
+        
+        elif name == "get_enemy_info":
+            species = api_get("/api/memory/0xD4B1")
+            hp_current = api_get("/api/memory/0xD4B2")
+            hp_max = api_get("/api/memory/0xD4B3")
+            return [TextContent(type="text", text=json.dumps({"species": species.get("value"), "hp": hp_current.get("value"), "max_hp": hp_max.get("value")}))]
         
         elif name == "get_game_info":
             result = api_get("/api/game/state")
