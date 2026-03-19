@@ -1970,6 +1970,10 @@ async def call_tool(name: str, arguments: dict):
                     error_code=EmulatorErrorCode.INVALID_PARAMETER
                 )))]
             
+            # Add .state extension if not present (matches save_game_state behavior)
+            if not save_name.endswith('.state'):
+                save_name += '.state'
+            
             SAVE_DIR = Path(__file__).parent.parent / "saves"
             save_path = SAVE_DIR / save_name
             

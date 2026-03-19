@@ -257,18 +257,18 @@ CORS(app, resources={
 @app.before_request
 def security_middleware():
     """Combined security middleware for host validation and rate limiting"""
-    # Skip validation for local development
-    if DEBUG:
+    # Skip validation for local development or localhost traffic
+    host = request.host.split(':')[0]  # Remove port
+    client_ip = get_client_ip()
+    if DEBUG or host in ('localhost', '127.0.0.1', '::1') or client_ip in ('127.0.0.1', '::1', 'localhost'):
         return
 
     # Host validation
-    host = request.host.split(':')[0]  # Remove port
     if host not in [h.strip() for h in ALLOWED_HOSTS]:
         logger.warning(f"Unauthorized host access attempt: {host}")
         return jsonify({"error": "Unauthorized"}), 403
 
     # Rate limiting
-    client_ip = get_client_ip()
     if not rate_limiter.is_allowed(client_ip):
         logger.warning(f"Rate limit exceeded for IP: {client_ip}")
         return jsonify({
@@ -1188,13 +1188,16 @@ def upload_rom():
 
         # Verify ROM file integrity
         try:
-            # Read first few bytes to validate ROM header
-            file_header = file.read(512)
-            file.seek(0)  # Reset file pointer
+            temp_file_size = os.path.getsize(temp_rom_path)
+            if temp_file_size < 0x150:
+                return jsonify({"error": f"File too small to be a valid ROM ({temp_file_size} bytes)"}), 400
+
+            with open(temp_rom_path, 'rb') as rom_check:
+                file_header = rom_check.read(512)
 
             # Basic ROM validation - check for Game Boy header pattern
             if len(file_header) < 0x150:  # Minimum ROM size
-                return jsonify({"error": "File too small to be a valid ROM"}), 400
+                return jsonify({"error": f"Could not read enough ROM header bytes ({len(file_header)})"}), 400
 
             # Check for Nintendo logo pattern (bytes 0x104-0x133)
             nintendo_logo = [
@@ -1368,9 +1371,14 @@ def execute_action():
             return jsonify({"error": "No ROM loaded"}), 400
 
         # Validate and parse JSON data
-        data = validate_json_data(request.get_data(as_text=True), "action request")
+        try:
+            data = request.get_json(force=True)
+            if data is None:
+                return jsonify({"error": "Invalid JSON data"}), 400
+        except Exception as e:
+            return jsonify({"error": f"JSON parse error: {str(e)}"}), 400
 
-        action = data.get('action', 'SELECT')
+        action = data.get('action', data.get('button', 'SELECT'))
         frames = data.get('frames', 1)
 
         # Validate action using comprehensive input validation

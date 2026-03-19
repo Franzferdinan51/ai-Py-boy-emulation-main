@@ -9,52 +9,54 @@ interface InventoryPanelProps {
 
 const INVENTORY_REFRESH_MS = 10000;
 
+const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(' ');
+
 const getCategory = (itemName: string) => {
   const label = itemName.toLowerCase();
 
   if (label.includes('ball')) {
-    return 'Pokeball';
+    return 'pokeball';
   }
 
   if (label.includes('potion') || label.includes('heal') || label.includes('revive') || label.includes('antidote')) {
-    return 'Medicine';
+    return 'medicine';
   }
 
   if (label.includes('badge')) {
-    return 'Badge';
+    return 'badge';
   }
 
   if (label.includes('key') || label.includes('ticket') || label.includes('pass')) {
-    return 'Key item';
+    return 'key';
   }
 
   if (label.includes('rod')) {
-    return 'Fishing';
+    return 'fishing';
   }
 
   if (label.includes('stone')) {
-    return 'Stone';
+    return 'stone';
   }
 
-  return 'General';
+  return 'general';
 };
 
-const getCategoryClasses = (category: string) => {
+const getCategoryLabel = (category: string) => {
   switch (category) {
-    case 'Pokeball':
-      return 'border-red-900/60 bg-red-950/40 text-red-300';
-    case 'Medicine':
-      return 'border-green-900/60 bg-green-950/40 text-green-300';
-    case 'Badge':
-      return 'border-yellow-900/60 bg-yellow-950/40 text-yellow-300';
-    case 'Key item':
-      return 'border-blue-900/60 bg-blue-950/40 text-blue-300';
-    case 'Fishing':
-      return 'border-cyan-900/60 bg-cyan-950/40 text-cyan-300';
-    case 'Stone':
-      return 'border-purple-900/60 bg-purple-950/40 text-purple-300';
+    case 'pokeball':
+      return 'Poke Ball';
+    case 'medicine':
+      return 'Medicine';
+    case 'badge':
+      return 'Badge';
+    case 'key':
+      return 'Key item';
+    case 'fishing':
+      return 'Fishing';
+    case 'stone':
+      return 'Stone';
     default:
-      return 'border-neutral-800 bg-neutral-900 text-neutral-300';
+      return 'General';
   }
 };
 
@@ -97,8 +99,10 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ isRomLoaded, onInventor
       }
     };
 
-    fetchInventory();
-    const intervalId = window.setInterval(fetchInventory, INVENTORY_REFRESH_MS);
+    void fetchInventory();
+    const intervalId = window.setInterval(() => {
+      void fetchInventory();
+    }, INVENTORY_REFRESH_MS);
 
     return () => {
       cancelled = true;
@@ -106,61 +110,57 @@ const InventoryPanel: React.FC<InventoryPanelProps> = ({ isRomLoaded, onInventor
     };
   }, [isRomLoaded, onInventoryUpdate]);
 
-  if (!isRomLoaded) {
-    return (
-      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-5 text-center text-neutral-500">
-        <Backpack className="mx-auto mb-3 h-8 w-8 opacity-50" />
-        <p className="text-sm">Load a ROM to inspect the bag.</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70">
-      <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
+    <section className="data-panel">
+      <div className="data-panel__header">
         <div>
-          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Inventory</h3>
-          <p className="mt-1 text-xs text-neutral-500">
-            {inventoryData ? `${inventoryData.item_count} tracked items` : 'Reading bag data'}
+          <span className="data-panel__eyebrow">Inventory</span>
+          <h3 className="data-panel__title">Bag contents</h3>
+          <p className="data-panel__subtitle">
+            {isRomLoaded
+              ? inventoryData
+                ? `${inventoryData.item_count} tracked items`
+                : 'Reading bag data'
+              : 'Load a ROM to inspect the bag.'}
           </p>
         </div>
-        {loading && <Activity className="h-4 w-4 animate-spin text-neutral-500" />}
+        {loading ? <Activity className="data-panel__icon data-panel__icon--spin" /> : <Backpack className="data-panel__icon" />}
       </div>
 
-      <div className="space-y-3 p-4">
-        {inventoryData && (
-          <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 px-4 py-3">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-sm text-neutral-300">
-                <Coins className="h-4 w-4 text-yellow-400" />
-                Cash on hand
-              </span>
-              <span className="text-lg font-semibold text-yellow-300">
-                {inventoryData.money_formatted || `¥${inventoryData.money.toLocaleString()}`}
-              </span>
+      <div className="data-panel__body">
+        {!isRomLoaded ? (
+          <div className="empty-panel">Load a ROM to inspect the bag.</div>
+        ) : (
+          <>
+            {inventoryData && (
+              <div className="money-card">
+                <div>
+                  <span className="money-card__label">
+                    <Coins className="money-card__icon" />
+                    Cash on hand
+                  </span>
+                  <strong className="money-card__value">
+                    {inventoryData.money_formatted || `¥${inventoryData.money.toLocaleString()}`}
+                  </strong>
+                </div>
+              </div>
+            )}
+
+            {error && <div className="error-banner">{error}</div>}
+
+            {!error && inventoryData && inventoryData.items.length === 0 && (
+              <div className="empty-panel">No inventory items detected yet.</div>
+            )}
+
+            <div className="inventory-list">
+              {inventoryData?.items.map((item) => (
+                <InventoryRow key={item.slot} item={item} />
+              ))}
             </div>
-          </div>
+          </>
         )}
-
-        {error && (
-          <div className="rounded-xl border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">
-            {error}
-          </div>
-        )}
-
-        {!error && inventoryData && inventoryData.items.length === 0 && (
-          <div className="rounded-xl border border-neutral-800 bg-neutral-950/70 px-4 py-6 text-center text-sm text-neutral-500">
-            No inventory items detected yet.
-          </div>
-        )}
-
-        <div className="space-y-2">
-          {inventoryData?.items.map((item) => (
-            <InventoryRow key={item.slot} item={item} />
-          ))}
-        </div>
       </div>
-    </div>
+    </section>
   );
 };
 
@@ -168,22 +168,22 @@ const InventoryRow: React.FC<{ item: InventoryItem }> = ({ item }) => {
   const category = getCategory(item.name);
 
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-neutral-800 bg-neutral-950/80 px-4 py-3">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-xs uppercase tracking-wide text-neutral-500">#{item.slot}</span>
-          <span className="truncate text-sm font-medium text-white">{item.name}</span>
+    <article className="inventory-row">
+      <div className="inventory-row__meta">
+        <div className="inventory-row__title">
+          <span className="inventory-row__slot">#{item.slot}</span>
+          <strong>{item.name}</strong>
         </div>
-        <span className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-wide ${getCategoryClasses(category)}`}>
-          {category}
+        <span className={classNames('inventory-tag', `inventory-tag--${category}`)}>
+          {getCategoryLabel(category)}
         </span>
       </div>
 
-      <div className="ml-4 flex items-center gap-2 rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-sm text-neutral-300">
-        <Package className="h-3.5 w-3.5" />
-        x{item.quantity}
+      <div className="inventory-quantity">
+        <Package className="inventory-quantity__icon" />
+        <span>x{item.quantity}</span>
       </div>
-    </div>
+    </article>
   );
 };
 

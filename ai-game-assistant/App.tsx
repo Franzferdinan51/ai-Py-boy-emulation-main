@@ -6,7 +6,6 @@ import {
   FolderOpen,
   Gamepad2,
   Keyboard,
-  Package,
   RefreshCw,
   Save,
   Settings,
@@ -51,8 +50,8 @@ const EMPTY_AGENT_STATE: AgentStatus = {
   agent_name: 'OpenClaw',
   mode: 'manual',
   autonomous_level: 'moderate',
-  current_action: 'Idle',
-  last_decision: 'Waiting for runtime data.',
+  current_action: '',
+  last_decision: '',
   enabled: false,
   game_running: false,
   timestamp: '',
@@ -66,6 +65,8 @@ const EMPTY_MEMORY_STATE: MemoryWatch = {
 
 type ConnectionStatus = 'checking' | 'connected' | 'disconnected';
 type InsightTab = 'party' | 'inventory' | 'memory';
+type StatusTone = ConnectionStatus | 'standby';
+type MetricTone = 'berry' | 'olive' | 'amber' | 'slate';
 
 const createLogEntry = (type: LogEntry['type'], message: string): LogEntry => ({
   id: Date.now() + Math.floor(Math.random() * 1000),
@@ -74,9 +75,61 @@ const createLogEntry = (type: LogEntry['type'], message: string): LogEntry => ({
   message,
 });
 
+const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(' ');
+
+const formatClock = (value: string | null | undefined) => {
+  if (!value) {
+    return 'Not yet';
+  }
+
+  return new Date(value).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+};
+
+const capitalize = (value: string) => (value ? value.charAt(0).toUpperCase() + value.slice(1) : value);
+
+const summarizeProbeError = (message: string | null | undefined, fallback = 'Unavailable') => {
+  if (!message) {
+    return fallback;
+  }
+
+  if (message.includes('404')) {
+    return 'Route missing';
+  }
+
+  if (message.includes('429')) {
+    return 'Rate limited';
+  }
+
+  return fallback;
+};
+
+const getBackendTone = (autoConnect: boolean, status: ConnectionStatus): StatusTone => {
+  if (!autoConnect) {
+    return 'standby';
+  }
+
+  return status;
+};
+
+const getOpenClawTone = (autoConnect: boolean, health: OpenClawHealthResponse | null): StatusTone => {
+  if (!autoConnect) {
+    return 'standby';
+  }
+
+  if (!health) {
+    return 'checking';
+  }
+
+  return health.ok ? 'connected' : 'disconnected';
+};
+
 const App: React.FC = () => {
-  const [settings, setSettings] = useState<AppSettings>(loadSettings);
-  const [objectiveDraft, setObjectiveDraft] = useState(loadSettings().agentObjectives);
+  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const [objectiveDraft, setObjectiveDraft] = useState(() => loadSettings().agentObjectives);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('checking');
@@ -96,8 +149,6 @@ const App: React.FC = () => {
   const [inventoryData, setInventoryData] = useState<InventoryData | null>(null);
   const [insightTab, setInsightTab] = useState<InsightTab>('party');
   const [lastRomName, setLastRomName] = useState<string | null>(() => localStorage.getItem(LAST_ROM_STORAGE_KEY));
-  const [providerStatus, setProviderStatus] = useState<Record<string, { status: string; available: boolean }>>({});
-  const [activeProvider, setActiveProvider] = useState<string>('openclaw');
 
   const lastDecisionRef = useRef(agentState.last_decision);
   const lastActionRef = useRef(agentState.current_action);
@@ -136,7 +187,7 @@ const App: React.FC = () => {
           }),
         ]);
 
-        setOpenClawHealth((current) => current ? { ...current, endpoint: openClawConfig.endpoint } : current);
+        setOpenClawHealth((current) => (current ? { ...current, endpoint: openClawConfig.endpoint } : current));
         setAgentState((current) => ({
           ...current,
           agent_name: 'OpenClaw',
@@ -197,6 +248,7 @@ const App: React.FC = () => {
       setBackendHealth(health);
       setGameState(nextGameState);
       setAgentState(nextAgentState);
+
       const wasDisconnected = connectionStatusRef.current !== 'connected';
       setConnection('connected');
 
@@ -219,11 +271,6 @@ const App: React.FC = () => {
         setLastRomName(nextGameState.rom_name);
       }
 
-      // Track active provider from agent status
-      if (nextAgentState.provider) {
-        setActiveProvider(nextAgentState.provider);
-      }
-
       if (nextGameState.rom_loaded) {
         void refreshScreen();
         void refreshMemory();
@@ -236,7 +283,11 @@ const App: React.FC = () => {
       setConnection('disconnected');
       setBackendHealth(null);
       setGameState(EMPTY_GAME_STATE);
-      setAgentState((current) => ({ ...current, connected: false }));
+      setAgentState(EMPTY_AGENT_STATE);
+      setMemoryState(EMPTY_MEMORY_STATE);
+      setGameScreenUrl(null);
+      lastDecisionRef.current = EMPTY_AGENT_STATE.last_decision;
+      lastActionRef.current = EMPTY_AGENT_STATE.current_action;
 
       if (!wasDisconnected) {
         appendSystemLog('error', error instanceof Error ? error.message : 'Failed to reach backend');
@@ -255,19 +306,13 @@ const App: React.FC = () => {
         checked_at: new Date().toISOString(),
       });
     }
-
-    // Fetch provider status
-    try {
-      const providers = await apiService.getProviderStatus();
-      setProviderStatus(providers);
-    } catch (error) {
-      appendSystemLog('error', error instanceof Error ? error.message : 'Failed to fetch provider status');
-    }
   }, [appendDecisionLog, appendSystemLog, refreshMemory, refreshScreen, setConnection, settings.backendUrl, settings.openclawMcpEndpoint]);
 
   useEffect(() => {
     if (!settings.autoConnect) {
       setConnection('disconnected');
+      setBackendHealth(null);
+      setOpenClawHealth(null);
       return;
     }
 
@@ -275,7 +320,7 @@ const App: React.FC = () => {
       try {
         await syncOpenClawRuntime(settings, settings.agentObjectives, 'Applied saved OpenClaw runtime defaults');
       } catch {
-        // The status poll below will expose the backend/OpenClaw state.
+        // The status poll below exposes the backend and OpenClaw state.
       } finally {
         await refreshStatus();
       }
@@ -325,7 +370,7 @@ const App: React.FC = () => {
     try {
       await syncOpenClawRuntime(mergedSettings, normalizedObjective, 'Updated backend and OpenClaw settings');
     } catch {
-      // Runtime sync failure is already logged, but settings are still persisted locally.
+      // Runtime sync failure is already logged, but settings stay persisted locally.
     }
 
     await refreshStatus();
@@ -460,8 +505,56 @@ const App: React.FC = () => {
     }
   };
 
+  const backendTone = getBackendTone(settings.autoConnect, connectionStatus);
+  const openClawTone = getOpenClawTone(settings.autoConnect, openClawHealth);
+  const isRuntimeReady = connectionStatus === 'connected' && gameState.rom_loaded;
+  const latestDecision =
+    agentState.last_decision.trim() ||
+    (connectionStatus === 'connected'
+      ? 'Waiting for runtime data from OpenClaw.'
+      : 'Connect the backend to receive decisions and actions.');
+  const controlModeLabel = !settings.autoConnect && connectionStatus !== 'connected'
+    ? 'Standby'
+    : agentState.enabled
+      ? 'OpenClaw Auto'
+      : isRuntimeReady
+        ? 'Manual Override'
+        : connectionStatus === 'connected'
+          ? 'Awaiting ROM'
+          : 'Awaiting Link';
+  const controlModeHint = agentState.enabled
+    ? `${capitalize(agentState.autonomous_level)} autonomy`
+    : isRuntimeReady
+      ? 'Manual input keeps OpenClaw paused'
+      : 'Connect and load a ROM to begin';
+  const currentActionLabel = agentState.current_action.trim() || (agentState.enabled ? 'Thinking' : 'Idle');
+  const backendStatusLabel = backendTone === 'standby'
+    ? 'Standby'
+    : backendTone === 'checking'
+      ? 'Checking'
+      : backendTone === 'connected'
+        ? capitalize(backendHealth?.status || 'connected')
+        : 'Offline';
+  const openClawStatusLabel = openClawTone === 'standby'
+    ? 'Standby'
+    : openClawTone === 'checking'
+      ? 'Checking'
+      : openClawTone === 'connected'
+        ? 'Linked'
+        : summarizeProbeError(openClawHealth?.error, 'Needs attention');
+  const romLabel = gameState.rom_loaded
+    ? gameState.rom_name
+    : lastRomName
+      ? `Last: ${lastRomName}`
+      : 'No cartridge';
+  const syncLabel = isApplyingRuntime
+    ? 'Syncing...'
+    : lastSyncedAt
+      ? formatClock(lastSyncedAt)
+      : 'Pending';
+
   return (
-    <div className="min-h-screen bg-neutral-950 text-white">
+    <div className="app">
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -471,138 +564,145 @@ const App: React.FC = () => {
 
       {showKeyboardHelp && <KeyboardHelp onClose={() => setShowKeyboardHelp(false)} />}
 
-      <header className="sticky top-0 z-30 border-b border-neutral-800 bg-neutral-950/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 lg:px-6">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-900/60 bg-cyan-950/40 text-cyan-400">
-              <Bot className="h-6 w-6" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold text-cyan-400">OpenClaw Game Control</h1>
-              <p className="text-sm text-neutral-400">Autonomous play with manual override</p>
-            </div>
-          </div>
+      <header className="app-header">
+        <div className="app-header__title">
+          <span className="app-header__eyebrow">OpenClaw Orchestrator</span>
+          <h1>Game Boy Control Desk</h1>
+          <p>
+            Gameplay stays on the handheld. OpenClaw handles orchestration, objective sync, and autonomous control from the sidecar.
+          </p>
+        </div>
 
-          <div className="flex items-center gap-3">
-            <StatusPill label="Backend" status={connectionStatus} />
-            <StatusPill label="OpenClaw" status={openClawHealth?.ok ? 'connected' : 'disconnected'} />
-            <StatusPill label="AI Provider" status={activeProvider === 'openclaw' ? 'connected' : activeProvider === 'mock' ? 'disconnected' : 'connected'} extra={activeProvider} />
-            <button
-              onClick={() => setShowKeyboardHelp(true)}
-              className="rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition hover:border-neutral-500 hover:text-white"
-            >
-              <span className="flex items-center gap-2">
-                <Keyboard className="h-4 w-4" />
-                Keys
-              </span>
-            </button>
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition hover:border-neutral-500 hover:text-white"
-            >
-              <span className="flex items-center gap-2">
-                <Settings className="h-4 w-4" />
-                Settings
-              </span>
-            </button>
-          </div>
+        <div className="app-header__actions">
+          <StatusPill label="Backend" detail={backendStatusLabel} status={backendTone} />
+          <StatusPill label="OpenClaw" detail={openClawStatusLabel} status={openClawTone} />
+          <button
+            type="button"
+            onClick={() => setShowKeyboardHelp(true)}
+            className="icon-button"
+          >
+            <Keyboard className="icon-button__icon" />
+            <span>Keys</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className="icon-button icon-button--primary"
+          >
+            <Settings className="icon-button__icon" />
+            <span>Settings</span>
+          </button>
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-[1600px] gap-4 px-4 py-4 lg:grid-cols-[320px_minmax(0,1fr)_360px] lg:px-6">
-        <section className="space-y-4">
-          <div className="rounded-3xl border border-cyan-900/60 bg-neutral-900/80 p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">OpenClaw Runtime</h2>
-                <p className="mt-2 text-sm text-neutral-400">Push objective, vision model, and control mode to backend</p>
-              </div>
-              <Bot className="h-5 w-5 text-cyan-400" />
+      <section className="hero-strip">
+        <HeroMetric
+          tone="berry"
+          label="Control"
+          value={controlModeLabel}
+          meta={controlModeHint}
+        />
+        <HeroMetric
+          tone="olive"
+          label="Action"
+          value={currentActionLabel}
+          meta={agentState.mode ? `${capitalize(agentState.mode)} mode` : 'Waiting for runtime'}
+        />
+        <HeroMetric
+          tone="amber"
+          label="ROM"
+          value={romLabel}
+          meta={gameState.rom_loaded ? `${gameState.frame_count.toLocaleString()} frames captured` : 'Load a ROM to start play'}
+        />
+        <HeroMetric
+          tone="slate"
+          label="Sync"
+          value={syncLabel}
+          meta={lastSyncedAt ? 'WebUI defaults pushed to OpenClaw' : 'No runtime sync recorded yet'}
+        />
+      </section>
+
+      <main className="desk-grid">
+        <aside className="desk-column desk-column--mission">
+          <PanelCard
+            eyebrow="Mission Control"
+            title="OpenClaw Directives"
+            subtitle="Set the objective and takeover rules here. The handheld stays focused on gameplay."
+            action={<Bot className="panel-card__icon" />}
+          >
+            <div className="runtime-chip-row">
+              <span className={classNames('runtime-chip', agentState.enabled ? 'runtime-chip--berry' : 'runtime-chip--muted')}>
+                {controlModeLabel}
+              </span>
+              <span className="runtime-chip runtime-chip--olive">{capitalize(settings.agentPersonality)}</span>
+              <span className={classNames('runtime-chip', gameState.rom_loaded ? 'runtime-chip--success' : 'runtime-chip--muted')}>
+                {gameState.rom_loaded ? 'ROM active' : 'No ROM'}
+              </span>
             </div>
 
-            <div className="mt-4 grid gap-3">
-              <RuntimeStat
-                label="Mode"
-                value={agentState.enabled ? 'Autonomous' : 'Manual override'}
-                hint={`${settings.autonomousLevel} autonomy`}
-              />
-              <RuntimeStat
-                label="AI Provider"
-                value={activeProvider === 'openclaw' ? 'OpenClaw (Native)' : activeProvider === 'mock' ? 'Mock (Fallback)' : activeProvider}
-                hint={activeProvider === 'openclaw' ? 'Using OpenClaw Gateway' : activeProvider === 'mock' ? 'No API keys configured' : 'External provider'}
-              />
-              <RuntimeStat
-                label="Vision Model"
-                value={agentState.vision_model || settings.visionModel}
-                hint={agentState.vision_model ? 'From OpenClaw' : 'WebUI default'}
-              />
-              <RuntimeStat
-                label="Current action"
-                value={agentState.current_action || 'Idle'}
-                hint={agentState.mode || 'manual'}
-              />
-            </div>
-
-            <label className="mt-5 block">
-              <span className="mb-2 block text-sm font-medium text-neutral-200">Objective</span>
+            <label className="form-field">
+              <span className="form-field__label">Objective</span>
               <textarea
                 value={objectiveDraft}
                 onChange={(event) => setObjectiveDraft(event.target.value)}
-                rows={5}
-                className="w-full rounded-2xl border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-500"
+                rows={6}
+                className="text-area"
                 placeholder="Describe what OpenClaw should optimize for."
               />
+              <span className="form-field__help">
+                This defines OpenClaw behavior, but it should not become visible as gameplay UI.
+              </span>
             </label>
 
-            <div className="mt-4 flex flex-wrap gap-3">
+            <div className="action-row">
               <button
+                type="button"
                 onClick={() => {
                   void applyObjective().catch(() => undefined);
                 }}
                 disabled={isApplyingRuntime}
-                className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-cyan-400 disabled:cursor-wait disabled:opacity-60"
+                className="action-button action-button--primary"
               >
                 Apply Objective
               </button>
               <button
+                type="button"
                 onClick={() => {
                   void resumeOpenClawControl().catch(() => undefined);
                 }}
                 disabled={isApplyingRuntime || !gameState.rom_loaded}
-                className="rounded-xl border border-cyan-700 bg-cyan-950/50 px-4 py-2 text-sm font-medium text-cyan-300 transition hover:border-cyan-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="action-button action-button--secondary"
               >
                 Resume OpenClaw
               </button>
               <button
+                type="button"
                 onClick={() => {
                   void engageManualOverride('Manual override enabled from WebUI').catch(() => undefined);
                 }}
                 disabled={isApplyingRuntime || !gameState.rom_loaded}
-                className="rounded-xl border border-amber-800 bg-amber-950/40 px-4 py-2 text-sm font-medium text-amber-300 transition hover:border-amber-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="action-button action-button--warning"
               >
                 Manual Override
               </button>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-neutral-800 bg-neutral-950/80 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">Latest decision</p>
-              <p className="mt-2 text-sm text-neutral-300">{agentState.last_decision}</p>
-              {lastSyncedAt && (
-                <p className="mt-2 text-xs text-neutral-500">Last synced {new Date(lastSyncedAt).toLocaleTimeString()}</p>
-              )}
+            <div className="decision-callout">
+              <span className="decision-callout__label">Latest runtime decision</span>
+              <p>{latestDecision}</p>
+              <span className="decision-callout__meta">
+                {lastSyncedAt ? `Last sync ${formatClock(lastSyncedAt)}` : 'Runtime sync happens after save or resume'}
+              </span>
             </div>
-          </div>
+          </PanelCard>
 
-          <div className="rounded-3xl border border-neutral-800 bg-neutral-900/80 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Decision Log</h2>
-                <p className="mt-1 text-sm text-neutral-400">Live agent output</p>
-              </div>
-              <Activity className={`h-4 w-4 ${agentState.enabled ? 'text-green-400' : 'text-neutral-500'}`} />
-            </div>
-
-            <div className="mt-4 space-y-2">
+          <PanelCard
+            eyebrow="Decision Feed"
+            title="Live Agent Log"
+            subtitle="Thoughts and actions from backend state updates."
+            action={<Activity className="panel-card__icon" />}
+          >
+            <div className="log-list">
               {decisionLog.length === 0 ? (
                 <EmptyLog message="Waiting for the first decision." />
               ) : (
@@ -611,138 +711,150 @@ const App: React.FC = () => {
                 ))
               )}
             </div>
-          </div>
-        </section>
+          </PanelCard>
+        </aside>
 
-        <section className="space-y-4">
-          <div className="rounded-3xl border border-neutral-800 bg-neutral-900/80">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 px-5 py-4">
+        <section className="desk-column desk-column--console">
+          <section className="console-shell">
+            <div className="console-shell__top">
               <div>
-                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Emulator</h2>
-                <p className="mt-1 text-sm text-neutral-400">
-                  {gameState.rom_loaded
-                    ? `${gameState.rom_name} • ${gameState.frame_count.toLocaleString()} frames`
-                    : lastRomName
-                      ? `Last ROM: ${lastRomName}`
-                      : 'No ROM loaded'}
-                </p>
+                <span className="console-shell__eyebrow">Gameplay Surface</span>
+                <h2>Handheld View</h2>
+                <p>The screen and physical controls stay central. Orchestration lives around the edges.</p>
               </div>
-
-              <div className="flex flex-wrap gap-2">
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-cyan-400">
-                  <Upload className="h-4 w-4" />
-                  {isRomLoading ? 'Loading...' : 'Load ROM'}
-                  <input
-                    type="file"
-                    accept=".gb,.gbc,.gba,.zip"
-                    className="hidden"
-                    onChange={handleFileSelect}
-                  />
-                </label>
-                <ToolbarButton icon={Save} label="Save" disabled={!gameState.rom_loaded} onClick={handleSaveState} />
-                <ToolbarButton icon={FolderOpen} label="Load" disabled={!gameState.rom_loaded} onClick={handleLoadState} />
-                <ToolbarButton icon={RefreshCw} label="Refresh" disabled={connectionStatus === 'disconnected'} onClick={() => void refreshStatus()} />
+              <div className="console-shell__sync">
+                <span className="console-shell__sync-label">Mode</span>
+                <strong>{controlModeLabel}</strong>
               </div>
             </div>
 
-            <div className="bg-black px-4 py-4">
-              <div className="mx-auto flex min-h-[380px] max-w-[720px] items-center justify-center overflow-hidden rounded-[28px] border border-neutral-800 bg-neutral-950">
+            <div className="screen-bezel">
+              <div className="screen-bezel__label">
+                <span className="screen-bezel__led screen-bezel__led--berry" />
+                DOT MATRIX MISSION SCREEN
+              </div>
+
+              <div className="screen-bezel__frame">
                 {gameScreenUrl ? (
                   <img
                     src={gameScreenUrl}
                     alt="Emulator screen"
-                    className="max-h-[72vh] w-full object-contain"
+                    className="screen-bezel__image"
                     style={{ imageRendering: 'pixelated', aspectRatio: '160 / 144' }}
                   />
                 ) : (
-                  <div className="px-8 py-12 text-center text-neutral-500">
-                    <Gamepad2 className="mx-auto mb-4 h-12 w-12 opacity-40" />
-                    <p className="text-base font-medium text-neutral-300">No active screen</p>
-                    <p className="mt-2 text-sm text-neutral-500">
-                      Load a ROM and the backend will start feeding the emulator image here.
+                  <div className="screen-bezel__empty">
+                    <Gamepad2 className="screen-bezel__empty-icon" />
+                    <p className="screen-bezel__empty-title">No active screen</p>
+                    <p className="screen-bezel__empty-copy">
+                      Load a ROM and the backend will stream frames into the handheld view.
                     </p>
                   </div>
                 )}
               </div>
-            </div>
 
-            {gameState.rom_loaded && gameState.fps > 0 && (
-              <div className="flex items-center gap-4 text-sm text-neutral-400">
-                <span>{gameState.fps} FPS</span>
+              <div className="screen-bezel__meta">
+                <span>Screen {gameState.screen_available ? 'live' : 'idle'}</span>
+                <span>{Math.round(gameState.fps || 0)} FPS</span>
                 <span>{gameState.frame_count.toLocaleString()} frames</span>
+                <span>{(gameState.emulator || settings.emulatorType).toUpperCase()}</span>
               </div>
-            )}
-          </div>
-
-          <div className="rounded-3xl border border-neutral-800 bg-neutral-900/80 p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Manual Controller</h2>
-                <p className="mt-1 text-sm text-neutral-400">Manual input triggers override mode</p>
-              </div>
-              {agentState.enabled && (
-                <div className="flex items-center gap-2 rounded-full border border-amber-800 bg-amber-950/40 px-3 py-1 text-xs text-amber-300">
-                  <ShieldAlert className="h-3.5 w-3.5" />
-                  Override on input
-                </div>
-              )}
             </div>
 
-            <div className="mt-5">
+            <div className="console-toolbar">
+              <label className="toolbar-button toolbar-button--primary">
+                <Upload className="toolbar-button__icon" />
+                <span>{isRomLoading ? 'Loading...' : 'Load ROM'}</span>
+                <input
+                  type="file"
+                  accept=".gb,.gbc,.gba,.zip"
+                  className="visually-hidden"
+                  onChange={handleFileSelect}
+                />
+              </label>
+
+              <ToolbarButton icon={Save} label="Save" disabled={!gameState.rom_loaded} onClick={handleSaveState} />
+              <ToolbarButton icon={FolderOpen} label="Load" disabled={!gameState.rom_loaded} onClick={handleLoadState} />
+              <ToolbarButton
+                icon={RefreshCw}
+                label="Refresh"
+                disabled={connectionStatus === 'disconnected'}
+                onClick={() => void refreshStatus()}
+              />
+            </div>
+
+            <div className="signal-grid">
+              <SignalCard
+                label="Backend"
+                value={backendStatusLabel}
+                meta={backendHealth?.service || settings.backendUrl}
+                tone={backendTone}
+              />
+              <SignalCard
+                label="OpenClaw"
+                value={openClawStatusLabel}
+                meta={openClawHealth?.ok ? 'Health verified through backend' : openClawHealth?.error || 'Waiting for backend health proxy'}
+                tone={openClawTone}
+              />
+              <SignalCard
+                label="ROM"
+                value={gameState.rom_loaded ? 'Loaded' : lastRomName ? 'Ready to reload' : 'Idle'}
+                meta={gameState.rom_loaded ? gameState.rom_name : lastRomName || 'Insert a cartridge to play'}
+                tone={gameState.rom_loaded ? 'connected' : 'standby'}
+              />
+            </div>
+
+            <div className="control-deck">
+              <div className="control-deck__guide">
+                <div className="control-deck__guide-header">
+                  <span className="control-deck__eyebrow">Manual Deck</span>
+                  {agentState.enabled ? (
+                    <span className="control-deck__notice control-deck__notice--warning">
+                      <ShieldAlert className="control-deck__notice-icon" />
+                      Manual input will pause OpenClaw first
+                    </span>
+                  ) : (
+                    <span className="control-deck__notice">OpenClaw is currently paused</span>
+                  )}
+                </div>
+                <p className="control-deck__copy">
+                  Use the physical controls below for deliberate intervention. Keyboard shortcuts stay mapped to the original handheld layout.
+                </p>
+                <div className="keyboard-chip-row">
+                  <span className="keyboard-chip">Arrows = D-pad</span>
+                  <span className="keyboard-chip">Z = A</span>
+                  <span className="keyboard-chip">X = B</span>
+                  <span className="keyboard-chip">Enter = Start</span>
+                  <span className="keyboard-chip">Shift = Select</span>
+                </div>
+              </div>
+
               <ControllerPad
                 disabled={!gameState.rom_loaded || connectionStatus !== 'connected'}
                 lastButton={lastButtonPressed}
                 onPress={(button) => void handleButtonPress(button)}
               />
             </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-neutral-500">
-              <span>Keyboard:</span>
-              <span className="rounded-full border border-neutral-800 px-2 py-1">Arrows = D-pad</span>
-              <span className="rounded-full border border-neutral-800 px-2 py-1">Z = A</span>
-              <span className="rounded-full border border-neutral-800 px-2 py-1">X = B</span>
-              <span className="rounded-full border border-neutral-800 px-2 py-1">Enter = Start</span>
-              <span className="rounded-full border border-neutral-800 px-2 py-1">Shift = Select</span>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-neutral-800 bg-neutral-900/80 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">System Log</h2>
-                <p className="mt-1 text-sm text-neutral-400">Connection events and actions</p>
-              </div>
-              <RefreshCw className="h-4 w-4 text-neutral-500" />
-            </div>
-
-            <div className="mt-4 space-y-2">
-              {systemLog.length === 0 ? (
-                <EmptyLog message="System log is quiet." />
-              ) : (
-                systemLog.slice().reverse().map((entry) => (
-                  <LogRow key={entry.id} entry={entry} />
-                ))
-              )}
-            </div>
-          </div>
+          </section>
         </section>
 
-        <section className="space-y-4">
-          <div className="rounded-3xl border border-neutral-800 bg-neutral-900/80 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Runtime State</h2>
-                <p className="mt-1 text-sm text-neutral-400">Party, inventory, and memory</p>
+        <aside className="desk-column desk-column--insights">
+          <PanelCard
+            eyebrow="Runtime State"
+            title="Party, Bag, and Memory"
+            subtitle="Operational data stays readable without intruding on the handheld."
+            action={
+              <div className="insight-tabs">
+                <InsightButton active={insightTab === 'party'} label="Party" onClick={() => setInsightTab('party')} />
+                <InsightButton active={insightTab === 'inventory'} label="Inventory" onClick={() => setInsightTab('inventory')} />
+                <InsightButton active={insightTab === 'memory'} label="Memory" onClick={() => setInsightTab('memory')} />
               </div>
-              <Package className="h-4 w-4 text-neutral-500" />
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <InsightButton active={insightTab === 'party'} label="Party" onClick={() => setInsightTab('party')} />
-              <InsightButton active={insightTab === 'inventory'} label="Inventory" onClick={() => setInsightTab('inventory')} />
-              <InsightButton active={insightTab === 'memory'} label="Memory" onClick={() => setInsightTab('memory')} />
-            </div>
-          </div>
+            }
+          >
+            <p className="panel-card__note">
+              These panels are tools for the operator, not overlays on the game itself.
+            </p>
+          </PanelCard>
 
           {insightTab === 'party' && (
             <PartyPanel
@@ -764,11 +876,76 @@ const App: React.FC = () => {
               memoryState={memoryState}
             />
           )}
-        </section>
+
+          <PanelCard
+            eyebrow="Quick Read"
+            title="Session Snapshot"
+            subtitle="High-signal numbers without opening additional tools."
+          >
+            <div className="summary-grid">
+              <SummaryStat label="Party size" value={partyData ? String(partyData.party_count) : '--'} />
+              <SummaryStat label="Bag items" value={inventoryData ? String(inventoryData.item_count) : '--'} />
+              <SummaryStat label="FPS" value={String(Math.round(gameState.fps || 0))} />
+              <SummaryStat label="Frame count" value={gameState.frame_count.toLocaleString()} />
+            </div>
+          </PanelCard>
+
+          <PanelCard
+            eyebrow="System Log"
+            title="Backend Events"
+            subtitle="Connection changes, ROM actions, and manual overrides."
+            action={<RefreshCw className="panel-card__icon" />}
+          >
+            <div className="log-list">
+              {systemLog.length === 0 ? (
+                <EmptyLog message="System log is quiet." />
+              ) : (
+                systemLog.slice().reverse().map((entry) => (
+                  <LogRow key={entry.id} entry={entry} />
+                ))
+              )}
+            </div>
+          </PanelCard>
+        </aside>
       </main>
     </div>
   );
 };
+
+interface PanelCardProps {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}
+
+const PanelCard: React.FC<PanelCardProps> = ({ eyebrow, title, subtitle, action, children }) => (
+  <section className="panel-card">
+    <div className="panel-card__header">
+      <div className="panel-card__title-group">
+        <span className="panel-card__eyebrow">{eyebrow}</span>
+        <h2 className="panel-card__title">{title}</h2>
+        <p className="panel-card__subtitle">{subtitle}</p>
+      </div>
+      {action ? <div className="panel-card__action">{action}</div> : null}
+    </div>
+    <div className="panel-card__body">{children}</div>
+  </section>
+);
+
+const HeroMetric: React.FC<{
+  tone: MetricTone;
+  label: string;
+  value: string;
+  meta: string;
+}> = ({ tone, label, value, meta }) => (
+  <article className={classNames('hero-metric', `hero-metric--${tone}`)}>
+    <span className="hero-metric__label">{label}</span>
+    <strong className="hero-metric__value">{value}</strong>
+    <span className="hero-metric__meta">{meta}</span>
+  </article>
+);
 
 const ToolbarButton: React.FC<{
   icon: React.ComponentType<{ className?: string }>;
@@ -777,123 +954,115 @@ const ToolbarButton: React.FC<{
   onClick: () => void;
 }> = ({ icon: Icon, label, disabled, onClick }) => (
   <button
+    type="button"
     onClick={onClick}
     disabled={disabled}
-    className="inline-flex items-center gap-2 rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-300 transition hover:border-neutral-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+    className="toolbar-button"
   >
-    <Icon className="h-4 w-4" />
-    {label}
+    <Icon className="toolbar-button__icon" />
+    <span>{label}</span>
   </button>
 );
 
-const StatusPill: React.FC<{ label: string; status: ConnectionStatus | 'connected' | 'disconnected'; extra?: string }> = ({ label, status, extra }) => {
-  const statusClasses =
-    status === 'connected'
-      ? 'bg-green-950/60 text-green-300 border-green-900/60'
-      : status === 'checking'
-        ? 'bg-yellow-950/60 text-yellow-300 border-yellow-900/60'
-        : 'bg-red-950/60 text-red-300 border-red-900/60';
-
-  return (
-    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs uppercase tracking-wide ${statusClasses}`}>
-      <span className="h-2 w-2 rounded-full bg-current" />
-      {label}
-      {extra && <span className="ml-1 opacity-80">({extra})</span>}
+const StatusPill: React.FC<{
+  label: string;
+  detail: string;
+  status: StatusTone;
+}> = ({ label, detail, status }) => (
+  <span className={classNames('status-pill', `status-pill--${status}`)}>
+    <span className="status-pill__dot" />
+    <span className="status-pill__copy">
+      <strong>{label}</strong>
+      <small>{detail}</small>
     </span>
-  );
-};
-
-const RuntimeStat: React.FC<{ label: string; value: string; hint: string }> = ({ label, value, hint }) => (
-  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 px-4 py-3">
-    <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">{label}</p>
-    <p className="mt-2 text-sm font-medium text-white">{value}</p>
-    <p className="mt-1 text-xs text-neutral-500">{hint}</p>
-  </div>
+  </span>
 );
 
-const LogRow: React.FC<{ entry: LogEntry }> = ({ entry }) => {
-  const accent =
-    entry.type === 'error'
-      ? 'border-red-900/60 bg-red-950/40 text-red-200'
-      : entry.type === 'action'
-        ? 'border-amber-900/60 bg-amber-950/40 text-amber-200'
-        : entry.type === 'thought'
-          ? 'border-cyan-900/60 bg-cyan-950/40 text-cyan-200'
-          : 'border-neutral-800 bg-neutral-950/70 text-neutral-300';
+const SignalCard: React.FC<{
+  label: string;
+  value: string;
+  meta: string;
+  tone: StatusTone;
+}> = ({ label, value, meta, tone }) => (
+  <article className={classNames('signal-card', `signal-card--${tone}`)}>
+    <span className="signal-card__label">{label}</span>
+    <strong className="signal-card__value">{value}</strong>
+    <span className="signal-card__meta">{meta}</span>
+  </article>
+);
 
-  return (
-    <div className={`rounded-2xl border px-4 py-3 ${accent}`}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs uppercase tracking-[0.2em] text-neutral-500">{entry.type}</span>
-        <span className="text-xs text-neutral-500">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-      </div>
-      <p className="mt-2 text-sm leading-relaxed">{entry.message}</p>
+const SummaryStat: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <article className="summary-stat">
+    <span className="summary-stat__label">{label}</span>
+    <strong className="summary-stat__value">{value}</strong>
+  </article>
+);
+
+const LogRow: React.FC<{ entry: LogEntry }> = ({ entry }) => (
+  <article className={classNames('log-entry', `log-entry--${entry.type}`)}>
+    <div className="log-entry__meta">
+      <span>{entry.type}</span>
+      <span>{formatClock(entry.timestamp)}</span>
     </div>
-  );
-};
+    <p className="log-entry__message">{entry.message}</p>
+  </article>
+);
 
 const EmptyLog: React.FC<{ message: string }> = ({ message }) => (
-  <div className="rounded-2xl border border-dashed border-neutral-800 bg-neutral-950/60 px-4 py-6 text-center text-sm text-neutral-500">
+  <div className="empty-log">
     {message}
   </div>
 );
 
 const InsightButton: React.FC<{ active: boolean; label: string; onClick: () => void }> = ({ active, label, onClick }) => (
   <button
+    type="button"
     onClick={onClick}
-    className={`rounded-full border px-3 py-1.5 text-sm transition ${
-      active
-        ? 'border-cyan-700 bg-cyan-950/50 text-cyan-300'
-        : 'border-neutral-700 bg-neutral-950 text-neutral-400 hover:border-neutral-500 hover:text-white'
-    }`}
+    className={classNames('insight-tab', active && 'insight-tab--active')}
   >
     {label}
   </button>
 );
 
-const MemorySummaryCard: React.FC<{ isRomLoaded: boolean; memoryState: MemoryWatch }> = ({ isRomLoaded, memoryState }) => {
-  if (!isRomLoaded) {
-    return (
-      <div className="rounded-3xl border border-neutral-800 bg-neutral-900/80 p-5 text-center text-sm text-neutral-500">
-        Load a ROM to inspect watched memory.
+const MemorySummaryCard: React.FC<{ isRomLoaded: boolean; memoryState: MemoryWatch }> = ({ isRomLoaded, memoryState }) => (
+  <section className="data-panel">
+    <div className="data-panel__header">
+      <div>
+        <span className="data-panel__eyebrow">Memory Watch</span>
+        <h3 className="data-panel__title">Watched Addresses</h3>
+        <p className="data-panel__subtitle">Backend watch values are shown here for operator debugging.</p>
       </div>
-    );
-  }
+      <ChevronRight className="data-panel__icon" />
+    </div>
 
-  return (
-    <div className="rounded-3xl border border-neutral-800 bg-neutral-900/80 p-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Watched Memory</h3>
-          <p className="mt-1 text-sm text-neutral-400">Backend watch list</p>
+    <div className="data-panel__body">
+      {!isRomLoaded ? (
+        <div className="empty-panel">
+          Load a ROM to inspect watched memory.
         </div>
-        <ChevronRight className="h-4 w-4 text-neutral-500" />
-      </div>
-
-      <div className="mt-4 space-y-2">
-        {memoryState.values.length === 0 ? (
-          <EmptyLog message="No watched addresses were returned." />
-        ) : (
-          memoryState.values.map((value) => (
-            <div
-              key={value.address}
-              className="flex items-center justify-between rounded-2xl border border-neutral-800 bg-neutral-950/80 px-4 py-3"
-            >
-              <div>
-                <p className="text-sm text-white">{value.name}</p>
-                <p className="mt-1 text-xs text-neutral-500">0x{value.address.toString(16).toUpperCase()}</p>
+      ) : memoryState.values.length === 0 ? (
+        <div className="empty-panel">
+          No watched addresses were returned.
+        </div>
+      ) : (
+        <div className="memory-list">
+          {memoryState.values.map((value) => (
+            <div key={value.address} className="memory-row">
+              <div className="memory-row__meta">
+                <strong>{value.name}</strong>
+                <span>0x{value.address.toString(16).toUpperCase()}</span>
               </div>
-              <div className="text-right">
-                <p className="font-mono text-sm text-cyan-300">{value.hex}</p>
-                <p className="mt-1 text-xs text-neutral-500">{value.value ?? '--'}</p>
+              <div className="memory-row__value">
+                <strong>{value.hex}</strong>
+                <span>{value.value ?? '--'}</span>
               </div>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
-  );
-};
+  </section>
+);
 
 const ControllerPad: React.FC<{
   disabled: boolean;
@@ -913,47 +1082,45 @@ const ControllerPad: React.FC<{
   ];
 
   return (
-    <div className="flex flex-col items-center gap-6 md:flex-row md:justify-center">
-      <div
-        className="grid h-36 w-36 grid-cols-3 grid-rows-3 gap-2"
-        style={{ gridTemplateAreas: '". up ." "left . right" ". down ."' }}
-      >
+    <div className="controller-pad">
+      <div className="controller-pad__dpad">
         {directions.map((direction) => (
           <button
             key={direction.action}
+            type="button"
             style={{ gridArea: direction.gridArea }}
             onClick={() => onPress(direction.action)}
             disabled={disabled}
-            className={`rounded-2xl border text-xl transition ${
-              disabled
-                ? 'border-neutral-800 bg-neutral-950 text-neutral-700'
-                : 'border-neutral-700 bg-neutral-950 text-neutral-300 hover:border-cyan-600 hover:text-white'
-            } ${lastButton === direction.action ? 'border-cyan-500 bg-cyan-950/60 text-cyan-300' : ''}`}
+            className={classNames(
+              'controller-key',
+              lastButton === direction.action && 'controller-key--active',
+            )}
           >
             {direction.label}
           </button>
         ))}
       </div>
 
-      <div className="flex flex-col items-center gap-4">
-        <div className="flex gap-4">
+      <div className="controller-pad__actions">
+        <div className="controller-pad__ab">
           {buttons.map((button) => (
             <button
               key={button.action}
+              type="button"
               onClick={() => onPress(button.action)}
               disabled={disabled}
-              className={`flex h-16 w-16 items-center justify-center rounded-full border text-lg font-semibold transition ${
-                disabled
-                  ? 'border-neutral-800 bg-neutral-950 text-neutral-700'
-                  : 'border-neutral-700 bg-neutral-950 text-neutral-300 hover:border-cyan-600 hover:text-white'
-              } ${lastButton === button.action ? 'border-cyan-500 bg-cyan-950/60 text-cyan-300' : ''}`}
+              className={classNames(
+                'controller-key',
+                'controller-key--round',
+                lastButton === button.action && 'controller-key--active',
+              )}
             >
               {button.label}
             </button>
           ))}
         </div>
 
-        <div className="flex gap-3">
+        <div className="controller-pad__utility">
           <SmallControllerButton action="SELECT" label="Select" disabled={disabled} lastButton={lastButton} onPress={onPress} />
           <SmallControllerButton action="START" label="Start" disabled={disabled} lastButton={lastButton} onPress={onPress} />
         </div>
@@ -970,46 +1137,50 @@ const SmallControllerButton: React.FC<{
   onPress: (button: GameButton) => void;
 }> = ({ action, label, disabled, lastButton, onPress }) => (
   <button
+    type="button"
     onClick={() => onPress(action)}
     disabled={disabled}
-    className={`rounded-full border px-4 py-2 text-sm transition ${
-      disabled
-        ? 'border-neutral-800 bg-neutral-950 text-neutral-700'
-        : 'border-neutral-700 bg-neutral-950 text-neutral-300 hover:border-cyan-600 hover:text-white'
-    } ${lastButton === action ? 'border-cyan-500 bg-cyan-950/60 text-cyan-300' : ''}`}
+    className={classNames(
+      'controller-key',
+      'controller-key--utility',
+      lastButton === action && 'controller-key--active',
+    )}
   >
     {label}
   </button>
 );
 
 const KeyboardHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => (
-  <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/75 px-4">
-    <div className="w-full max-w-md rounded-3xl border border-neutral-800 bg-neutral-950 p-6 shadow-2xl shadow-black/60">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-white">Keyboard shortcuts</h2>
-        <button
-          onClick={onClose}
-          className="rounded-full border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 transition hover:border-neutral-500 hover:text-white"
-        >
+  <div className="modal-backdrop" role="presentation">
+    <div className="modal-scrim" onClick={onClose} />
+    <div className="modal modal--keyboard" role="dialog" aria-modal="true" aria-labelledby="keyboard-help-title">
+      <div className="modal__header">
+        <div>
+          <span className="modal__eyebrow">Manual Controls</span>
+          <h2 id="keyboard-help-title">Keyboard shortcuts</h2>
+        </div>
+        <button type="button" onClick={onClose} className="action-button action-button--ghost">
           Close
         </button>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-        <ShortcutRow keys="↑ ↓ ← →" action="D-pad" />
-        <ShortcutRow keys="Z / X" action="A / B" />
-        <ShortcutRow keys="Enter" action="Start" />
-        <ShortcutRow keys="Shift" action="Select" />
-        <ShortcutRow keys="?" action="Toggle this help" />
+      <div className="modal__body">
+        <div className="shortcut-grid">
+          <ShortcutRow keys="↑ ↓ ← →" action="D-pad" />
+          <ShortcutRow keys="Z / X" action="A / B" />
+          <ShortcutRow keys="Enter" action="Start" />
+          <ShortcutRow keys="Shift" action="Select" />
+          <ShortcutRow keys="?" action="Toggle this help" />
+        </div>
       </div>
     </div>
   </div>
 );
 
 const ShortcutRow: React.FC<{ keys: string; action: string }> = ({ keys, action }) => (
-  <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 px-4 py-3">
-    <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">{keys}</p>
-    <p className="mt-2 text-sm text-neutral-300">{action}</p>
+  <div className="shortcut-card">
+    <span className="shortcut-card__keys">{keys}</span>
+    <strong className="shortcut-card__action">{action}</strong>
   </div>
 );
 

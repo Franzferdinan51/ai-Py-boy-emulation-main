@@ -13,9 +13,9 @@ interface ProbeStatus {
   message: string;
 }
 
-const VISION_MODELS: Array<{ value: AppSettings['visionModel']; label: string }> = [
-  { value: 'kimi-k2.5', label: 'kimi-k2.5' },
-  { value: 'qwen-vl-plus', label: 'qwen-vl-plus' },
+const VISION_MODELS: Array<{ value: AppSettings['visionModel']; label: string; note: string }> = [
+  { value: 'kimi-k2.5', label: 'Kimi K2.5', note: 'Recommended default for OpenClaw vision.' },
+  { value: 'qwen-vl-plus', label: 'Qwen VL Plus', note: 'Alternative vision profile for inspection-heavy runs.' },
 ];
 
 const PERSONALITIES: Array<{ value: AppSettings['agentPersonality']; label: string }> = [
@@ -30,6 +30,20 @@ const AUTONOMY_LEVELS: Array<{ value: AppSettings['autonomousLevel']; label: str
   { value: 'moderate', label: 'Moderate' },
   { value: 'aggressive', label: 'Aggressive' },
 ];
+
+const normalizeProbeMessage = (error: unknown, fallback404: string) => {
+  const message = error instanceof Error ? error.message : 'Connection failed';
+
+  if (message.includes('404')) {
+    return fallback404;
+  }
+
+  if (message.includes('429')) {
+    return 'Rate limited. Wait a moment and try again.';
+  }
+
+  return message;
+};
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -74,6 +88,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
+  const activeVisionModel = VISION_MODELS.find((model) => model.value === draft.visionModel);
+
   const testBackend = async () => {
     setTestingBackend(true);
     setBackendStatus(null);
@@ -92,7 +108,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     } catch (error) {
       setBackendStatus({
         ok: false,
-        message: error instanceof Error ? error.message : 'Connection failed',
+        message: normalizeProbeMessage(error, 'Backend responded, but /health is not exposed here.'),
       });
     } finally {
       setTestingBackend(false);
@@ -120,7 +136,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     } catch (error) {
       setOpenClawStatus({
         ok: false,
-        message: error instanceof Error ? error.message : 'Health check failed',
+        message: normalizeProbeMessage(error, 'Backend is reachable, but the OpenClaw health proxy is not exposed.'),
       });
     } finally {
       setTestingOpenClaw(false);
@@ -133,113 +149,112 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm">
-      <div
-        className="absolute inset-0"
-        onClick={onClose}
-      />
+    <div className="modal-backdrop" role="presentation">
+      <div className="modal-scrim" onClick={onClose} />
 
-      <div className="relative z-10 flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-cyan-900/60 bg-neutral-950 shadow-2xl shadow-black/60">
-        <div className="flex items-center justify-between border-b border-neutral-800 px-6 py-5">
+      <div className="modal modal--settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div className="modal__header">
           <div>
-            <h2 className="text-xl font-semibold text-white">WebUI Settings</h2>
-            <p className="mt-1 text-sm text-neutral-400">
-              Keep this focused on connection details and default OpenClaw behavior.
+            <span className="modal__eyebrow">Session Setup</span>
+            <h2 id="settings-title">Connection and OpenClaw defaults</h2>
+            <p className="modal__subtitle">
+              Keep setup here focused on endpoints and orchestration defaults. Gameplay chrome stays on the handheld.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-full border border-neutral-700 px-3 py-1.5 text-sm text-neutral-400 transition hover:border-neutral-500 hover:text-white"
-          >
+          <button type="button" onClick={onClose} className="action-button action-button--ghost">
             Close
           </button>
         </div>
 
-        <div className="space-y-6 overflow-y-auto px-6 py-6">
-          <section className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-5">
-            <div className="mb-4">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Connection</h3>
-              <p className="mt-1 text-sm text-neutral-400">Backend and OpenClaw endpoints are the only required integration points.</p>
+        <div className="modal__body">
+          <section className="modal-section">
+            <div className="modal-section__header">
+              <span className="modal-section__eyebrow">Connection</span>
+              <h3>Backend and OpenClaw links</h3>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-neutral-200">Backend URL</label>
-                <div className="flex gap-3">
+            <div className="settings-grid">
+              <label className="form-field">
+                <span className="form-field__label">Backend URL</span>
+                <div className="field-row">
                   <input
                     type="text"
                     value={draft.backendUrl}
                     onChange={(event) => update('backendUrl', event.target.value)}
-                    className="flex-1 rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
+                    className="text-input"
                     placeholder="http://localhost:5002"
                   />
                   <button
+                    type="button"
                     onClick={testBackend}
                     disabled={testingBackend}
-                    className="rounded-xl border border-neutral-700 px-4 text-sm text-neutral-200 transition hover:border-cyan-500 hover:text-white disabled:cursor-wait disabled:opacity-60"
+                    className="field-button"
                   >
                     {testingBackend ? 'Testing...' : 'Test'}
                   </button>
                 </div>
+                <span className="form-field__help">Port `5002` matches the current backend runtime default.</span>
                 {backendStatus && (
-                  <p className={`mt-2 text-xs ${backendStatus.ok ? 'text-green-400' : 'text-red-400'}`}>
+                  <span className={backendStatus.ok ? 'probe-badge probe-badge--ok' : 'probe-badge probe-badge--error'}>
                     {backendStatus.message}
-                  </p>
+                  </span>
                 )}
-              </div>
+              </label>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-neutral-200">OpenClaw Endpoint</label>
-                <div className="flex gap-3">
+              <label className="form-field">
+                <span className="form-field__label">OpenClaw endpoint</span>
+                <div className="field-row">
                   <input
                     type="text"
                     value={draft.openclawMcpEndpoint}
                     onChange={(event) => update('openclawMcpEndpoint', event.target.value)}
-                    className="flex-1 rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
+                    className="text-input"
                     placeholder="http://localhost:18789"
                   />
                   <button
+                    type="button"
                     onClick={testOpenClaw}
                     disabled={testingOpenClaw}
-                    className="rounded-xl border border-neutral-700 px-4 text-sm text-neutral-200 transition hover:border-cyan-500 hover:text-white disabled:cursor-wait disabled:opacity-60"
+                    className="field-button"
                   >
                     {testingOpenClaw ? 'Testing...' : 'Test'}
                   </button>
                 </div>
+                <span className="form-field__help">This is the MCP endpoint the backend uses to reach OpenClaw.</span>
                 {openClawStatus && (
-                  <p className={`mt-2 text-xs ${openClawStatus.ok ? 'text-green-400' : 'text-red-400'}`}>
+                  <span className={openClawStatus.ok ? 'probe-badge probe-badge--ok' : 'probe-badge probe-badge--error'}>
                     {openClawStatus.message}
-                  </p>
+                  </span>
                 )}
-              </div>
+              </label>
             </div>
           </section>
 
-          <section className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-5">
-            <div className="mb-4">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Startup Defaults</h3>
-              <p className="mt-1 text-sm text-neutral-400">These are applied when the WebUI connects or when you resume OpenClaw control.</p>
+          <section className="modal-section">
+            <div className="modal-section__header">
+              <span className="modal-section__eyebrow">Defaults</span>
+              <h3>Automation profile</h3>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-neutral-200">Emulator Type</label>
+            <div className="settings-grid settings-grid--two-up">
+              <label className="form-field">
+                <span className="form-field__label">Default emulator</span>
                 <select
                   value={draft.emulatorType}
                   onChange={(event) => update('emulatorType', event.target.value as AppSettings['emulatorType'])}
-                  className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
+                  className="select-input"
                 >
                   <option value="gb">Game Boy / Game Boy Color</option>
                   <option value="gba">Game Boy Advance</option>
                 </select>
-              </div>
+              </label>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-neutral-200">Vision Model</label>
+              <label className="form-field">
+                <span className="form-field__label">Vision profile</span>
                 <select
                   value={draft.visionModel}
                   onChange={(event) => update('visionModel', event.target.value as AppSettings['visionModel'])}
-                  className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
+                  className="select-input"
                 >
                   {VISION_MODELS.map((model) => (
                     <option key={model.value} value={model.value}>
@@ -247,14 +262,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     </option>
                   ))}
                 </select>
-              </div>
+                <span className="form-field__help">{activeVisionModel?.note}</span>
+              </label>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-neutral-200">Autonomy</label>
+              <label className="form-field">
+                <span className="form-field__label">Autonomy</span>
                 <select
                   value={draft.autonomousLevel}
                   onChange={(event) => update('autonomousLevel', event.target.value as AppSettings['autonomousLevel'])}
-                  className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
+                  className="select-input"
                 >
                   {AUTONOMY_LEVELS.map((level) => (
                     <option key={level.value} value={level.value}>
@@ -262,14 +278,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     </option>
                   ))}
                 </select>
-              </div>
+              </label>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-neutral-200">Personality</label>
+              <label className="form-field">
+                <span className="form-field__label">Personality</span>
                 <select
                   value={draft.agentPersonality}
                   onChange={(event) => update('agentPersonality', event.target.value as AppSettings['agentPersonality'])}
-                  className="w-full rounded-xl border border-neutral-700 bg-neutral-950 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-500"
+                  className="select-input"
                 >
                   {PERSONALITIES.map((personality) => (
                     <option key={personality.value} value={personality.value}>
@@ -277,46 +293,48 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     </option>
                   ))}
                 </select>
-              </div>
+              </label>
+            </div>
 
-              <label className="flex items-center justify-between rounded-2xl border border-neutral-800 bg-neutral-950/70 px-4 py-3 text-sm text-neutral-200">
-                Auto-connect on load
+            <div className="toggle-grid">
+              <label className="toggle-card">
+                <div className="toggle-card__copy">
+                  <strong>Auto-connect and sync on open</strong>
+                  <span>Applies the saved OpenClaw defaults as soon as the WebUI loads.</span>
+                </div>
                 <input
                   type="checkbox"
                   checked={draft.autoConnect}
                   onChange={(event) => update('autoConnect', event.target.checked)}
-                  className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 text-cyan-500"
                 />
               </label>
 
-              <label className="flex items-center justify-between rounded-2xl border border-neutral-800 bg-neutral-950/70 px-4 py-3 text-sm text-neutral-200">
-                Launch emulator UI with ROM
+              <label className="toggle-card">
+                <div className="toggle-card__copy">
+                  <strong>Launch native emulator UI after ROM load</strong>
+                  <span>Keeps the operator console and native emulator in sync when a cartridge is inserted.</span>
+                </div>
                 <input
                   type="checkbox"
                   checked={draft.launchUiOnRomLoad}
                   onChange={(event) => update('launchUiOnRomLoad', event.target.checked)}
-                  className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 text-cyan-500"
                 />
               </label>
+            </div>
+
+            <div className="modal-callout">
+              Objective text and runtime controls stay in the main desk so the operator can see intent. Provider and endpoint details stay here.
             </div>
           </section>
         </div>
 
-        <div className="flex items-center justify-between border-t border-neutral-800 px-6 py-5">
-          <p className="text-xs text-neutral-500">
-            Objectives and live control stay in the main OpenClaw panel so runtime intent is visible.
-          </p>
-          <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              className="rounded-xl border border-neutral-700 px-4 py-2 text-sm text-neutral-300 transition hover:border-neutral-500 hover:text-white"
-            >
+        <div className="modal__footer">
+          <p className="modal__footer-copy">Saving updates the local defaults first, then attempts to sync the runtime.</p>
+          <div className="modal__footer-actions">
+            <button type="button" onClick={onClose} className="action-button action-button--ghost">
               Cancel
             </button>
-            <button
-              onClick={handleSave}
-              className="rounded-xl bg-cyan-500 px-4 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-cyan-400"
-            >
+            <button type="button" onClick={handleSave} className="action-button action-button--primary">
               Save Settings
             </button>
           </div>
