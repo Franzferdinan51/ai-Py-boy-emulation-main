@@ -3,10 +3,16 @@ PyBoy emulator implementation with performance optimizations
 
 SDL_WINDOW_HIDDEN=1 - Creates invisible window for screen rendering
 SDL_AUDIODRIVER=disk - Disables audio for performance
+SDL_VIDEODRIVER=dummy - Forces dummy video driver (no actual display)
+                        CRITICAL for macOS: prevents SDL2 from creating menus
+                        on background threads, which causes crashes.
 """
 import os
+# CRITICAL: Set SDL2 environment variables BEFORE any SDL2 import
+# These must be set before PyBoy imports SDL2 to prevent macOS thread crashes
 os.environ['SDL_WINDOW_HIDDEN'] = '1'
 os.environ['SDL_AUDIODRIVER'] = 'disk'
+os.environ['SDL_VIDEODRIVER'] = 'dummy'  # Prevents SDL2 menu creation on macOS
 
 import numpy as np
 from typing import List, Tuple, Optional, Any
@@ -98,16 +104,12 @@ class PyBoyEmulator(EmulatorInterface):
                 # Initialize PyBoy using the official API pattern
                 logger.info(f"Initializing PyBoy with ROM: {os.path.basename(rom_path)}")
 
-                # Use SDL2 window with hidden display for proper screen rendering
-                # PyBoy requires actual SDL2 window to populate screen buffer
-                # SDL_WINDOW_HIDDEN makes window invisible while still rendering
-                import os
-                os.environ['SDL_WINDOW_HIDDEN'] = '1'
-                os.environ['SDL_AUDIODRIVER'] = 'disk'
+                # Use headless mode for macOS compatibility
+                # Screen capture works via tile-based rendering from VRAM
                 
                 self.pyboy = PyBoy(
                     rom_path,
-                    window="SDL2",
+                    window="null",
                     scale=2,
                     sound_emulated=False,
                     sound_volume=0
@@ -337,7 +339,7 @@ try:
         print(f"ERROR: ROM file not found: {rom_path}")
         sys.exit(1)
 
-    pyboy = PyBoy(rom_path, window="SDL2", scale=2, sound_emulated=False, debug=False)
+    pyboy = PyBoy(rom_path, window="null", scale=2, sound_emulated=False, debug=False)
     print("PyBoy initialized successfully")
     pyboy.set_emulation_speed(1)
     print("Emulation speed set to 1")
@@ -695,7 +697,7 @@ finally:
                 # Re-initialize PyBoy with simplified configuration
                 self.pyboy = PyBoy(
                     self.rom_path,
-                    window="SDL2" if self.auto_launch_ui else "null",
+                    window="null" if self.auto_launch_ui else "null",
                     scale=2,
                     sound_emulated=True,
                     sound_volume=50
@@ -1176,14 +1178,11 @@ class PyBoyEmulatorMP(EmulatorInterface):
     def _pyboy_worker(self, rom_path: str, command_queue: Queue, result_queue: Queue, stop_event: Event):
         """Worker function that runs PyBoy in a separate process"""
         try:
-            # Initialize PyBoy in worker process with hidden SDL2 for screen buffer
-            import os
-            os.environ['SDL_WINDOW_HIDDEN'] = '1'
-            os.environ['SDL_AUDIODRIVER'] = 'disk'
+            # Initialize PyBoy in worker process with headless mode
             
             pyboy = PyBoy(
                 rom_path,
-                window="SDL2",
+                window="null",
                 scale=2,
                 sound_emulated=False,
                 sound_volume=0

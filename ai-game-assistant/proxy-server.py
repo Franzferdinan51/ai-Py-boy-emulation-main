@@ -39,13 +39,22 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length) if content_length > 0 else b''
             
-            print(f"POST Proxy: {self.path} -> {url}")
+            # Get content type from original request (important for multipart/form-data uploads)
+            content_type = self.headers.get('Content-Type', 'application/json')
+            
+            print(f"POST Proxy: {self.path} -> {url} (Content-Type: {content_type[:50]}...)")
             try:
                 req = urllib.request.Request(url, data=body, method='POST')
-                req.add_header('Content-Type', 'application/json')
-                with urllib.request.urlopen(req, timeout=30) as response:
+                # Preserve the original Content-Type header (critical for file uploads)
+                req.add_header('Content-Type', content_type)
+                # Copy other relevant headers
+                if 'Authorization' in self.headers:
+                    req.add_header('Authorization', self.headers['Authorization'])
+                with urllib.request.urlopen(req, timeout=120) as response:
                     self.send_response(response.status)
-                    self.send_header('Content-Type', 'application/json')
+                    # Preserve response content type
+                    resp_content_type = response.headers.get('Content-Type', 'application/json')
+                    self.send_header('Content-Type', resp_content_type)
                     self.send_header('Access-Control-Allow-Origin', '*')
                     self.end_headers()
                     self.wfile.write(response.read())
