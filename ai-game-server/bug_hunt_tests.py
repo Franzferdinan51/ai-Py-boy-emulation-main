@@ -235,19 +235,23 @@ def test_screen_debug_endpoint():
         log_result("Screen Debug Endpoint", False, error="Server not reachable")
         return False
     
-    # Should respond even without ROM
-    if response.status_code == 200:
+    # Should respond even without ROM (200 with ROM, 503 without)
+    if response.status_code in [200, 503]:
         try:
             data = response.json()
-            log_result("Screen Debug Endpoint", True,
-                      details=f"Response keys: {list(data.keys())[:5]}")
-            return True
+            if 'rom_loaded' in data:
+                log_result("Screen Debug Endpoint", True,
+                          details=f"Response keys: {list(data.keys())[:5]}, Status: {response.status_code}")
+                return True
+            else:
+                log_result("Screen Debug Endpoint", False, error="Missing rom_loaded field")
+                return False
         except Exception as e:
             log_result("Screen Debug Endpoint", False, error=f"JSON parse error: {e}")
             return False
     else:
         log_result("Screen Debug Endpoint", False,
-                  details=f"Status: {response.status_code}")
+                  details=f"Unexpected status: {response.status_code}")
         return False
 
 # ============================================================================
