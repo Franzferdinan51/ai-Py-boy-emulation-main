@@ -287,6 +287,14 @@ const App: React.FC = () => {
       sseRef.current.close();
     }
 
+    // Skip SSE on iOS/mobile - known compatibility issues with EventSource
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      console.log('[SSE] Skipping SSE on mobile, using polling');
+      setStreamingStatus('disconnected');
+      return;
+    }
+
     if (!gameState.rom_loaded || connectionStatusRef.current !== 'connected') {
       return;
     }
@@ -475,6 +483,14 @@ const App: React.FC = () => {
       return undefined;
     }
 
+    // Use SSE on desktop, polling on mobile (iOS Chrome compatibility)
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      console.log('[App] Using polling on mobile');
+      setStreamingStatus('disconnected');
+      return undefined;
+    }
+
     // Start SSE streaming when ROM is loaded
     connectSSE();
 
@@ -566,6 +582,24 @@ const App: React.FC = () => {
       window.setTimeout(() => setLastButtonPressed(null), 180);
     }
   }, [agentState.enabled, appendSystemLog, connectionStatus, engageManualOverride, gameState.rom_loaded, refreshScreen]);
+
+  // Screen polling for mobile (when SSE is disabled)
+  useEffect(() => {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile) {
+      return undefined; // SSE handles screen on desktop
+    }
+
+    if (!gameState.rom_loaded || connectionStatus !== 'connected') {
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void refreshScreen();
+    }, SCREEN_REFRESH_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [connectionStatus, gameState.rom_loaded, refreshScreen]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

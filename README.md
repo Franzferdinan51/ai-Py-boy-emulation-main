@@ -1,26 +1,52 @@
 # 🎮 AI GameBoy Emulator
 
-OpenClaw Agent-powered emulation for Game Boy, Game Boy Color, and Game Boy Advance games. Now with **MCP v5.0.0** and autonomous AI gameplay!
+OpenClaw Agent-powered emulation for Game Boy, Game Boy Color, and Game Boy Advance games. Now with **live streaming**, **tile-based rendering**, and **mobile support**!
 
 ## What This Is
 
-An MCP server + web interface that lets AI agents control Game Boy emulation. Agents can:
-- Read game memory (position, inventory, HP, etc.)
-- Press buttons autonomously
-- Analyze screens via vision AI
-- Make intelligent decisions with auto-play modes
-- Manage persistent gaming sessions
+An MCP server + web interface that lets AI agents control Game Boy emulation. Features:
+- **Live Screen Streaming** - Real-time 60fps via SSE
+- **Tile-Based Rendering** - Works in headless environments (no display required)
+- **Mobile-Friendly** - Single proxy server serves both frontend and API
+- **Memory Reading** - Position, inventory, HP, party data
+- **Vision AI** - Screen analysis with dual-model routing
+- **Autonomous Play** - AI makes intelligent decisions
 
-## ✨ New in v5.0.0
+## ✨ Latest Features
 
 | Feature | Description |
 |---------|-------------|
-| **Enhanced Tool Definitions** | JSON Schema validation, detailed descriptions, and examples |
-| **Streaming Vision** | Chunked base64 transfer for large screen captures |
-| **Session Persistence** | Sessions saved to disk, survive server restarts |
-| **Memory Manipulation** | Read/write any memory address with validation |
-| **Error Recovery** | Structured errors with recovery suggestions |
-| **Auto Modes** | Auto-explore and auto-battle with AI decision-making |
+| **Live Streaming** | SSE-based 60fps screen streaming |
+| **Tile Rendering** | Direct VRAM tile reading - works on headless servers |
+| **Mobile Proxy** | Single server handles frontend + API for cross-device access |
+| **Auto-Reconnect** | SSE automatically reconnects on connection loss |
+| **Mobile Polling** | Fallback to polling on iOS/Android for compatibility |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Proxy Server :5173                     │
+│  ┌─────────────────┐    ┌────────────────────────────┐  │
+│  │  Static Files  │    │     API Proxy              │  │
+│  │  (Frontend)     │───▶│  /api/* ──▶ :5002        │  │
+│  │                 │    │  /health ──▶ :5002        │  │
+│  └─────────────────┘    └────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                   ┌─────────────────────┐
+                   │  PyBoy Backend :5002 │
+                   │  ┌───────────────┐  │
+                   │  │  Tile Renderer │  │
+                   │  │  (VRAM tiles) │  │
+                   │  └───────────────┘  │
+                   │  ┌───────────────┐  │
+                   │  │  SSE Stream   │  │
+                   │  │  60fps        │  │
+                   │  └───────────────┘  │
+                   └─────────────────────┘
+```
 
 ## Supported Systems
 
@@ -55,40 +81,38 @@ npm install
 
 ## Quick Start
 
-### 1. Configure AI Provider
-
-Create `ai-game-server/.env` with your API keys:
-
-```bash
-# OpenAI
-OPENAI_API_KEY=sk-...
-
-# OR Anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-
-# OR Local (LM Studio, Ollama)
-OPENAI_API_BASE=http://localhost:1234/v1
-```
-
-### 2. Start Backend
+### 1. Start Backend
 
 ```bash
 cd ai-game-server/src
 BACKEND_PORT=5002 python3 main.py
 ```
 
-### 3. Start Web UI (optional)
+### 2. Start Proxy Server (serves both frontend + API)
 
 ```bash
-cd ../ai-game-assistant
-npx vite
+cd ai-game-assistant
+python3 proxy-server.py
 ```
 
-### 4. Register MCP Server
+### 3. Access the Web UI
+
+**Desktop:** http://localhost:5173
+
+**Mobile:** http://YOUR_MAC_IP:5173
+
+Both use the same URL - the proxy handles routing automatically!
+
+## Mobile Access Setup
+
+On your phone, connect to your Mac's IP address:
 
 ```bash
-mcporter add gameboy --stdio "python3 /path/to/ai-game-server/mcp_server.py"
+# Find your Mac's IP
+ifconfig | grep "inet " | grep -v 127.0.0.1
 ```
+
+Then open `http://192.168.x.x:5173` on your phone. The proxy server automatically forwards API requests to the backend.
 
 ## MCP Tools
 
@@ -154,7 +178,8 @@ mcporter add gameboy --stdio "python3 /path/to/ai-game-server/mcp_server.py"
 - `POST /api/load_rom` - Load ROM
 - `POST /api/action` - Send button input
 - `POST /api/ai-action` - Get AI action
-- `GET /api/screen` - Get screen image
+- `GET /api/screen` - Get screen image (polling)
+- `GET /api/stream` - SSE stream of screen updates (60fps)
 
 ### Save/Load
 - `POST /api/save_state` - Save state
@@ -170,107 +195,73 @@ mcporter add gameboy --stdio "python3 /path/to/ai-game-server/mcp_server.py"
 - `POST /api/chat` - Chat with AI
 - `GET /api/providers/status` - AI provider status
 
-## Example: Autonomous Pokemon Battle
+## Web UI Features
 
-```python
-import json
-import subprocess
+- **Live Screen** - 60fps streaming via SSE (desktop) or polling (mobile)
+- **Game Controls** - D-pad, A/B, Start/Select
+- **Party View** - Pokemon stats, HP bars, moves
+- **Inventory** - Bag contents
+- **Memory Watch** - Debug watched addresses
+- **OpenClaw Status** - Agent decision feed
 
-def call_mcp(tool, args):
-    request = {
-        "jsonrpc": "2.0",
-        "method": "tools/call",
-        "params": {"name": tool, "arguments": args}
-    }
-    result = subprocess.run(
-        ["python3", "mcp_server.py"],
-        input=json.dumps(request),
-        capture_output=True,
-        text=True
-    )
-    return json.loads(result.stdout).get("result", {})
+## Tile-Based Rendering (Headless Mode)
 
-# Start a gaming session
-session = call_mcp("session_start", {"goal": "Beat Elite 4"})
+PyBoy normally requires a display for SDL2 rendering. This project uses **direct VRAM tile reading** to render screens in headless environments:
 
-# Get party info
-party = call_mcp("get_party_info", {})
+- **Tile Map:** `0x9800-0x9BFF` (32x32 tiles, 20x18 visible)
+- **Tile Data:** `0x8000-0x87FF` (128 tiles, 16 bytes each)
+- **Palette:** Game Boy DMG green tones
 
-# Let AI battle automatically
-battle_result = call_mcp("auto_battle", {"max_moves": 10})
-print(f"Battle result: {battle_result}")
-```
+This enables the backend to run on headless servers without X11/display.
 
-## Web UI
+## Troubleshooting
 
-The web UI provides:
-- Manual game control
-- Agent status monitoring  
-- Screen viewing
-- Settings configuration
+### Screen shows white/blank
+- Backend needs display for SDL2 rendering
+- Use tile-based rendering (enabled by default)
+- Or use Xvfb: `xvfb-run python3 main.py`
 
-Access at http://localhost:5173 (default)
+### Mobile can't connect
+- Ensure phone and Mac on same WiFi
+- Check Mac's firewall allows port 5173
+- Try hard refresh on phone browser
+
+### SSE not working on iOS
+- iOS Chrome has limited SSE support
+- Fallback to polling (automatic on mobile)
+
+### Backend won't start
+- Check Python version (3.10+)
+- Verify dependencies installed
+- Check port not in use: `lsof -i :5002`
+
+## Documentation
+
+- [📖 API Reference](guides/API_REFERENCE.md) - Complete API docs
+- [🚀 Quick Start](QUICKSTART.md) - New user guide
+- [🧠 Decision Tree](guides/DECISION_TREE.md) - How AI makes decisions
+- [👁️ Vision Guide](guides/VISION_GUIDE.md) - Vision AI integration
+- [📝 Examples](EXAMPLES.md) - Example prompts and sessions
+- [🔧 Troubleshooting](TROUBLESHOOTING.md) - Common issues
 
 ## File Structure
 
 ```
 ai-Py-boy-emulation-main/
 ├── ai-game-server/         # Python backend + MCP
-│   ├── mcp_server.py       # MCP server (v4.0.0)
+│   ├── mcp_server.py       # MCP server
 │   └── src/                # Flask API
-├── ai-game-assistant/     # React web UI
+│       └── backend/
+│           └── emulators/
+│               └── pyboy_emulator.py  # Tile-based renderer
+├── ai-game-assistant/      # React web UI
+│   ├── proxy-server.py    # Unified proxy (frontend + API)
+│   └── services/
+│       └── apiService.ts   # API client
 ├── skills/                 # OpenClaw skills
 ├── tools/                  # Agent utilities
-├── guides/                 # Documentation
-│   ├── API_REFERENCE.md   # Full API docs
-│   ├── DECISION_TREE.md  # AI decision making
-│   └── VISION_GUIDE.md   # Vision integration
-└── tests/                  # Test suites
-    ├── test_api.py        # HTTP API tests
-    └── test_mcp.py        # MCP tools tests
+└── guides/                 # Documentation
 ```
-
-## Documentation
-
-- [📖 API Reference](guides/API_REFERENCE.md) - Complete API documentation
-- [🚀 Quick Start](QUICKSTART.md) - New user guide
-- [🧠 Decision Tree](guides/DECISION_TREE.md) - How AI makes decisions
-- [👁️ Vision Guide](guides/VISION_GUIDE.md) - Vision AI integration
-- [📝 Examples](EXAMPLES.md) - Example prompts and sessions
-- [🔧 Troubleshooting](TROUBLESHOOTING.md) - Common issues
-- [📦 AGENTS.md](AGENTS.md) - Autonomous agent setup
-
-## Testing
-
-```bash
-# Install pytest
-pip install pytest requests
-
-# Run HTTP API tests
-pytest tests/test_api.py -v
-
-# Run MCP tools tests
-pytest tests/test_mcp.py -v
-
-# Run all tests
-pytest tests/ -v
-```
-
-## Troubleshooting
-
-### Backend won't start
-- Check Python version (3.10+)
-- Verify dependencies installed
-- Check port not in use
-
-### MCP tools not responding
-- Verify backend running
-- Check mcporter registration
-- Try restarting backend
-
-### ROM won't load
-- Verify ROM file exists and is readable
-- Check file format supported
 
 ## License
 
@@ -278,4 +269,4 @@ MIT
 
 ---
 
-**DuckBot is currently playing Pokemon Red!** 🎮🦆
+**🦆 DuckBot is playing Pokemon Red!** - See SOUL.md for current progress

@@ -14,16 +14,18 @@ export const resolveDefaultBackendUrl = () => {
     return normalizeBaseUrl(envUrl);
   }
 
-  if (typeof window === 'undefined') {
-    return `http://localhost:${DEFAULT_BACKEND_PORT}`;
+  // Always use relative URL - proxy server handles forwarding to backend
+  // This ensures mobile and desktop both work without configuration
+  if (typeof window !== 'undefined') {
+    const { hostname } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `http://localhost:${DEFAULT_BACKEND_PORT}`;
+    }
+    // Use relative URL for remote access - proxy will forward
+    return '';
   }
 
-  const { hostname, origin, protocol } = window.location;
-  if (!hostname || protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1') {
-    return `${protocol === 'file:' ? 'http:' : protocol}//${hostname || 'localhost'}:${DEFAULT_BACKEND_PORT}`;
-  }
-
-  return origin;
+  return `http://localhost:${DEFAULT_BACKEND_PORT}`;
 };
 
 const DEFAULT_BASE_URL = resolveDefaultBackendUrl();
@@ -282,6 +284,10 @@ class ApiService {
   }
 
   private buildUrl(path: string) {
+    // Use relative URL if baseUrl is empty (proxy mode)
+    if (!this.baseUrl) {
+      return path.startsWith('/') ? path : `/${path}`;
+    }
     return `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
   }
 
