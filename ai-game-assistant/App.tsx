@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Header from './components/Header';
 import AIPanel from './components/AIPanel';
+import AgentStatusPanel from './components/AgentStatusPanel';
 import GamePanel from './components/GamePanel';
 import StatePanel from './components/StatePanel';
 import SettingsModal from './components/SettingsModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 // FIX: Added PlayerStats to the import list to resolve "Cannot find name" error.
-import type { Achievement, PartyMember, Objective, Item, GameAction, AIState, AILog, ChatMessage, AppSettings, AiModel, PlayerStats, MapData } from './types';
+import type { Achievement, PartyMember, Objective, Item, GameAction, AIState, AILog, ChatMessage, AppSettings, AiModel, PlayerStats, MapData, AgentStatus } from './types';
 import { AIState as AIStateEnum } from './types';
 import { fetchAvailableModels, getAIThoughtAndAction, getChatResponse } from './services/geminiService';
 import { getScreen, sendAction, loadRom, saveState as saveGameState, loadState as loadGameState, checkBackendStatus } from './services/backendService';
@@ -53,6 +54,13 @@ const App: React.FC = () => {
     openrouterApiKey: '',
     lmStudioUrl: 'http://localhost:1234',
     selectedModel: '',
+    // OpenClaw Agent Defaults - Agent is DEFAULT
+    agentMode: true, // Agent controls by default
+    openclawMcpEndpoint: 'http://localhost:3000/mcp',
+    visionModel: 'kimi-k2.5',
+    autonomousLevel: 'moderate',
+    agentObjectives: 'Complete Pokemon Red, defeat the Elite Four',
+    agentPersonality: 'strategic',
   });
   const [availableModels, setAvailableModels] = useState<AiModel[]>([]);
   const [isModelListLoading, setIsModelListLoading] = useState(false);
@@ -62,6 +70,16 @@ const App: React.FC = () => {
   // New state for backend connection
   const [backendStatus, setBackendStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
   const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  // OpenClaw Agent Status
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>({
+    connected: true,
+    agentName: 'OpenClaw Agent',
+    currentAction: 'Idle',
+    lastDecision: 'Initializing...',
+    heartbeat: 0,
+    decisionHistory: ['Agent initialized in default mode'],
+  });
 
 
   const currentScreenBlob = useRef<Blob | null>(null);
@@ -506,9 +524,20 @@ const App: React.FC = () => {
     if (newSettings.aiProvider !== appSettings.aiProvider) {
       newSettings.selectedModel = '';
     }
+    
+    // Update agent status when settings change
+    if (newSettings.agentMode !== appSettings.agentMode) {
+      setAgentStatus(prev => ({
+        ...prev,
+        lastDecision: newSettings.agentMode ? 'Agent mode enabled' : 'Manual mode enabled',
+        decisionHistory: [...prev.decisionHistory, `(${new Date().toLocaleTimeString()}) ${newSettings.agentMode ? 'Agent mode enabled' : 'Manual override'}`].slice(-10),
+      }));
+      addChatMessage(newSettings.agentMode ? '🤖 Agent Mode enabled' : '🛑 Manual mode enabled', 'system');
+    }
+    
     setAppSettings(newSettings);
     setIsSettingsOpen(false);
-    addChatMessage(`Settings updated. AI Provider: ${newSettings.aiProvider}.`, 'system');
+    addChatMessage(`Settings updated. AI Provider: ${newSettings.apiProvider || newSettings.aiProvider}.`, 'system');
   };
 
   const handleLoadRom = async (file: File) => {
@@ -551,6 +580,40 @@ const App: React.FC = () => {
     }
   };
 
+  // Agent control handlers
+  const handleAgentTakeover = () => {
+    setAppSettings(prev => ({ ...prev, agentMode: true }));
+    setAgentStatus(prev => ({
+      ...prev,
+      currentAction: 'Agent takeover activated',
+      lastDecision: 'Agent mode enabled by user',
+      decisionHistory: [...prev.decisionHistory, `(${new Date().toLocaleTimeString()}) Agent takeover activated`].slice(-10),
+    }));
+    addChatMessage('🤖 Agent Takeover: Agent now has full control', 'system');
+  };
+
+  const handleManualOverride = () => {
+    setAppSettings(prev => ({ ...prev, agentMode: false }));
+    setAgentStatus(prev => ({
+      ...prev,
+      currentAction: 'Manual control',
+      lastDecision: 'Human took manual control',
+      decisionHistory: [...prev.decisionHistory, `(${new Date().toLocaleTimeString()}) Manual override activated`].slice(-10),
+    }));
+    addChatMessage('🛑 Manual Override: Human now in control', 'system');
+  };
+
+  // Update agent status heartbeat
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAgentStatus(prev => ({
+        ...prev,
+        heartbeat: prev.heartbeat + 1000,
+      }));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
 
   return (
     <ErrorBoundary
@@ -566,9 +629,10 @@ const App: React.FC = () => {
           runtime={playerStats.runtime}
           steps={playerStats.steps}
           saveStatus={saveStatus}
+          agentMode={appSettings.agentMode}
         />
         <main className="flex-grow grid grid-cols-1 md:grid-cols-12 gap-4 p-4 min-h-0 overflow-y-auto">
-          <div className="md:col-span-4 lg:col-span-3 min-h-0">
+          <div className="md:col-span-4 lg:col-span-3 min-h-0 space-y-4">
             <ErrorBoundary>
               <AIPanel
                 aiState={aiState}
@@ -585,6 +649,15 @@ const App: React.FC = () => {
                 onStop={handleToggleAI}
                 onChatInputChange={setChatInput}
                 onSendMessage={handleSendMessage}
+              />
+            </ErrorBoundary>
+            {/* OpenClaw Agent Status Panel */}
+            <ErrorBoundary>
+              <AgentStatusPanel
+                status={agentStatus}
+                isAgentMode={appSettings.agentMode}
+                onTakeover={handleAgentTakeover}
+                onOverride={handleManualOverride}
               />
             </ErrorBoundary>
           </div>

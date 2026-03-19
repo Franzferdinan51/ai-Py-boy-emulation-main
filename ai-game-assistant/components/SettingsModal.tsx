@@ -169,6 +169,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentS
                 }}
                 className="w-full p-2 bg-neutral-800 border border-neutral-700 rounded-md focus:ring-1 focus:ring-cyan-glow focus:border-cyan-glow outline-none"
               >
+                <option value="openclaw">🦆 OpenClaw Agent (Default)</option>
                 <option value="gemini">Google Gemini</option>
                 <option value="openrouter">OpenRouter</option>
                 <option value="openai-compatible">OpenAI Compatible (LM Studio, etc)</option>
@@ -406,6 +407,123 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, currentS
               <p className="text-xs text-neutral-500 mt-2">
                 Your API key is stored locally in your browser. For LM Studio, this can often be left blank.
               </p>
+            </div>
+          </div>
+
+          {/* OpenClaw Agent Settings Section */}
+          <div className="border-t border-neutral-800 pt-6 space-y-4">
+            <h3 className="text-md font-semibold text-neutral-300 flex items-center">
+              🦆 OpenClaw Agent Settings
+            </h3>
+            
+            {/* Agent Mode Toggle */}
+            <div className="flex items-center justify-between p-3 bg-neutral-800/50 rounded-md border border-neutral-700">
+              <div>
+                <label htmlFor="agent-mode" className="block text-sm font-medium text-neutral-300">
+                  🤖 Agent Mode
+                </label>
+                <p className="text-xs text-neutral-500">Enable AI agent to control the game</p>
+              </div>
+              <button
+                id="agent-mode"
+                onClick={() => setSettings(prev => ({ ...prev, agentMode: !prev.agentMode }))}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  settings.agentMode ? 'bg-green-500' : 'bg-neutral-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    settings.agentMode ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* MCP Endpoint */}
+            <div>
+              <label htmlFor="mcp-endpoint" className="block text-sm font-medium text-neutral-300 mb-2">
+                🔗 MCP Server Endpoint
+              </label>
+              <input
+                type="text"
+                id="mcp-endpoint"
+                value={settings.openclawMcpEndpoint || ''}
+                onChange={(e) => setSettings(prev => ({ ...prev, openclawMcpEndpoint: e.target.value }))}
+                placeholder="http://localhost:3000/mcp"
+                className="w-full p-2 bg-neutral-800 border border-neutral-700 rounded-md placeholder:text-neutral-600 focus:ring-1 focus:ring-cyan-glow focus:border-cyan-glow outline-none"
+              />
+              <p className="text-xs text-neutral-500 mt-2">OpenClaw MCP server URL for agent communication</p>
+            </div>
+
+            {/* Vision Model Selection */}
+            <div>
+              <label htmlFor="vision-model" className="block text-sm font-medium text-neutral-300 mb-2">
+                👁️ Vision Model
+              </label>
+              <select
+                id="vision-model"
+                value={settings.visionModel || 'kimi-k2.5'}
+                onChange={(e) => setSettings(prev => ({ ...prev, visionModel: e.target.value as AppSettings['visionModel'] }))}
+                className="w-full p-2 bg-neutral-800 border border-neutral-700 rounded-md focus:ring-1 focus:ring-cyan-glow focus:border-cyan-glow outline-none"
+              >
+                <option value="kimi-k2.5">kimi-k2.5 (Bailian - FREE)</option>
+                <option value="MiniMax-M2.5">MiniMax-M2.5 (Bailian - FREE)</option>
+                <option value="glm-5">glm-5 (Bailian)</option>
+              </select>
+              <p className="text-xs text-neutral-500 mt-2">Model used for screen analysis and game state understanding</p>
+            </div>
+
+            {/* Autonomous Level */}
+            <div>
+              <label htmlFor="autonomous-level" className="block text-sm font-medium text-neutral-300 mb-2">
+                ⚡ Autonomous Level
+              </label>
+              <select
+                id="autonomous-level"
+                value={settings.autonomousLevel || 'moderate'}
+                onChange={(e) => setSettings(prev => ({ ...prev, autonomousLevel: e.target.value as AppSettings['autonomousLevel'] }))}
+                className="w-full p-2 bg-neutral-800 border border-neutral-700 rounded-md focus:ring-1 focus:ring-cyan-glow focus:border-cyan-glow outline-none"
+              >
+                <option value="passive">Passive - Only acts when requested</option>
+                <option value="moderate">Moderate - Makes decisions with human oversight</option>
+                <option value="aggressive">Aggressive - Full autonomous control</option>
+              </select>
+              <p className="text-xs text-neutral-500 mt-2">How independently the agent operates</p>
+            </div>
+
+            {/* Agent Personality */}
+            <div>
+              <label htmlFor="agent-personality" className="block text-sm font-medium text-neutral-300 mb-2">
+                🎭 Agent Personality
+              </label>
+              <select
+                id="agent-personality"
+                value={settings.agentPersonality || 'strategic'}
+                onChange={(e) => setSettings(prev => ({ ...prev, agentPersonality: e.target.value as AppSettings['agentPersonality'] }))}
+                className="w-full p-2 bg-neutral-800 border border-neutral-700 rounded-md focus:ring-1 focus:ring-cyan-glow focus:border-cyan-glow outline-none"
+              >
+                <option value="strategic">Strategic - Calculated, optimal moves</option>
+                <option value="casual">Casual - Relaxed, exploration-focused</option>
+                <option value="speedrun">Speedrun - Time-optimized strategies</option>
+                <option value="explorer">Explorer - Discovery-focused, thorough</option>
+              </select>
+              <p className="text-xs text-neutral-500 mt-2">Defines the agent's decision-making approach</p>
+            </div>
+
+            {/* Agent Objectives */}
+            <div>
+              <label htmlFor="agent-objectives" className="block text-sm font-medium text-neutral-300 mb-2">
+                🎯 Agent Objectives
+              </label>
+              <textarea
+                id="agent-objectives"
+                rows={3}
+                value={settings.agentObjectives || ''}
+                onChange={(e) => setSettings(prev => ({ ...prev, agentObjectives: e.target.value }))}
+                placeholder="e.g., Complete Pokemon Red, defeat the Elite Four"
+                className="w-full p-2 bg-neutral-800 border border-neutral-700 rounded-md text-sm placeholder:text-neutral-600 focus:ring-1 focus:ring-cyan-glow focus:border-cyan-glow outline-none"
+              />
+              <p className="text-xs text-neutral-500 mt-2">Current objectives for the autonomous agent</p>
             </div>
           </div>
         </div>

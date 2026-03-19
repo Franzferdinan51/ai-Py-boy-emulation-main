@@ -8,18 +8,32 @@ interface HeaderProps {
   onOpenSettings: () => void;
   useEnhancedUI?: boolean;
   onToggleEnhancedUI?: () => void;
+  agentMode?: boolean;
 }
 
-const Header: React.FC<HeaderProps> = ({ emulatorMode, onModeChange, onOpenSettings, useEnhancedUI = false, onToggleEnhancedUI }) => {
+const Header: React.FC<HeaderProps> = ({ emulatorMode, onModeChange, onOpenSettings, useEnhancedUI = false, onToggleEnhancedUI, agentMode = true }) => {
   const buttonBaseClasses = 'px-4 py-1 rounded-md text-sm font-semibold transition-all duration-300';
   const activeButtonClasses = 'bg-cyan-glow text-neutral-900 shadow-lg shadow-cyan-glow/30';
   const inactiveButtonClasses = 'bg-neutral-800 hover:bg-neutral-700';
 
   return (
     <header className="flex items-center justify-between p-4 bg-neutral-900/50 backdrop-blur-sm border-b border-neutral-800">
-      <h1 className="text-xl font-bold font-display text-gray-100 tracking-wider">
-        AI Game <span className="text-cyan-glow">Assistant</span>
-      </h1>
+      <div className="flex items-center space-x-4">
+        <h1 className="text-xl font-bold font-display text-gray-100 tracking-wider">
+          AI Game <span className="text-cyan-glow">Assistant</span>
+        </h1>
+        {/* Agent Mode Badge - Dynamic */}
+        <div className={`flex items-center space-x-2 px-3 py-1 rounded-full border ${
+          agentMode 
+            ? 'bg-green-500/20 border-green-500/40' 
+            : 'bg-neutral-600/20 border-neutral-500/40'
+        }`}>
+          <div className={`w-2 h-2 rounded-full ${agentMode ? 'bg-green-500 animate-pulse' : 'bg-neutral-500'}`} />
+          <span className={`text-xs font-semibold ${agentMode ? 'text-green-400' : 'text-neutral-400'}`}>
+            {agentMode ? '🤖 Agent Active' : '👤 Manual Mode'}
+          </span>
+        </div>
+      </div>
       <div className="flex items-center space-x-4">
         <div className="flex items-center space-x-2 p-1 bg-neutral-900 rounded-lg">
           <button
