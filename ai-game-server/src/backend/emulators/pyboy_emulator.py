@@ -65,9 +65,9 @@ class PyBoyEmulator(EmulatorInterface):
         self.ui_thread = None
         self._emulator_lock = threading.RLock()
 
-        # Performance optimization attributes
+        # Performance optimization attributes - cache DISABLED by default to save RAM
         self._screen_cache = {}
-        self._screen_cache_enabled = True
+        self._screen_cache_enabled = False  # Disabled to reduce memory usage
         self._last_screen_hash = None
         self._frame_counter = 0
         self._fps_tracker = []

@@ -452,7 +452,8 @@ def _live_emulation_loop():
                         update_game_state({"frame_count": emulator.get_frame_count()})
                     except Exception:
                         pass
-            time.sleep(1/30)
+            time.sleep(1/15)  # ~15 FPS target - reduces CPU while keeping view live
+
         except Exception as exc:
             logger.debug(f"Live emulation loop iteration failed: {exc}")
             time.sleep(0.1)
@@ -993,7 +994,7 @@ def numpy_to_base64_image(np_array: np.ndarray) -> str:
         return ""
 
 
-# Global performance monitoring
+# Global performance monitoring - reduced limits to save RAM
 performance_monitor = {
     'frame_times': [],
     'encoding_times': [],
@@ -1006,17 +1007,17 @@ performance_monitor = {
 }
 
 def update_performance_metrics(encoding_time: float, frame_time: float):
-    """Update performance monitoring metrics"""
+    """Update performance monitoring metrics - with memory-efficient limits"""
     current_time = time.time()
 
-    # Track encoding performance
+    # Track encoding performance - limit to 30 entries to save RAM
     performance_monitor['encoding_times'].append(encoding_time)
-    if len(performance_monitor['encoding_times']) > 100:
+    if len(performance_monitor['encoding_times']) > 30:
         performance_monitor['encoding_times'].pop(0)
 
-    # Track frame timing
+    # Track frame timing - limit to 20 entries to save RAM
     performance_monitor['frame_times'].append(frame_time)
-    if len(performance_monitor['frame_times']) > 60:
+    if len(performance_monitor['frame_times']) > 20:
         performance_monitor['frame_times'].pop(0)
 
     # Update FPS calculation every second
