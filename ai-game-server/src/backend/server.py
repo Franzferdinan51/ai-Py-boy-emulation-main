@@ -3167,7 +3167,7 @@ def stream_screen():
                                 yield f"data: {json.dumps(error_data)}\n\n"
                                 break
 
-                            screen_timeout = 0.05 if pyboy_timeout_count == 0 else 0.1
+                            screen_timeout = 0.2 if pyboy_timeout_count == 0 else 0.5
                             try:
                                 screen_array = executor.submit(get_screen).result(timeout=screen_timeout)
                             except FutureTimeoutError:
