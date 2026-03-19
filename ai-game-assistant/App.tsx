@@ -1,711 +1,353 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Header from './components/Header';
-import AIPanel from './components/AIPanel';
 import AgentStatusPanel from './components/AgentStatusPanel';
-import GamePanel from './components/GamePanel';
-import StatePanel from './components/StatePanel';
 import SettingsModal from './components/SettingsModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
-// FIX: Added PlayerStats to the import list to resolve "Cannot find name" error.
-import type { Achievement, PartyMember, Objective, Item, GameAction, AIState, AILog, ChatMessage, AppSettings, AiModel, PlayerStats, MapData, AgentStatus } from './types';
+import EmulatorScreen from './components/EmulatorScreen';
+import Controls from './components/Controls';
+import type { GameAction, AppSettings, AgentStatus, AIState } from './types';
 import { AIState as AIStateEnum } from './types';
-import { fetchAvailableModels, getAIThoughtAndAction, getChatResponse } from './services/geminiService';
 import { getScreen, sendAction, loadRom, saveState as saveGameState, loadState as loadGameState, checkBackendStatus } from './services/backendService';
-import { configService } from './services/configService';
-import { useInterval } from './hooks/useInterval';
 
-const SAVE_KEY = 'ai-game-assistant-save-v1';
-const STREAM_INTERVAL_MS = 250; // approx 4 FPS for the screen stream
-const IDLE_STATE_REFRESH_MS = 2000;
+// Icons
+const GamepadIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="6" y1="12" x2="10" y2="12"/><line x1="8" y1="10" x2="8" y2="14"/>
+    <line x1="15" y1="13" x2="15.01" y2="13"/><line x1="18" y1="11" x2="18.01" y2="11"/>
+    <rect width="8" height="14" x="8" y="5" rx="4"/>
+  </svg>
+);
+
+const SaveIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+    <polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+  </svg>
+);
+
+const LoadIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+    <line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/>
+  </svg>
+);
 
 const App: React.FC = () => {
   const [aiState, setAiState] = useState<AIState>(AIStateEnum.IDLE);
   const [gameScreenUrl, setGameScreenUrl] = useState<string | null>(null);
-  const [actionHistory, setActionHistory] = useState<GameAction[]>([]);
+  const [lastAction, setLastAction] = useState<GameAction | null>(null);
+  const [actionLog, setActionLog] = useState<{ time: string; action: string; result: string }[]>([]);
   const [isRomLoaded, setIsRomLoaded] = useState(false);
+  const [romName, setRomName] = useState<string | null>(null);
   
-  // Dynamic Game State
-  const [party, setParty] = useState<PartyMember[]>([]);
-  const [mapInfo, setMapInfo] = useState<MapData>({ name: 'Loading...', coords: [0, 0], pointsOfInterest: []});
-  const [achievements, setAchievements] = useState<Achievement[]>([]);
-  const [objectives, setObjectives] = useState<Objective[]>([
-    { id: 1, text: 'Complete the tutorial quest', completed: false },
-    { id: 2, text: 'Visit the capital city', completed: false },
-    { id: 3, text: 'Find the hidden ancient ruins', completed: false },
-  ]);
-  const [inventory, setInventory] = useState<Item[]>([]);
-  const [playerStats, setPlayerStats] = useState<PlayerStats>({ runtime: '00:00:00', steps: 0, money: 0 });
-  const [dialogue, setDialogue] = useState('');
-  
-  // State for AIPanel
-  const [aiGoal, setAiGoal] = useState<string>('Defeat the final boss and save the world.');
-  const [currentReasoning, setCurrentReasoning] = useState<string>('Please load a ROM to begin.');
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState('');
-  const [isChatting, setIsChatting] = useState(false);
-  
-  // State for Settings
+  // Backend connection state
+  const [backendStatus, setBackendStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  // Settings
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettings>({
     aiActionInterval: 4000,
     backendUrl: 'http://localhost:5000',
-    aiProvider: 'google',
-    googleApiKey: '',
-    openrouterApiKey: '',
-    lmStudioUrl: 'http://localhost:1234',
-    selectedModel: '',
-    // OpenClaw Agent Defaults - Agent is DEFAULT
-    agentMode: true, // Agent controls by default
+    agentMode: true,
     openclawMcpEndpoint: 'http://localhost:3000/mcp',
     visionModel: 'kimi-k2.5',
     autonomousLevel: 'moderate',
     agentObjectives: 'Complete Pokemon Red, defeat the Elite Four',
     agentPersonality: 'strategic',
   });
-  const [availableModels, setAvailableModels] = useState<AiModel[]>([]);
-  const [isModelListLoading, setIsModelListLoading] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | ''>('');
-  const [justCompletedObjectiveIds, setJustCompletedObjectiveIds] = useState<Set<number>>(new Set());
 
-  // New state for backend connection
-  const [backendStatus, setBackendStatus] = useState<'connected' | 'disconnected' | 'checking'>('checking');
-  const [connectionError, setConnectionError] = useState<string | null>(null);
-
-  // OpenClaw Agent Status
+  // Agent status
   const [agentStatus, setAgentStatus] = useState<AgentStatus>({
     connected: true,
-    agentName: 'OpenClaw Agent',
+    agentName: 'DuckBot',
     currentAction: 'Idle',
-    lastDecision: 'Initializing...',
+    lastDecision: 'Waiting for ROM...',
     heartbeat: 0,
-    decisionHistory: ['Agent initialized in default mode'],
+    decisionHistory: ['Agent initialized'],
   });
 
+  // Memory state (mock for display)
+  const [memoryState, setMemoryState] = useState({
+    x: 0,
+    y: 0,
+    map: 'Pallet Town',
+    party: ['Charmander'],
+    money: 0,
+    steps: 0,
+  });
 
-  const currentScreenBlob = useRef<Blob | null>(null);
-  const messageIdCounter = useRef(0);
-  const prevObjectivesRef = useRef<Objective[]>([]);
-  const nextObjectiveId = useRef(objectives.length > 0 ? Math.max(...objectives.map(o => o.id)) + 1 : 1);
-  const gameScreenUrlRef = useRef<string | null>(null);
-  
-  const addChatMessage = useCallback((text: string, sender: 'user' | 'ai' | 'system') => {
-    const message: ChatMessage = { id: messageIdCounter.current++, sender, text };
-    setChatHistory(prev => [...prev, message]);
-  }, []);
+  const screenRefreshRef = useRef<number | null>(null);
+  const heartbeatRef = useRef<number | null>(null);
 
-  // Effect to detect and handle objective completion with race condition protection
+  // Check backend status on mount
   useEffect(() => {
-    const prevObjectives = prevObjectivesRef.current;
-
-    // Prevent race conditions by checking if objectives have actually changed
-    const objectivesChanged = JSON.stringify(prevObjectives) !== JSON.stringify(objectives);
-
-    if (!objectivesChanged) return;
-
-    if (prevObjectives.length > 0 || objectives.some(o => o.completed)) {
-        const newlyCompletedObjectives = objectives.filter(currentObj => {
-            const prevObj = prevObjectives.find(p => p.id === currentObj.id);
-            return currentObj.completed && (!prevObj || !prevObj.completed);
-        });
-
-        if (newlyCompletedObjectives.length > 0) {
-            // Batch all objective completion notifications to prevent race conditions
-            const completionTimeouts: NodeJS.Timeout[] = [];
-
-            newlyCompletedObjectives.forEach(obj => {
-                addChatMessage(`Objective complete: '${obj.text}'`, 'system');
-                setJustCompletedObjectiveIds(prev => new Set(prev).add(obj.id));
-
-                const timeout = setTimeout(() => {
-                    setJustCompletedObjectiveIds(prev => {
-                        const newSet = new Set(prev);
-                        newSet.delete(obj.id);
-                        return newSet;
-                    });
-                }, 2000);
-
-                completionTimeouts.push(timeout);
-            });
-
-            // Cleanup function to clear timeouts if component unmounts or dependencies change
-            return () => {
-                completionTimeouts.forEach(timeout => clearTimeout(timeout));
-            };
-        }
-    }
-
-    prevObjectivesRef.current = objectives;
-  }, [objectives, addChatMessage]);
-
-  const handleReorderObjectives = (newObjectives: Objective[]) => {
-    setObjectives(newObjectives);
-  };
-
-  const handleToggleObjective = (id: number) => {
-    setObjectives(prev => prev.map(obj => obj.id === id ? { ...obj, completed: !obj.completed } : obj));
-  };
-
-  const handleDeleteObjective = (id: number) => {
-    setObjectives(prev => prev.filter(obj => obj.id !== id));
-  };
-
-  const handleCreateObjective = (text: string) => {
-    if (!text.trim()) return;
-    const newObjective: Objective = {
-      id: nextObjectiveId.current++,
-      text,
-      completed: false
-    };
-    setObjectives(prev => [...prev, newObjective]);
-  };
-
-  // Cleanup URL objects on unmount and when dependencies change to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      if (gameScreenUrlRef.current) {
-        URL.revokeObjectURL(gameScreenUrlRef.current);
-        gameScreenUrlRef.current = null;
-      }
-      // Also cleanup current blob if it exists
-      if (currentScreenBlob.current) {
-        currentScreenBlob.current = null;
-      }
-    };
-  }, []);
-
-  // Enhanced cleanup for URL objects when game screen URL changes
-  useEffect(() => {
-    return () => {
-      if (gameScreenUrl) {
-        URL.revokeObjectURL(gameScreenUrl);
-      }
-    };
-  }, [gameScreenUrl]);
-
-  // Load state from localStorage on initial mount
-  useEffect(() => {
-    try {
-        const savedStateJSON = localStorage.getItem(SAVE_KEY);
-        if (savedStateJSON) {
-            const savedState = JSON.parse(savedStateJSON);
-
-            if (savedState.appSettings) setAppSettings(savedState.appSettings);
-            if (savedState.aiGoal) setAiGoal(savedState.aiGoal);
-            if (savedState.objectives) {
-              setObjectives(savedState.objectives);
-              nextObjectiveId.current = savedState.objectives.length > 0 ? Math.max(...savedState.objectives.map((o: Objective) => o.id)) + 1 : 1
-            }
-            if (savedState.chatHistory) setChatHistory(savedState.chatHistory);
-            if (savedState.actionHistory) setActionHistory(savedState.actionHistory);
-            if (savedState.achievements) setAchievements(savedState.achievements);
-            if (savedState.party) setParty(savedState.party);
-            if (savedState.inventory) setInventory(savedState.inventory);
-            if (savedState.mapInfo) setMapInfo(savedState.mapInfo);
-            if (savedState.playerStats) setPlayerStats(savedState.playerStats);
-
-            addChatMessage('Session restored from previous state.', 'system');
-        }
-    } catch (error) {
-        console.error("Failed to load state from localStorage", error);
-        addChatMessage('Could not restore previous session.', 'system');
-    }
-  }, [addChatMessage]);
-
-  // Initialize dynamic configuration and backend URL
-  useEffect(() => {
-    const initializeConfiguration = async () => {
+    const checkConnection = async () => {
+      setBackendStatus('checking');
       try {
-        // Try to get optimal backend URL with dynamic port allocation
-        const optimalUrl = await configService.getOptimalBackendUrl();
-
-        // Update settings if the URL changed
-        if (optimalUrl !== appSettings.backendUrl) {
-          setAppSettings(prev => ({
-            ...prev,
-            backendUrl: optimalUrl
-          }));
-
-          addChatMessage(`Connected to backend at: ${optimalUrl}`, 'system');
-        }
-
-        // Validate configuration
-        try {
-          const configResponse = await configService.validateConfiguration(optimalUrl);
-          const summary = configService.getConfigurationSummary(configResponse.configuration);
-
-          if (!summary.hasValidConfig) {
-            addChatMessage('Configuration validation failed. Check server logs.', 'system');
-          } else {
-            addChatMessage(`Configuration validated. ${summary.apiKeyCount} API key(s) configured.`, 'system');
-          }
-
-          if (summary.warnings.length > 0) {
-            summary.warnings.forEach(warning => {
-              addChatMessage(`Configuration warning: ${warning}`, 'system');
-            });
-          }
-        } catch (configError) {
-          console.warn('Configuration validation failed, using fallback:', configError);
-          addChatMessage('Using fallback configuration', 'system');
-        }
-
-        // Check backend status with the updated URL
-        const status = await checkBackendStatus(optimalUrl);
-        if (status.success) {
-          setBackendStatus('connected');
-          setConnectionError(null);
-        } else {
-          setBackendStatus('disconnected');
-          setConnectionError(status.message);
-        }
-      } catch (error) {
-        console.error('Failed to initialize configuration:', error);
-        addChatMessage('Failed to initialize dynamic configuration', 'system');
+        const isConnected = await checkBackendStatus(appSettings.backendUrl || 'http://localhost:5000');
+        setBackendStatus(isConnected ? 'connected' : 'disconnected');
+        setConnectionError(isConnected ? null : 'Backend not responding');
+      } catch {
         setBackendStatus('disconnected');
-        setConnectionError('Configuration initialization failed');
+        setConnectionError('Failed to connect to backend');
       }
     };
+    checkConnection();
+    const interval = setInterval(checkConnection, 30000);
+    return () => clearInterval(interval);
+  }, [appSettings.backendUrl]);
 
-    initializeConfiguration();
-  }, []); // Run once on mount
-
-  // Autosave state to localStorage
-  const saveState = useCallback(() => {
-    setSaveStatus('saving');
-    try {
-        const stateToSave = {
-            appSettings,
-            aiGoal,
-            objectives,
-            chatHistory,
-            actionHistory,
-            achievements,
-            party,
-            inventory,
-            mapInfo,
-            playerStats
-        };
-        localStorage.setItem(SAVE_KEY, JSON.stringify(stateToSave));
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus(''), 2000);
-    } catch (error) {
-        console.error("Failed to save state to localStorage", error);
-        setSaveStatus('');
-    }
-  }, [appSettings, aiGoal, objectives, chatHistory, actionHistory, achievements, party, inventory, mapInfo, playerStats]);
-
-  useInterval(saveState, 15000); // Save every 15 seconds
-
-  // Global error handler for unhandled promise rejections
+  // Screen refresh loop
   useEffect(() => {
-    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      console.error('Unhandled promise rejection:', event.reason);
-      addChatMessage('An unexpected error occurred. Please try again.', 'system');
-      event.preventDefault(); // Prevent the default browser behavior
-    };
-
-    window.addEventListener('unhandledrejection', handleUnhandledRejection);
-
-    return () => {
-      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
-    };
-  }, [addChatMessage]);
-
-  const refreshFullGameState = useCallback(async () => {
-    if (!isRomLoaded || backendStatus !== 'connected') return;
-    try {
-      const screenBlob = await getScreen(appSettings.backendUrl);
-
-      // Cleanup previous blob if it exists
-      if (currentScreenBlob.current) {
-        currentScreenBlob.current = null;
-      }
-
-      currentScreenBlob.current = screenBlob;
-      const newUrl = URL.createObjectURL(screenBlob);
-
-      setGameScreenUrl(prevUrl => {
-        if (prevUrl && prevUrl !== gameScreenUrlRef.current) {
-          URL.revokeObjectURL(prevUrl);
-        }
-        if (gameScreenUrlRef.current && gameScreenUrlRef.current !== prevUrl) {
-          URL.revokeObjectURL(gameScreenUrlRef.current);
-        }
-        gameScreenUrlRef.current = newUrl;
-        return newUrl;
-      });
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-      setBackendStatus('disconnected');
-      setConnectionError(errorMessage);
-      setAiState(AIStateEnum.IDLE);
-    }
-  }, [isRomLoaded, appSettings.backendUrl, backendStatus]);
-
-  // Initial and on-change check for backend connection
-  useEffect(() => {
-    const connectToBackend = async () => {
-        if (!appSettings.backendUrl) {
-            setBackendStatus('disconnected');
-            setConnectionError("Pyboy Server URL is not set in settings.");
-            return;
-        }
-
-        setBackendStatus('checking');
-        setConnectionError(null);
-        
-        const result = await checkBackendStatus(appSettings.backendUrl);
-        
-        if (result.success) {
-            setBackendStatus('connected');
-            addChatMessage(result.message, 'system');
-            // After connecting, try a state refresh in case a ROM is already loaded on the backend.
-            refreshFullGameState();
-        } else {
-            setBackendStatus('disconnected');
-            setConnectionError(result.message);
-        }
-    };
-    connectToBackend();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appSettings.backendUrl, addChatMessage]);
-
-
-  useEffect(() => {
-    const loadModels = async () => {
-      if (
-        (appSettings.aiProvider === 'google' && !appSettings.googleApiKey) ||
-        (appSettings.aiProvider === 'openrouter' && !appSettings.openrouterApiKey) ||
-        (appSettings.aiProvider === 'lmstudio' && !appSettings.lmStudioUrl)
-      ) {
-        setAvailableModels([]);
-        return;
-      }
-
-      setIsModelListLoading(true);
-      setAvailableModels([]);
-      try {
-        const models = await fetchAvailableModels(appSettings);
-        setAvailableModels(models);
-        if (models.length > 0 && !models.find(m => m.id === appSettings.selectedModel)) {
-            setAppSettings(prev => ({...prev, selectedModel: models[0].id }));
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-        console.error("Failed to load models:", error);
-        addChatMessage(`Failed to load models for ${appSettings.aiProvider}: ${errorMessage}`, 'system');
-      } finally {
-        setIsModelListLoading(false);
-      }
-    };
-
-    loadModels();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appSettings.aiProvider, appSettings.googleApiKey, appSettings.openrouterApiKey, appSettings.lmStudioUrl]);
-
-  
-  const refreshScreen = useCallback(async () => {
-    if (!isRomLoaded || backendStatus !== 'connected') return;
-    try {
-        const screenBlob = await getScreen(appSettings.backendUrl);
-
-        // Cleanup previous blob if it exists
-        if (currentScreenBlob.current) {
-            currentScreenBlob.current = null;
-        }
-
-        currentScreenBlob.current = screenBlob;
-        const newUrl = URL.createObjectURL(screenBlob);
-
-        setGameScreenUrl(prevUrl => {
-            if (prevUrl && prevUrl !== gameScreenUrlRef.current) {
-                URL.revokeObjectURL(prevUrl);
-            }
-            if (gameScreenUrlRef.current && gameScreenUrlRef.current !== prevUrl) {
-                URL.revokeObjectURL(gameScreenUrlRef.current);
-            }
-            gameScreenUrlRef.current = newUrl;
-            return newUrl;
-        });
-    } catch (error) {
-        // Only transition to disconnected state on first failure to avoid log spam
-        if (backendStatus === 'connected') {
-            const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-            setBackendStatus('disconnected');
-            setConnectionError(errorMessage);
-            addChatMessage(`Connection lost. Screen stream failed.`, 'system');
-        }
-    }
-  }, [isRomLoaded, appSettings.backendUrl, backendStatus, addChatMessage]);
-
-  const aiTick = useCallback(async () => {
-    if (aiState !== AIStateEnum.RUNNING || !isRomLoaded) return;
-
-    setAiState(AIStateEnum.THINKING);
-
-    try {
-        await refreshFullGameState();
-
-        if (!currentScreenBlob.current) {
-            console.error("No screen data available for AI to process.");
-            addChatMessage("Could not retrieve game screen.", 'system');
-            setAiState(AIStateEnum.RUNNING);
-            return;
-        }
-
-        const currentGoal = aiGoal || "Explore the world.";
-        const { reasoning, action } = await getAIThoughtAndAction(appSettings, currentScreenBlob.current, currentGoal, objectives, actionHistory, mapInfo, dialogue);
-
-        setCurrentReasoning(reasoning);
-        setActionHistory(prev => [...prev, action]);
-
-        await sendAction(appSettings.backendUrl, action);
-
-        setAiState(AIStateEnum.RUNNING);
-
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-        console.error('AI tick operation failed:', error);
-        addChatMessage(`AI operation failed: ${errorMessage}`, 'system');
-        setCurrentReasoning(`Error: ${errorMessage}`);
-        setAiState(AIStateEnum.RUNNING);
-
-        // Prevent unhandled promise rejection
-        return Promise.resolve();
-    }
-  }, [aiState, actionHistory, refreshFullGameState, aiGoal, objectives, addChatMessage, isRomLoaded, appSettings, mapInfo, dialogue]);
-
-  // Main AI action loop
-  useInterval(aiTick, aiState === AIStateEnum.RUNNING && isRomLoaded ? appSettings.aiActionInterval : null);
-  
-  // Constant screen refresh for visual feedback
-  useInterval(refreshScreen, isRomLoaded && aiState !== AIStateEnum.THINKING ? STREAM_INTERVAL_MS : null);
-
-  // Slower state refresh for panels when AI is idle
-  useInterval(refreshFullGameState, aiState === AIStateEnum.IDLE && isRomLoaded ? IDLE_STATE_REFRESH_MS : null);
-
-  const handleToggleAI = () => {
     if (!isRomLoaded) return;
-    if (aiState === AIStateEnum.IDLE) {
-      setActionHistory([]);
-      setCurrentReasoning("AI is starting...");
-      addChatMessage('AI starting...', 'system');
-      setAiState(AIStateEnum.RUNNING);
-    } else {
-      addChatMessage('AI stopped by user.', 'system');
-      setCurrentReasoning("AI stopped by user.");
-      setAiState(AIStateEnum.IDLE);
-    }
-  };
-
-  const handleSendMessage = async () => {
-    if (!chatInput.trim() || isChatting) return;
-
-    const userMessage = chatInput;
-    addChatMessage(userMessage, 'user');
-    setChatInput('');
-    setIsChatting(true);
-
-    try {
-        // FIX: Corrected variable name from 'user_message' to 'userMessage'.
-        const aiResponseText = await getChatResponse(appSettings, userMessage);
-        addChatMessage(aiResponseText, 'ai');
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
-        console.error('Failed to get AI chat response:', error);
-        addChatMessage(`AI chat failed: ${errorMessage}`, 'system');
-    } finally {
-        setIsChatting(false);
-    }
-  };
-
-  const handleSaveSettings = (newSettings: AppSettings) => {
-    if (newSettings.aiProvider !== appSettings.aiProvider) {
-      newSettings.selectedModel = '';
-    }
     
-    // Update agent status when settings change
-    if (newSettings.agentMode !== appSettings.agentMode) {
+    const fetchScreen = async () => {
+      try {
+        const screenData = await getScreen(appSettings.backendUrl || 'http://localhost:5000');
+        if (screenData) {
+          const timestamp = Date.now();
+          setGameScreenUrl(`${screenData}?t=${timestamp}`);
+        }
+      } catch (err) {
+        console.error('Screen fetch error:', err);
+      }
+    };
+
+    fetchScreen();
+    screenRefreshRef.current = window.setInterval(fetchScreen, 250); // 4 FPS
+    
+    return () => {
+      if (screenRefreshRef.current) {
+        clearInterval(screenRefreshRef.current);
+      }
+    };
+  }, [isRomLoaded, appSettings.backendUrl]);
+
+  // Heartbeat
+  useEffect(() => {
+    heartbeatRef.current = window.setInterval(() => {
       setAgentStatus(prev => ({
         ...prev,
-        lastDecision: newSettings.agentMode ? 'Agent mode enabled' : 'Manual mode enabled',
-        decisionHistory: [...prev.decisionHistory, `(${new Date().toLocaleTimeString()}) ${newSettings.agentMode ? 'Agent mode enabled' : 'Manual override'}`].slice(-10),
+        heartbeat: prev.heartbeat + 1,
+        currentAction: isRomLoaded ? (appSettings.agentMode ? 'Playing autonomously' : 'Waiting for input') : 'Idle - No ROM',
       }));
-      addChatMessage(newSettings.agentMode ? '🤖 Agent Mode enabled' : '🛑 Manual mode enabled', 'system');
-    }
+    }, 1000);
     
-    setAppSettings(newSettings);
-    setIsSettingsOpen(false);
-    addChatMessage(`Settings updated. AI Provider: ${newSettings.apiProvider || newSettings.aiProvider}.`, 'system');
+    return () => {
+      if (heartbeatRef.current) {
+        clearInterval(heartbeatRef.current);
+      }
+    };
+  }, [isRomLoaded, appSettings.agentMode]);
+
+  // Handle control inputs
+  useEffect(() => {
+    const handleControlPress = async (e: CustomEvent) => {
+      const action = e.detail as GameAction;
+      setLastAction(action);
+      addToLog(action, 'Processing...');
+      
+      try {
+        await sendAction(action, appSettings.backendUrl || 'http://localhost:5000');
+        addToLog(action, '✓ Success');
+        setAgentStatus(prev => ({
+          ...prev,
+          lastDecision: `Executed ${action}`,
+          decisionHistory: [...prev.decisionHistory.slice(-9), `(${new Date().toLocaleTimeString()}) ${action}`],
+        }));
+      } catch (err) {
+        addToLog(action, '✗ Failed');
+      }
+    };
+
+    window.addEventListener('game-control-press', handleControlPress as EventListener);
+    return () => {
+      window.removeEventListener('game-control-press', handleControlPress as EventListener);
+    };
+  }, [appSettings.backendUrl]);
+
+  const addToLog = (action: string, result: string) => {
+    const time = new Date().toLocaleTimeString();
+    setActionLog(prev => [...prev.slice(-19), { time, action, result }]);
   };
 
-  const handleLoadRom = async (file: File) => {
+  const handleRomLoad = async (file: File) => {
     try {
-        await loadRom(appSettings.backendUrl, file);
-        setIsRomLoaded(true);
-        setCurrentReasoning("Successfully loaded ROM. Ready for instructions.");
-        addChatMessage(`Successfully loaded ${file.name}.`, 'system');
-        await refreshFullGameState(); // Fetch the first screen and state immediately after loading.
-    } catch (error) {
-        const message = error instanceof Error ? error.message : "An unknown error occurred.";
-        setBackendStatus('disconnected');
-        setConnectionError(message);
-        addChatMessage(`Failed to load ROM: ${message}`, 'system');
-        setIsRomLoaded(false);
-        throw error; // Re-throw to let RomLoader component handle its UI state
+      setBackendStatus('checking');
+      const result = await loadRom(file, appSettings.backendUrl || 'http://localhost:5000');
+      setIsRomLoaded(true);
+      setRomName(file.name);
+      setBackendStatus('connected');
+      setAgentStatus(prev => ({
+        ...prev,
+        lastDecision: `Loaded ${file.name}`,
+        decisionHistory: [...prev.decisionHistory, `Loaded ROM: ${file.name}`],
+      }));
+      addToLog('LOAD', `Loaded ${file.name}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load ROM';
+      setConnectionError(message);
+      setBackendStatus('disconnected');
+      addToLog('LOAD', `✗ ${message}`);
     }
   };
-  
+
   const handleSaveState = async () => {
     if (!isRomLoaded) return;
     try {
-      await saveGameState(appSettings.backendUrl);
-      addChatMessage('Game state saved.', 'system');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "An unknown error occurred.";
-      addChatMessage(`Failed to save state: ${message}`, 'system');
+      await saveGameState(appSettings.backendUrl || 'http://localhost:5000');
+      addToLog('SAVE', '✓ State saved');
+    } catch (err) {
+      addToLog('SAVE', '✗ Failed');
     }
   };
 
   const handleLoadState = async () => {
     if (!isRomLoaded) return;
     try {
-      await loadGameState(appSettings.backendUrl);
-      addChatMessage('Game state loaded.', 'system');
-      await refreshFullGameState(); // Refresh screen immediately after loading
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "An unknown error occurred.";
-      addChatMessage(`Failed to load state: ${message}`, 'system');
+      await loadGameState(appSettings.backendUrl || 'http://localhost:5000');
+      addToLog('LOAD', '✓ State loaded');
+    } catch (err) {
+      addToLog('LOAD', '✗ Failed');
     }
   };
 
-  // Agent control handlers
-  const handleAgentTakeover = () => {
-    setAppSettings(prev => ({ ...prev, agentMode: true }));
+  const handleToggleAgentMode = () => {
+    const newMode = !appSettings.agentMode;
+    setAppSettings(prev => ({ ...prev, agentMode: newMode }));
     setAgentStatus(prev => ({
       ...prev,
-      currentAction: 'Agent takeover activated',
-      lastDecision: 'Agent mode enabled by user',
-      decisionHistory: [...prev.decisionHistory, `(${new Date().toLocaleTimeString()}) Agent takeover activated`].slice(-10),
+      currentAction: newMode ? 'Autonomous play' : 'Manual control',
+      lastDecision: newMode ? 'Agent mode enabled' : 'Manual override',
+      decisionHistory: [...prev.decisionHistory, `(${new Date().toLocaleTimeString()}) ${newMode ? 'Agent' : 'Manual'} mode`],
     }));
-    addChatMessage('🤖 Agent Takeover: Agent now has full control', 'system');
+    addToLog(newMode ? 'AGENT' : 'MANUAL', newMode ? 'Agent enabled' : 'Manual control');
   };
-
-  const handleManualOverride = () => {
-    setAppSettings(prev => ({ ...prev, agentMode: false }));
-    setAgentStatus(prev => ({
-      ...prev,
-      currentAction: 'Manual control',
-      lastDecision: 'Human took manual control',
-      decisionHistory: [...prev.decisionHistory, `(${new Date().toLocaleTimeString()}) Manual override activated`].slice(-10),
-    }));
-    addChatMessage('🛑 Manual Override: Human now in control', 'system');
-  };
-
-  // Update agent status heartbeat
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setAgentStatus(prev => ({
-        ...prev,
-        heartbeat: prev.heartbeat + 1000,
-      }));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
 
   return (
-    <ErrorBoundary
-      onError={(error, errorInfo) => {
-        console.error('App ErrorBoundary caught an error:', error, errorInfo);
-        // Optionally log to error reporting service
-      }}
-    >
-      <div className="h-screen w-full flex flex-col bg-neutral-950 font-sans overflow-hidden">
-        <Header
-          achievements={achievements}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          runtime={playerStats.runtime}
-          steps={playerStats.steps}
-          saveStatus={saveStatus}
-          agentMode={appSettings.agentMode}
-        />
-        <main className="flex-grow grid grid-cols-1 md:grid-cols-12 gap-4 p-4 min-h-0 overflow-y-auto">
-          <div className="md:col-span-4 lg:col-span-3 min-h-0 space-y-4">
-            <ErrorBoundary>
-              <AIPanel
+    <ErrorBoundary>
+      <div className="game-dashboard">
+        {/* Header */}
+        <header className="dashboard-header">
+          <div className="header-left">
+            <div className="logo">
+              <GamepadIcon />
+              <span>PyBoy Control</span>
+            </div>
+            {romName && <span className="rom-name">{romName}</span>}
+          </div>
+          <div className="header-center">
+            <div className={`status-indicator ${backendStatus}`}>
+              <span className="status-dot"></span>
+              <span className="status-text">
+                {backendStatus === 'connected' ? '● Connected' : 
+                 backendStatus === 'checking' ? '○ Connecting...' : '○ Disconnected'}
+              </span>
+            </div>
+          </div>
+          <div className="header-right">
+            <button className="header-btn" onClick={handleSaveState} disabled={!isRomLoaded} title="Save State">
+              <SaveIcon />
+            </button>
+            <button className="header-btn" onClick={handleLoadState} disabled={!isRomLoaded} title="Load State">
+              <LoadIcon />
+            </button>
+            <button className="header-btn agent-toggle" onClick={handleToggleAgentMode}>
+              {appSettings.agentMode ? '🤖 Agent' : '👤 Manual'}
+            </button>
+            <button className="header-btn settings-btn" onClick={() => setIsSettingsOpen(true)}>
+              ⚙️
+            </button>
+          </div>
+        </header>
+
+        {/* Main Content */}
+        <main className="dashboard-main">
+          {/* Left Panel - Agent Status */}
+          <aside className="panel agent-panel">
+            <AgentStatusPanel 
+              status={agentStatus}
+              aiState={aiState}
+              isAgentMode={appSettings.agentMode}
+              onTakeover={handleToggleAgentMode}
+              onOverride={handleToggleAgentMode}
+            />
+            
+            {/* Memory Inspector */}
+            <div className="memory-inspector">
+              <h3>🧠 Memory State</h3>
+              <div className="memory-grid">
+                <div className="memory-item">
+                  <span className="label">Position</span>
+                  <span className="value">{memoryState.x}, {memoryState.y}</span>
+                </div>
+                <div className="memory-item">
+                  <span className="label">Map</span>
+                  <span className="value">{memoryState.map}</span>
+                </div>
+                <div className="memory-item">
+                  <span className="label">Party</span>
+                  <span className="value">{memoryState.party.join(', ')}</span>
+                </div>
+                <div className="memory-item">
+                  <span className="label">Money</span>
+                  <span className="value">${memoryState.money}</span>
+                </div>
+                <div className="memory-item">
+                  <span className="label">Steps</span>
+                  <span className="value">{memoryState.steps}</span>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          {/* Center - Game Screen */}
+          <section className="game-section">
+            <div className="game-frame">
+              <EmulatorScreen
+                emulatorMode="gb"
+                romName={romName}
+                onRomLoad={handleRomLoad}
                 aiState={aiState}
-                aiGoal={aiGoal}
-                currentReasoning={currentReasoning}
-                actionHistory={actionHistory}
-                chatHistory={chatHistory}
-                chatInput={chatInput}
-                isChatting={isChatting}
-                isRomLoaded={isRomLoaded}
-                onScreenText={dialogue}
-                onGoalChange={setAiGoal}
-                onStart={handleToggleAI}
-                onStop={handleToggleAI}
-                onChatInputChange={setChatInput}
-                onSendMessage={handleSendMessage}
+                screenImage={gameScreenUrl || undefined}
+                streamingStatus={backendStatus === 'connected' ? 'connected' : 
+                                 backendStatus === 'checking' ? 'connecting' : 'disconnected'}
               />
-            </ErrorBoundary>
-            {/* OpenClaw Agent Status Panel */}
-            <ErrorBoundary>
-              <AgentStatusPanel
-                status={agentStatus}
-                isAgentMode={appSettings.agentMode}
-                onTakeover={handleAgentTakeover}
-                onOverride={handleManualOverride}
-              />
-            </ErrorBoundary>
-          </div>
-          <div className="md:col-span-8 lg:col-span-5 min-h-0">
-            <ErrorBoundary>
-              <GamePanel
-                party={party}
-                gameScreenUrl={gameScreenUrl}
-                lastAction={actionHistory.length > 0 ? actionHistory[actionHistory.length - 1] : null}
-                isRomLoaded={isRomLoaded}
-                onLoadRom={handleLoadRom}
-                onSaveState={handleSaveState}
-                onLoadState={handleLoadState}
-                backendStatus={backendStatus}
-                connectionError={connectionError}
-                onOpenSettings={() => setIsSettingsOpen(true)}
-              />
-            </ErrorBoundary>
-          </div>
-          <div className="md:col-span-12 lg:col-span-4 min-h-0">
-            <ErrorBoundary>
-              <StatePanel
-                objectives={objectives}
-                inventory={inventory}
-                inventoryTitle="INVENTORY (Key Items)"
-                mapInfo={mapInfo}
-                money={playerStats.money}
-                onReorderObjectives={handleReorderObjectives}
-                achievements={achievements}
-                playerStats={playerStats}
-                justCompletedObjectiveIds={justCompletedObjectiveIds}
-                onToggleObjective={handleToggleObjective}
-                onDeleteObjective={handleDeleteObjective}
-                onCreateObjective={handleCreateObjective}
-              />
-            </ErrorBoundary>
-          </div>
+            </div>
+            
+            {/* Controls */}
+            <Controls lastAction={lastAction} />
+          </section>
+
+          {/* Right Panel - Action Log */}
+          <aside className="panel log-panel">
+            <div className="log-header">
+              <h3>📋 Action Log</h3>
+            </div>
+            <div className="log-content">
+              {actionLog.length === 0 ? (
+                <p className="log-empty">No actions yet...</p>
+              ) : (
+                actionLog.map((entry, idx) => (
+                  <div key={idx} className={`log-entry ${entry.result.includes('✓') ? 'success' : entry.result.includes('✗') ? 'error' : ''}`}>
+                    <span className="log-time">{entry.time}</span>
+                    <span className="log-action">{entry.action}</span>
+                    <span className="log-result">{entry.result}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </aside>
         </main>
-        <ErrorBoundary>
-          <SettingsModal
-            isOpen={isSettingsOpen}
-            onClose={() => setIsSettingsOpen(false)}
-            currentSettings={appSettings}
-            onSave={handleSaveSettings}
-            availableModels={availableModels}
-            isModelListLoading={isModelListLoading}
-          />
-        </ErrorBoundary>
+
+        {/* Settings Modal */}
+        <SettingsModal 
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          settings={appSettings}
+          onSettingsChange={setAppSettings}
+        />
       </div>
     </ErrorBoundary>
   );
