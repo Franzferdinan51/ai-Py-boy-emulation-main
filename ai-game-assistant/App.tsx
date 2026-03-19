@@ -33,6 +33,8 @@ const STATUS_REFRESH_MS = 3000;
 const SCREEN_REFRESH_MS = 500;
 const MEMORY_REFRESH_MS = 5000;
 const LAST_ROM_STORAGE_KEY = 'openclaw_webui_last_rom_name';
+const SSE_RECONNECT_DELAY_MS = 2000;
+const MAX_SSE_RECONNECT_ATTEMPTS = 5;
 
 const EMPTY_GAME_STATE: GameState = {
   running: false,
@@ -157,6 +159,7 @@ const App: React.FC = () => {
   const [agentState, setAgentState] = useState<AgentStatus>(EMPTY_AGENT_STATE);
   const [memoryState, setMemoryState] = useState<MemoryWatch>(EMPTY_MEMORY_STATE);
   const [gameScreenUrl, setGameScreenUrl] = useState<string | null>(null);
+  const [streamingStatus, setStreamingStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [decisionLog, setDecisionLog] = useState<LogEntry[]>([]);
   const [systemLog, setSystemLog] = useState<LogEntry[]>([]);
   const [lastButtonPressed, setLastButtonPressed] = useState<GameButton | null>(null);
@@ -171,6 +174,8 @@ const App: React.FC = () => {
   const lastDecisionRef = useRef(agentState.last_decision);
   const lastActionRef = useRef(agentState.current_action);
   const connectionStatusRef = useRef<ConnectionStatus>('checking');
+  const sseRef = useRef<EventSource | null>(null);
+  const sseReconnectAttempts = useRef(0);
 
   const appendSystemLog = useCallback((type: LogEntry['type'], message: string) => {
     setSystemLog((entries) => [...entries.slice(-59), createLogEntry(type, message)]);
@@ -274,6 +279,78 @@ const App: React.FC = () => {
       appendSystemLog('error', error instanceof Error ? error.message : 'Failed to refresh emulator screen');
     }
   }, [appendSystemLog]);
+
+  // SSE streaming for live screen updates
+  const connectSSE = useCallback(() => {
+    // Close existing connection
+    if (sseRef.current) {
+      sseRef.current.close();
+    }
+
+    if (!gameState.rom_loaded || connectionStatusRef.current !== 'connected') {
+      return;
+    }
+
+    setStreamingStatus('connecting');
+    const streamUrl = `${settings.backendUrl}/api/stream`;
+    console.log('[SSE] Connecting to stream:', streamUrl);
+
+    try {
+      const source = new EventSource(streamUrl);
+      sseRef.current = source;
+
+      source.onopen = () => {
+        console.log('[SSE] Connection established');
+        setStreamingStatus('connected');
+        sseReconnectAttempts.current = 0;
+      };
+
+      source.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.error) {
+            console.error('[SSE] Stream error:', data.error);
+            setStreamingStatus('error');
+            return;
+          }
+
+          if (data.image) {
+            setGameScreenUrl(`data:image/jpeg;base64,${data.image}`);
+            setStreamingStatus('connected');
+          }
+
+          if (data.status === 'stream_started') {
+            console.log('[SSE] Stream started successfully');
+            setStreamingStatus('connected');
+          }
+        } catch (e) {
+          console.error('[SSE] Parse error:', e);
+        }
+      };
+
+      source.onerror = (err) => {
+        console.error('[SSE] Error:', err);
+        setStreamingStatus('error');
+        source.close();
+
+        // Attempt to reconnect
+        if (sseReconnectAttempts.current < MAX_SSE_RECONNECT_ATTEMPTS) {
+          sseReconnectAttempts.current++;
+          console.log(`[SSE] Reconnecting... (${sseReconnectAttempts.current}/${MAX_SSE_RECONNECT_ATTEMPTS})`);
+          setTimeout(connectSSE, SSE_RECONNECT_DELAY_MS * sseReconnectAttempts.current);
+        } else {
+          console.error('[SSE] Max reconnection attempts reached, falling back to polling');
+          setStreamingStatus('disconnected');
+          // Fall back to polling
+          sseReconnectAttempts.current = 0;
+        }
+      };
+    } catch (error) {
+      console.error('[SSE] Failed to create connection:', error);
+      setStreamingStatus('error');
+    }
+  }, [gameState.rom_loaded, settings.backendUrl]);
 
   const refreshMemory = useCallback(async () => {
     if (connectionStatusRef.current !== 'connected') {
@@ -389,15 +466,25 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!gameState.rom_loaded || connectionStatus !== 'connected') {
+      // Close SSE connection when ROM unloaded or disconnected
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+        setStreamingStatus('disconnected');
+      }
       return undefined;
     }
 
-    const intervalId = window.setInterval(() => {
-      void refreshScreen();
-    }, SCREEN_REFRESH_MS);
+    // Start SSE streaming when ROM is loaded
+    connectSSE();
 
-    return () => window.clearInterval(intervalId);
-  }, [connectionStatus, gameState.rom_loaded, refreshScreen]);
+    return () => {
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+    };
+  }, [connectionStatus, gameState.rom_loaded, connectSSE]);
 
   useEffect(() => {
     if (!gameState.rom_loaded || connectionStatus !== 'connected') {
