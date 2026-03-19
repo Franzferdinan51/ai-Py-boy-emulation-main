@@ -554,12 +554,12 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
         
         elif name == "save_state":
             name_val = arguments.get("name", "quick_save")
-            result = api_post("/api/game/save", {"name": name_val})
+            result = api_post("/api/save_state", {"name": name_val})
             return [TextContent(type="text", text=json.dumps(result))]
         
         elif name == "load_state":
             name_val = arguments.get("name", "quick_save")
-            result = api_post("/api/game/load", {"name": name_val})
+            result = api_post("/api/load_state", {"name": name_val})
             return [TextContent(type="text", text=json.dumps(result))]
         
         elif name == "get_party":
@@ -613,11 +613,11 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
             return [TextContent(type="text", text=json.dumps({"success": True, "button": btn, "frames": frames}))]
         
         elif name == "quick_save":
-            result = api_post("/api/game/save", {"name": "quick_save"})
+            result = api_post("/api/save_state", {"name": "quick_save"})
             return [TextContent(type="text", text=json.dumps(result))]
         
         elif name == "quick_load":
-            result = api_post("/api/game/load", {"name": "quick_save"})
+            result = api_post("/api/load_state", {"name": "quick_save"})
             return [TextContent(type="text", text=json.dumps(result))]
         
         elif name == "list_save_slots":
