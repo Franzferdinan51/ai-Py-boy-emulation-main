@@ -93,8 +93,8 @@ const formatClock = (value: string | null | undefined) => {
 
 const capitalize = (value: string) => (value ? value.charAt(0).toUpperCase() + value.slice(1) : value);
 
-const normalizeOpenClawModelId = (model: string) => {
-  const trimmed = model.trim();
+const normalizeOpenClawModelId = (model: string | null | undefined) => {
+  const trimmed = (model || '').trim();
   if (!trimmed) {
     return trimmed;
   }
