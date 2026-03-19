@@ -29,7 +29,7 @@ try:
     PYBOY_AVAILABLE = True
 except ImportError:
     PYBOY_AVAILABLE = False
-    print("  PyBoy not installed - emulator tools will be unavailable")
+    print("⚠️  PyBoy not installed - emulator tools will be unavailable")
 
 try:
     from mcp.server import Server
@@ -38,7 +38,7 @@ try:
     MCP_AVAILABLE = True
 except ImportError:
     MCP_AVAILABLE = False
-    print("  MCP library not installed - install with: pip install mcp")
+    print("⚠️  MCP library not installed - install with: pip install mcp")
     sys.exit(1)
 
 from PIL import Image
@@ -747,13 +747,11 @@ async def call_tool(name: str, arguments: dict) :
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
         else:
-            error_msg = f"Unknown tool: {name}"
-            return [TextContent(type="text", text=json.dumps({"success": False, "error": error_msg}))]
+            return [TextContent(type="text", text=json.dumps({"success": False, "error": f"Unknown tool: {name}"})])
     
     except Exception as e:
         logger.error(f"Tool call failed: {e}")
-        error_str = str(e)
-        return [TextContent(type="text", text=json.dumps({"success": False, "error": error_str}))]
+        return [TextContent(type="text", text=f"Error: {str(e)}")]
 
 
 async def main():

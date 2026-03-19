@@ -458,16 +458,36 @@ Analyze the game screen and decide what buttons to press next. Be specific and s
         logger.info(f"AI decision ({self.model_name}): {ai_response}")
         
         # Parse AI response for button inputs
+        # Handle both short (U, D, L, R, A, B, S, X) and full (UP, DOWN, etc.) button names
         import re
-        button_pattern = r'\b([UDLRABSX])(\d*)\b'
+        
+        # Extended pattern to match full button names
+        button_pattern = r'\b(UP|DOWN|LEFT|RIGHT|A|B|START|SELECT|U|D|L|R|S|X)(\d*)\b'
         matches = re.findall(button_pattern, ai_response.upper())
+        
+        # Normalize short names to full names
+        button_map = {'U': 'UP', 'D': 'DOWN', 'L': 'LEFT', 'R': 'RIGHT', 'S': 'START', 'X': 'SELECT'}
         
         if not matches:
             logger.warning(f"No valid button inputs found: {ai_response}")
+            # Fallback: try single letters
+            button_pattern = r'\b([UDLRABSX])\b'
+            matches = re.findall(button_pattern, ai_response.upper())
+            if matches:
+                # Convert to list of tuples (button, count)
+                matches = [(button_map.get(b, b), '') for b in matches]
+        
+        # Normalize button names
+        normalized = []
+        for btn, count in matches:
+            normalized.append((button_map.get(btn, btn), count))
+        
+        if not normalized:
+            logger.warning(f"No valid button inputs found in: {ai_response}")
             return False
         
         # Format inputs
-        inputs = ' '.join(f"{btn}{count}" if count else btn for btn, count in matches)
+        inputs = ' '.join(f"{btn}{count}" if count else btn for btn, count in normalized)
         
         # Save screenshot before action
         self.save_screenshot()
@@ -521,10 +541,10 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="OpenClaw Game Agent - Model-Agnostic")
-    parser.add_argument("--rom", default="/home/duckets/roms/Pokemon - Red Version (USA, Europe) (SGB Enhanced).gb",
+    parser.add_argument("--rom", default="/Users/duckets/.openclaw/workspace/mcp-pyboy/roms/pokemon-red.gb",
                        help="ROM file path")
-    parser.add_argument("--model", default="google-gemini-cli/gemini-3-flash-preview",
-                       help="Model to use (any OpenClaw model)")
+    parser.add_argument("--model", default="bailian/kimi-k2.5",
+                       help="Model to use (bailian/kimi-k2.5 recommended for vision)")
     parser.add_argument("--turns", type=int, default=5,
                        help="Number of auto turns to run")
     parser.add_argument("--no-vision", action="store_true",
@@ -554,7 +574,7 @@ def main():
     config = {
         'ROM_PATH': args.rom,
         'EMULATION_MODE': 'turn_based',
-        'LOG_FILE': '/home/duckets/.openclaw/workspace/logs/openclaw-game-agent.log',
+        'LOG_FILE': '/Users/duckets/.openclaw/workspace/logs/openclaw-game-agent.log',
         'MAX_HISTORY_MESSAGES': 30,
         'MAX_SCREENSHOTS': 5,
         'CUSTOM_INSTRUCTIONS': 'Explore and progress through the game',
