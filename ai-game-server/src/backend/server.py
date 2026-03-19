@@ -3815,7 +3815,155 @@ def get_optimization_logs():
         })
     except Exception as e:
         logger.error(f"Error getting optimization logs: {e}")
+        return jsonify({"error": str(e}), 500
+
+
+# ========== NEW API ENDPOINTS FOR AI-GAME-ASSISTANT UI ==========
+
+# Global state for agent mode
+agent_mode_state = {
+    "enabled": True,
+    "current_action": "Idle",
+    "last_decision": "Initializing...",
+    "mode": "auto",  # auto, manual
+    "autonomous_level": "moderate"  # passive, moderate, aggressive
+}
+
+@app.route('/api/game/state', methods=['GET'])
+def get_game_state_api():
+    """Get current game state - screen, running status, etc."""
+    try:
+        current_state = get_game_state()
+        
+        # Build game state response
+        game_state = {
+            "running": current_state["rom_loaded"],
+            "rom_loaded": current_state["rom_loaded"],
+            "rom_name": current_state.get("rom_name", ""),
+            "screen_available": current_state["rom_loaded"],
+            "frame_count": current_state.get("frame_count", 0),
+            "fps": current_state.get("fps", 0),
+            "emulator": current_state.get("active_emulator", "gb"),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        return jsonify(game_state), 200
+    except Exception as e:
+        logger.error(f"Error getting game state: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/agent/status', methods=['GET'])
+def get_agent_status_api():
+    """Get agent status - connected, mode, last action"""
+    try:
+        current_state = get_game_state()
+        
+        agent_status = {
+            "connected": current_state["rom_loaded"],
+            "agent_name": "OpenClaw Agent",
+            "mode": agent_mode_state["mode"],
+            "autonomous_level": agent_mode_state["autonomous_level"],
+            "current_action": agent_mode_state["current_action"],
+            "last_decision": agent_mode_state["last_decision"],
+            "enabled": agent_mode_state["enabled"],
+            "game_running": current_state["rom_loaded"],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        return jsonify(agent_status), 200
+    except Exception as e:
+        logger.error(f"Error getting agent status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/game/button', methods=['POST'])
+def press_game_button():
+    """Press a game button (A, B, START, SELECT, UP, DOWN, LEFT, RIGHT)"""
+    try:
+        data = request.get_json()
+        button = data.get('button', '').upper()
+        
+        # Validate button
+        valid_buttons = ['A', 'B', 'START', 'SELECT', 'UP', 'DOWN', 'LEFT', 'RIGHT']
+        if button not in valid_buttons:
+            return jsonify({"error": f"Invalid button. Valid buttons: {valid_buttons}"}), 400
+        
+        current_state = get_game_state()
+        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+            return jsonify({"error": "No ROM loaded"}), 400
+        
+        # Execute action
+        emulator = emulators[current_state["active_emulator"]]
+        action_result = execute_action_internal(emulator, button)
+        
+        # Update agent state
+        agent_mode_state["current_action"] = button
+        agent_mode_state["last_decision"] = f"Pressed {button}"
+        
+        return jsonify({
+            "success": True,
+            "button": button,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error pressing button: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/memory/watch', methods=['GET'])
+def get_memory_watch():
+    """Get watched memory addresses"""
+    try:
+        # Return default watched addresses for Pokemon Red
+        watched_addresses = [
+            {"address": 0xD058, "name": "Player X Position", "size": 1},
+            {"address": 0xD05C, "name": "Player Y Position", "size": 1},
+            {"address": 0xD160, "name": "Player HP", "size": 2},
+            {"address": 0xD16B, "name": "Player Max HP", "size": 2},
+            {"address": 0xD11C, "name": "Map ID", "size": 1},
+            {"address": 0xD347, "name": "Money", "size": 3},
+            {"address": 0xDCD6, "name": "Player State", "size": 1},
+        ]
+        
+        current_state = get_game_state()
+        memory_data = []
+        
+        if current_state["rom_loaded"] and current_state["active_emulator"]:
+            emulator = emulators[current_state["active_emulator"]]
+            
+            # Try to read actual memory if available
+            for addr_info in watched_addresses:
+                try:
+                    if hasattr(emulator, 'memory'):
+                        value = emulator.memory[addr_info["address"]]
+                    else:
+                        value = 0
+                    memory_data.append({
+                        **addr_info,
+                        "value": value,
+                        "hex": hex(value)
+                    })
+                except Exception:
+                    memory_data.append({
+                        **addr_info,
+                        "value": None,
+                        "hex": "N/A"
+                    })
+        else:
+            memory_data = [{"error": "No ROM loaded"}]
+        
+        return jsonify({
+            "addresses": watched_addresses,
+            "values": memory_data,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting memory watch: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 def signal_handler(sig, frame):
     """Handle shutdown signals gracefully"""
