@@ -1,3 +1,38 @@
+# 🎮 AI GameBoy Emulator - Agent-First
+
+**OpenClaw Agent-powered emulation for ALL ALL ROM formats: .gb, .gbc, .gba**
+
+---
+
+## Quick Start (Agents)
+
+```bash
+# 1. Start backend
+cd ai-game-server/src && BACKEND_PORT=5002 python3 main.py
+
+# 2. Register MCP
+mcporter add gameboy --stdio "python3 ai-game-server/mcp_server.py"
+
+# 3. Spawn agent
+openclaw sessions spawn --task "Play any GB/GBA game"
+```
+
+## 🎮 Supported Games
+
+| System | Format | Status |
+|--------|--------|--------|
+| Game Boy | .gb, .gbc | ✅ Full Support |
+| Game Boy Color | .gbc | ✅ Full Support |
+| Game Boy Advance | .gba | ✅ Full Support |
+
+**Works with ANY ROM:**
+- Pokemon Red/Blue/Green/Yellow
+- Pokemon Gold/Silver/Crystal  
+- Zelda Link's Awakening
+- Mario Kart
+- Tetris
+- Any Game Boy or GBA game!
+
 # 🦆 AI GameBoy Emulator - Agent-First
 
 **OpenClaw Agent-first Game Boy emulation**

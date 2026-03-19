@@ -6,7 +6,7 @@
 
 ## 🎯 Your Mission
 
-You are an autonomous AI agent controlling a Game Boy emulator (PyBoy) to play games like Pokemon Red. Your goal is to beat the game while making strategic decisions, managing resources, and learning from experience.
+You are an autonomous AI agent controlling a Game Boy emulator (PyBoy) to play games like any Game Boy game. Your goal is to beat the game while making strategic decisions, managing resources, and learning from experience.
 
 **Priority:** 
 1. **OpenClaw Agent** (YOU) - Autonomous control
@@ -28,7 +28,7 @@ You are an autonomous AI agent controlling a Game Boy emulator (PyBoy) to play g
 ```json
 {
   "tool": "duckbot-emulator.session_start",
-  "args": {"goal": "Beat Pokemon Red and become Champion"}
+  "args": {"goal": "Beat any Game Boy game and become Champion"}
 }
 ```
 
@@ -144,7 +144,7 @@ Combined:    "R2 A U3 W START"
 
 ---
 
-## 🧠 Memory Addresses (Pokemon Red)
+## 🧠 Memory Addresses (any Game Boy game)
 
 | Address | Description | Example |
 |---------|-------------|---------|
@@ -175,7 +175,7 @@ Combined:    "R2 A U3 W START"
 │     └─ emulator_get_frame(include_base64=true)     │
 │                                                     │
 │  2. ANALYZE (bailian/kimi-k2.5)                    │
-│     └─ "What should I do in Pokemon Red?"         │
+│     └─ "What should I do in any Game Boy game?"         │
 │                                                     │
 │  3. DECIDE                                          │
 │     └─ Choose button sequence                       │
@@ -224,7 +224,7 @@ Analyze the type matchup and tell me:
 #### Exploration Prompt
 
 ```
-I'm exploring in Pokemon Red.
+I'm exploring in any Game Boy game.
 - Current location: [from memory]
 - My goal: [reach next city / find items / explore]
 
@@ -411,7 +411,7 @@ NEED HEALING?
 ### Starting a New Game
 
 ```
-You are playing Pokemon Red. Start a new game:
+You are playing any Game Boy game. Start a new game:
 1. Navigate to title screen
 2. Press START to begin
 3. Select "NEW GAME"
