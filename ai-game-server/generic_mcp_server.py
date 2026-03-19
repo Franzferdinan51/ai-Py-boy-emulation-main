@@ -620,6 +620,20 @@ async def main():
     logger.info(f"PyBoy available: {PYBOY_AVAILABLE}")
     logger.info("Supports ANY Game Boy game (Pokemon, Mario, Zelda, etc.)!")
     
+    # Auto-load default ROM if provided
+    default_rom = os.environ.get("GB_DEFAULT_ROM")
+    if default_rom and os.path.exists(default_rom):
+        logger.info(f"Auto-loading default ROM: {default_rom}")
+        state.rom_path = default_rom
+        os.environ['SDL_WINDOW_HIDDEN'] = '1'
+        os.environ['SDL_AUDIODRIVER'] = 'disk'
+        try:
+            state.pyboy = PyBoy(default_rom, window="SDL2", scale=2, sound_emulated=False)
+            state.rom_type = "gb"
+            logger.info("Default ROM loaded successfully!")
+        except Exception as e:
+            logger.error(f"Failed to auto-load ROM: {e}")
+    
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
