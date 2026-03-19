@@ -1,175 +1,187 @@
-import React, { useState, useEffect } from 'react';
-import { Backpack, Coins, Package } from 'lucide-react';
-import type { InventoryData, InventoryItem } from '../../services/apiService';
-import apiService from '../../services/apiService';
+import React, { useEffect, useState } from 'react';
+import { Activity, Backpack, Coins, Package } from 'lucide-react';
+import apiService, { type InventoryData, type InventoryItem } from '../../services/apiService';
 
 interface InventoryPanelProps {
   isRomLoaded: boolean;
   onInventoryUpdate?: (inventory: InventoryData) => void;
 }
 
+const INVENTORY_REFRESH_MS = 10000;
+
+const getCategory = (itemName: string) => {
+  const label = itemName.toLowerCase();
+
+  if (label.includes('ball')) {
+    return 'Pokeball';
+  }
+
+  if (label.includes('potion') || label.includes('heal') || label.includes('revive') || label.includes('antidote')) {
+    return 'Medicine';
+  }
+
+  if (label.includes('badge')) {
+    return 'Badge';
+  }
+
+  if (label.includes('key') || label.includes('ticket') || label.includes('pass')) {
+    return 'Key item';
+  }
+
+  if (label.includes('rod')) {
+    return 'Fishing';
+  }
+
+  if (label.includes('stone')) {
+    return 'Stone';
+  }
+
+  return 'General';
+};
+
+const getCategoryClasses = (category: string) => {
+  switch (category) {
+    case 'Pokeball':
+      return 'border-red-900/60 bg-red-950/40 text-red-300';
+    case 'Medicine':
+      return 'border-green-900/60 bg-green-950/40 text-green-300';
+    case 'Badge':
+      return 'border-yellow-900/60 bg-yellow-950/40 text-yellow-300';
+    case 'Key item':
+      return 'border-blue-900/60 bg-blue-950/40 text-blue-300';
+    case 'Fishing':
+      return 'border-cyan-900/60 bg-cyan-950/40 text-cyan-300';
+    case 'Stone':
+      return 'border-purple-900/60 bg-purple-950/40 text-purple-300';
+    default:
+      return 'border-neutral-800 bg-neutral-900 text-neutral-300';
+  }
+};
+
 const InventoryPanel: React.FC<InventoryPanelProps> = ({ isRomLoaded, onInventoryUpdate }) => {
   const [inventoryData, setInventoryData] = useState<InventoryData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchInventory = async () => {
-    if (!isRomLoaded) return;
-    
-    setLoading(true);
-    try {
-      const data = await apiService.getInventory();
-      setInventoryData(data);
-      setError(null);
-      onInventoryUpdate?.(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch inventory');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (!isRomLoaded) {
       setInventoryData(null);
-      return;
+      setError(null);
+      return undefined;
     }
 
+    let cancelled = false;
+
+    const fetchInventory = async () => {
+      setLoading(true);
+
+      try {
+        const data = await apiService.getInventory();
+        if (cancelled) {
+          return;
+        }
+
+        setInventoryData(data);
+        setError(null);
+        onInventoryUpdate?.(data);
+      } catch (fetchError) {
+        if (cancelled) {
+          return;
+        }
+
+        setError(fetchError instanceof Error ? fetchError.message : 'Failed to load inventory');
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
     fetchInventory();
-    const interval = setInterval(fetchInventory, 10000); // Refresh every 10 seconds
-    return () => clearInterval(interval);
-  }, [isRomLoaded]);
+    const intervalId = window.setInterval(fetchInventory, INVENTORY_REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [isRomLoaded, onInventoryUpdate]);
 
   if (!isRomLoaded) {
     return (
-      <div className="p-4 text-center text-neutral-500">
-        <Backpack className="w-8 h-8 mx-auto mb-2 opacity-50" />
-        <p className="text-sm">Load a ROM to view inventory</p>
-      </div>
-    );
-  }
-
-  if (loading && !inventoryData) {
-    return (
-      <div className="p-4 text-center text-neutral-400">
-        <Package className="w-6 h-6 mx-auto mb-2 animate-spin" />
-        <p className="text-sm">Loading inventory...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-4 text-center text-red-400">
-        <p className="text-sm">{error}</p>
-        <button onClick={fetchInventory} className="mt-2 text-xs underline">Retry</button>
+      <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70 p-5 text-center text-neutral-500">
+        <Backpack className="mx-auto mb-3 h-8 w-8 opacity-50" />
+        <p className="text-sm">Load a ROM to inspect the bag.</p>
       </div>
     );
   }
 
   return (
-    <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-neutral-400 uppercase flex items-center gap-2">
-          <Backpack className="w-4 h-4" /> Inventory
-        </h3>
-        <button 
-          onClick={fetchInventory}
-          className="p-1 hover:bg-neutral-800 rounded"
-          title="Refresh"
-        >
-          <Package className="w-3 h-3" />
-        </button>
+    <div className="rounded-2xl border border-neutral-800 bg-neutral-900/70">
+      <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Inventory</h3>
+          <p className="mt-1 text-xs text-neutral-500">
+            {inventoryData ? `${inventoryData.item_count} tracked items` : 'Reading bag data'}
+          </p>
+        </div>
+        {loading && <Activity className="h-4 w-4 animate-spin text-neutral-500" />}
       </div>
 
-      {/* Money Display */}
-      {inventoryData && (
-        <div className="bg-neutral-800 rounded-lg p-3 border border-neutral-700">
-          <div className="flex items-center justify-between">
-            <span className="text-neutral-400 text-sm flex items-center gap-2">
-              <Coins className="w-4 h-4 text-yellow-400" /> Money
-            </span>
-            <span className="text-lg font-bold text-yellow-400">
-              ₽{inventoryData.money.toLocaleString()}
-            </span>
+      <div className="space-y-3 p-4">
+        {inventoryData && (
+          <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-2 text-sm text-neutral-300">
+                <Coins className="h-4 w-4 text-yellow-400" />
+                Cash on hand
+              </span>
+              <span className="text-lg font-semibold text-yellow-300">
+                {inventoryData.money_formatted || `¥${inventoryData.money.toLocaleString()}`}
+              </span>
+            </div>
           </div>
-          <div className="mt-1 text-xs text-neutral-500">
-            {inventoryData.item_count} items in bag
-          </div>
-        </div>
-      )}
+        )}
 
-      {/* Items List */}
-      {inventoryData && inventoryData.items.length > 0 ? (
-        <div className="space-y-1 max-h-96 overflow-y-auto">
-          {inventoryData.items.map((item) => (
-            <ItemRow key={item.slot} item={item} />
+        {error && (
+          <div className="rounded-xl border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+
+        {!error && inventoryData && inventoryData.items.length === 0 && (
+          <div className="rounded-xl border border-neutral-800 bg-neutral-950/70 px-4 py-6 text-center text-sm text-neutral-500">
+            No inventory items detected yet.
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {inventoryData?.items.map((item) => (
+            <InventoryRow key={item.slot} item={item} />
           ))}
         </div>
-      ) : (
-        <div className="text-center text-neutral-500 py-8">
-          <Backpack className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <p className="text-sm">No items in bag</p>
-          <p className="text-xs mt-1">Visit a Poké Mart to buy items!</p>
-        </div>
-      )}
+      </div>
     </div>
   );
 };
 
-interface ItemRowProps {
-  item: InventoryItem;
-}
-
-const ItemRow: React.FC<ItemRowProps> = ({ item }) => {
-  // Categorize items by type for better visualization
-  const getItemCategory = (itemName: string): string => {
-    const name = itemName.toLowerCase();
-    if (name.includes('ball')) return 'Poké Ball';
-    if (name.includes('potion') || name.includes('heal') || name.includes('antidote') || name.includes('revive')) return 'Medicine';
-    if (name.includes('stone')) return 'Evolution Stone';
-    if (name.includes('badge')) return 'Badge';
-    if (name.includes('key') || name.includes('ticket') || name.includes('pass')) return 'Key Item';
-    if (name.includes('rod')) return 'Fishing Rod';
-    if (name.includes('repel')) return 'Repel';
-    if (name.includes('ether') || name.includes('elixir') || name.includes('pp up')) return 'PP Restore';
-    if (name.includes('attack') || name.includes('defend') || name.includes('speed') || name.includes('special')) return 'Stat Boost';
-    if (name.includes('candy') || name.includes('protein') || name.includes('iron') || name.includes('calcium') || name.includes('carbos') || name.includes('hp up')) return 'Rare Candy/Stats';
-    return 'Other';
-  };
-
-  const getCategoryColor = (category: string): string => {
-    switch (category) {
-      case 'Poké Ball': return 'text-red-400 bg-red-900/20';
-      case 'Medicine': return 'text-green-400 bg-green-900/20';
-      case 'Evolution Stone': return 'text-purple-400 bg-purple-900/20';
-      case 'Badge': return 'text-yellow-400 bg-yellow-900/20';
-      case 'Key Item': return 'text-blue-400 bg-blue-900/20';
-      case 'Fishing Rod': return 'text-cyan-400 bg-cyan-900/20';
-      case 'Repel': return 'text-gray-400 bg-gray-900/20';
-      case 'PP Restore': return 'text-pink-400 bg-pink-900/20';
-      case 'Stat Boost': return 'text-orange-400 bg-orange-900/20';
-      case 'Rare Candy/Stats': return 'text-amber-400 bg-amber-900/20';
-      default: return 'text-neutral-400 bg-neutral-900/20';
-    }
-  };
-
-  const category = getItemCategory(item.name);
-  const colorClass = getCategoryColor(category);
+const InventoryRow: React.FC<{ item: InventoryItem }> = ({ item }) => {
+  const category = getCategory(item.name);
 
   return (
-    <div className="flex items-center justify-between p-2 bg-neutral-800/50 hover:bg-neutral-800 rounded transition-colors">
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-neutral-500 w-6">#{item.slot}</span>
-        <div>
-          <div className="text-sm text-white">{item.name}</div>
-          <div className={`text-xs px-1.5 py-0.5 rounded inline-block mt-0.5 ${colorClass}`}>
-            {category}
-          </div>
+    <div className="flex items-center justify-between rounded-2xl border border-neutral-800 bg-neutral-950/80 px-4 py-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xs uppercase tracking-wide text-neutral-500">#{item.slot}</span>
+          <span className="truncate text-sm font-medium text-white">{item.name}</span>
         </div>
+        <span className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-wide ${getCategoryClasses(category)}`}>
+          {category}
+        </span>
       </div>
-      <div className="text-right">
-        <div className="text-sm font-medium text-neutral-300">x{item.quantity}</div>
+
+      <div className="ml-4 flex items-center gap-2 rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-sm text-neutral-300">
+        <Package className="h-3.5 w-3.5" />
+        x{item.quantity}
       </div>
     </div>
   );

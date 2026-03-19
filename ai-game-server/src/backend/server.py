@@ -14,6 +14,8 @@ import tempfile
 import time
 from datetime import datetime
 from typing import Dict, List, Optional
+from urllib import error as urllib_error, request as urllib_request
+from urllib.parse import urljoin, urlparse
 from flask import Flask, request, jsonify, send_file, Response, stream_with_context
 import time
 from flask_cors import CORS
@@ -3829,6 +3831,146 @@ agent_mode_state = {
     "autonomous_level": "moderate"  # passive, moderate, aggressive
 }
 
+openclaw_runtime_state = {
+    "endpoint": "http://localhost:18789",
+    "vision_model": "kimi-k2.5",
+    "objectives": "Complete Pokemon Red with safe exploration and clear progress.",
+    "personality": "strategic",
+}
+
+
+def _normalize_openclaw_endpoint(endpoint: Optional[str]) -> str:
+    candidate = (endpoint or openclaw_runtime_state["endpoint"]).strip()
+    if not candidate:
+        raise ValueError("OpenClaw endpoint is required")
+
+    parsed = urlparse(candidate)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("OpenClaw endpoint must be a valid http(s) URL")
+
+    return candidate.rstrip("/")
+
+
+def _build_openclaw_health_payload(endpoint: str, ok: bool, status: Optional[int], service_status: Optional[str] = None,
+                                   error_message: Optional[str] = None, details: Optional[Dict] = None) -> Dict:
+    return {
+        "ok": ok,
+        "endpoint": endpoint,
+        "status": status,
+        "service_status": service_status,
+        "error": error_message,
+        "details": details,
+        "checked_at": datetime.now().isoformat(),
+    }
+
+
+def _probe_openclaw_health(endpoint: Optional[str]) -> Dict:
+    normalized_endpoint = _normalize_openclaw_endpoint(endpoint)
+    health_url = urljoin(f"{normalized_endpoint}/", "health")
+    request_headers = {
+        "Accept": "application/json",
+        "User-Agent": "openclaw-webui",
+    }
+    probe_request = urllib_request.Request(health_url, headers=request_headers)
+
+    try:
+        with urllib_request.urlopen(probe_request, timeout=3) as response:
+            response_body = response.read().decode("utf-8", errors="replace")
+            payload = json.loads(response_body) if response_body else {}
+            service_status = payload.get("status") if isinstance(payload, dict) else None
+            details = payload if isinstance(payload, dict) else {"body": response_body}
+            return _build_openclaw_health_payload(
+                normalized_endpoint,
+                True,
+                response.getcode(),
+                service_status=service_status,
+                details=details,
+            )
+    except urllib_error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="replace")
+        payload = json.loads(error_body) if error_body else {}
+        service_status = payload.get("status") if isinstance(payload, dict) else None
+        details = payload if isinstance(payload, dict) else {"body": error_body}
+        return _build_openclaw_health_payload(
+            normalized_endpoint,
+            False,
+            exc.code,
+            service_status=service_status,
+            error_message=error_body or str(exc),
+            details=details,
+        )
+    except Exception as exc:
+        return _build_openclaw_health_payload(
+            normalized_endpoint,
+            False,
+            None,
+            error_message=str(exc),
+        )
+
+
+@app.route('/api/openclaw/config', methods=['GET'])
+def get_openclaw_config_api():
+    return jsonify({
+        **openclaw_runtime_state,
+        "timestamp": datetime.now().isoformat(),
+    }), 200
+
+
+@app.route('/api/openclaw/config', methods=['POST'])
+def update_openclaw_config_api():
+    try:
+        data = request.get_json(silent=True) or {}
+        allowed_vision_models = {"kimi-k2.5", "qwen-vl-plus"}
+        allowed_personalities = {"strategic", "casual", "speedrun", "explorer"}
+
+        endpoint = _normalize_openclaw_endpoint(data.get("endpoint", openclaw_runtime_state["endpoint"]))
+        vision_model = str(data.get("vision_model", openclaw_runtime_state["vision_model"])).strip()
+        personality = str(data.get("personality", openclaw_runtime_state["personality"])).strip()
+        objectives = str(data.get("objectives", openclaw_runtime_state["objectives"])).strip()
+
+        if vision_model not in allowed_vision_models:
+            return jsonify({"error": f"Invalid vision model. Allowed: {sorted(allowed_vision_models)}"}), 400
+
+        if personality not in allowed_personalities:
+            return jsonify({"error": f"Invalid personality. Allowed: {sorted(allowed_personalities)}"}), 400
+
+        if not objectives:
+            return jsonify({"error": "Objectives cannot be empty"}), 400
+
+        openclaw_runtime_state["endpoint"] = endpoint
+        openclaw_runtime_state["vision_model"] = vision_model
+        openclaw_runtime_state["personality"] = personality
+        openclaw_runtime_state["objectives"] = objectives
+
+        return jsonify({
+            **openclaw_runtime_state,
+            "timestamp": datetime.now().isoformat(),
+        }), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        logger.error(f"Error updating OpenClaw config: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route('/api/openclaw/health', methods=['GET'])
+def get_openclaw_health_api():
+    endpoint = request.args.get('endpoint', openclaw_runtime_state["endpoint"])
+
+    try:
+        payload = _probe_openclaw_health(endpoint)
+        return jsonify(payload), 200
+    except ValueError as exc:
+        return jsonify({
+            "ok": False,
+            "endpoint": endpoint,
+            "status": None,
+            "service_status": None,
+            "error": str(exc),
+            "details": None,
+            "checked_at": datetime.now().isoformat(),
+        }), 400
+
 @app.route('/api/game/state', methods=['GET'])
 def get_game_state_api():
     """Get current game state - screen, running status, etc."""
@@ -3864,7 +4006,7 @@ def get_agent_status_api():
         
         agent_status = {
             "connected": current_state["rom_loaded"],
-            "agent_name": "OpenClaw Agent",
+            "agent_name": "OpenClaw",
             "mode": frontend_mode,  # Frontend-friendly mode
             "actual_mode": actual_mode,  # Actual mode for advanced use
             "autonomous_level": agent_mode_state["autonomous_level"],
@@ -3872,6 +4014,9 @@ def get_agent_status_api():
             "last_decision": agent_mode_state["last_decision"],
             "enabled": agent_mode_state["enabled"],
             "game_running": current_state["rom_loaded"],
+            "objectives": openclaw_runtime_state["objectives"],
+            "personality": openclaw_runtime_state["personality"],
+            "vision_model": openclaw_runtime_state["vision_model"],
             "timestamp": datetime.now().isoformat()
         }
         
