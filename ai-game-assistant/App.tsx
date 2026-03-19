@@ -785,7 +785,7 @@ const App: React.FC = () => {
           tone="amber"
           label="ROM"
           value={romLabel}
-          meta={gameState.rom_loaded ? `${gameState.frame_count.toLocaleString()} frames captured` : 'Load a ROM to start play'}
+          meta={gameState.rom_loaded ? `${Number(gameState.frame_count || 0).toLocaleString()} frames captured` : 'Load a ROM to start play'}
         />
         <HeroMetric
           tone="slate"
@@ -929,7 +929,7 @@ const App: React.FC = () => {
               <div className="screen-bezel__meta">
                 <span>Screen {gameState.screen_available ? 'live' : 'idle'}</span>
                 <span>{Math.round(gameState.fps || 0)} FPS</span>
-                <span>{gameState.frame_count.toLocaleString()} frames</span>
+                <span>{Number(gameState.frame_count || 0).toLocaleString()} frames</span>
                 <span>{(gameState.emulator || settings.emulatorType).toUpperCase()}</span>
               </div>
             </div>
@@ -1059,7 +1059,7 @@ const App: React.FC = () => {
               <SummaryStat label="Party size" value={partyData ? String(partyData.party_count) : '--'} />
               <SummaryStat label="Bag items" value={inventoryData ? String(inventoryData.item_count) : '--'} />
               <SummaryStat label="FPS" value={String(Math.round(gameState.fps || 0))} />
-              <SummaryStat label="Frame count" value={gameState.frame_count.toLocaleString()} />
+              <SummaryStat label="Frame count" value={Number(gameState.frame_count || 0).toLocaleString()} />
             </div>
           </PanelCard>
 
