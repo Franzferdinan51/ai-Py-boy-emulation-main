@@ -24,23 +24,37 @@ interface SettingsModalProps {
 // Auto-detect OpenClaw endpoint
 const AUTO_DETECT_OPENCLAW = 'http://localhost:18789';
 
-// Vision-capable models only
+// Vision-capable models
 const VISION_MODELS = [
-  { id: 'kimi-k2.5', name: 'kimi-k2.5 (Bailian - Free)', provider: 'Bailian' },
-  { id: 'qwen-vl-plus', name: 'qwen-vl-plus (Bailian)', provider: 'Bailian' },
-  { id: 'gpt-4o', name: 'GPT-4o (OpenAI)', provider: 'OpenAI' },
-  { id: 'gpt-4o-mini', name: 'GPT-4o-mini (OpenAI)', provider: 'OpenAI' },
-  { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet (Anthropic)', provider: 'Anthropic' },
-  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (Google)', provider: 'Google' },
+  // ChatGPT Plus (OAuth)
+  { id: 'gpt-4o', name: 'GPT-4o (ChatGPT Plus)', provider: 'OpenAI', badge: '✨' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o-mini (ChatGPT Plus)', provider: 'OpenAI', badge: '✨' },
+  // OpenAI
+  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo (OpenAI API)', provider: 'OpenAI', badge: '' },
+  // Anthropic
+  { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet (Anthropic)', provider: 'Anthropic', badge: '' },
+  { id: 'claude-3-opus', name: 'Claude 3 Opus (Anthropic)', provider: 'Anthropic', badge: '' },
+  // Bailian (Free)
+  { id: 'kimi-k2.5', name: 'kimi-k2.5 (Bailian - Free)', provider: 'Bailian', badge: '🆓' },
+  { id: 'qwen-vl-plus', name: 'qwen-vl-plus (Bailian)', provider: 'Bailian', badge: '🆓' },
+  // Google
+  { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (Google)', provider: 'Google', badge: '' },
+  { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Google)', provider: 'Google', badge: '' },
 ];
 
 // Text/reasoning models
 const TEXT_MODELS = [
-  { id: 'qwen3.5-plus', name: 'qwen3.5-plus (Bailian - Free)', provider: 'Bailian' },
-  { id: 'MiniMax-M2.5', name: 'MiniMax-M2.5 (Bailian - Free)', provider: 'Bailian' },
-  { id: 'glm-5', name: 'glm-5 (Bailian - Free)', provider: 'Bailian' },
-  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo (OpenAI)', provider: 'OpenAI' },
-  { id: 'claude-3-opus', name: 'Claude 3 Opus (Anthropic)', provider: 'Anthropic' },
+  // ChatGPT Plus (OAuth)
+  { id: 'gpt-4o', name: 'GPT-4o (ChatGPT Plus)', provider: 'OpenAI', badge: '✨' },
+  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo (ChatGPT Plus)', provider: 'OpenAI', badge: '✨' },
+  // OpenAI API
+  { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo (OpenAI API)', provider: 'OpenAI', badge: '' },
+  // Anthropic
+  { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet (Anthropic)', provider: 'Anthropic', badge: '' },
+  // Bailian (Free)
+  { id: 'qwen3.5-plus', name: 'qwen3.5-plus (Bailian - Free)', provider: 'Bailian', badge: '🆓' },
+  { id: 'MiniMax-M2.5', name: 'MiniMax-M2.5 (Bailian - Free)', provider: 'Bailian', badge: '🆓' },
+  { id: 'glm-5', name: 'glm-5 (Bailian - Free)', provider: 'Bailian', badge: '🆓' },
 ];
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -58,33 +72,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   // Initialize with smart defaults
   useEffect(() => {
     if (isOpen) {
-      // Auto-detect OpenClaw if not set
       if (!localSettings.openclawMcpEndpoint) {
-        setLocalSettings(prev => ({ 
-          ...prev, 
-          openclawMcpEndpoint: AUTO_DETECT_OPENCLAW 
-        }));
+        setLocalSettings(prev => ({ ...prev, openclawMcpEndpoint: AUTO_DETECT_OPENCLAW }));
       }
-      // Default backend if not set
       if (!localSettings.backendUrl) {
-        setLocalSettings(prev => ({ 
-          ...prev, 
-          backendUrl: 'http://localhost:5002' 
-        }));
+        setLocalSettings(prev => ({ ...prev, backendUrl: 'http://localhost:5002' }));
       }
-      // Default vision model if not set
       if (!localSettings.visionModel) {
-        setLocalSettings(prev => ({ 
-          ...prev, 
-          visionModel: 'kimi-k2.5' 
-        }));
+        setLocalSettings(prev => ({ ...prev, visionModel: 'gpt-4o' })); // Default to ChatGPT Plus!
       }
-      // Default text model if not set
       if (!localSettings.apiProvider) {
-        setLocalSettings(prev => ({ 
-          ...prev, 
-          apiProvider: 'qwen3.5-plus' 
-        }));
+        setLocalSettings(prev => ({ ...prev, apiProvider: 'gpt-4o' }));
       }
     }
   }, [isOpen]);
@@ -100,53 +98,43 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       const response = await fetch(`${AUTO_DETECT_OPENCLAW}/health`);
       if (response.ok) {
         setDetectedOpenClaw(true);
-        setLocalSettings(prev => ({ 
-          ...prev, 
-          openclawMcpEndpoint: AUTO_DETECT_OPENCLAW 
-        }));
+        setLocalSettings(prev => ({ ...prev, openclawMcpEndpoint: AUTO_DETECT_OPENCLAW }));
         setConnectionStatus({ success: true, message: 'OpenClaw detected!' });
       } else {
         setDetectedOpenClaw(false);
-        setConnectionStatus({ success: false, message: 'OpenClaw not found at localhost:18789' });
+        setConnectionStatus({ success: false, message: 'OpenClaw not found' });
       }
     } catch {
       setDetectedOpenClaw(false);
-      setConnectionStatus({ success: false, message: 'OpenClaw not running locally' });
+      setConnectionStatus({ success: false, message: 'OpenClaw not running' });
     }
     setTestingConnection(false);
   }, []);
 
-  // Test connection
+  // Test backend connection
   const testConnection = useCallback(async () => {
     setTestingConnection(true);
     setConnectionStatus(null);
-
     try {
       const baseUrl = localSettings.backendUrl || 'http://localhost:5002';
       const response = await fetch(`${baseUrl}/health`);
-      
       if (response.ok) {
         setConnectionStatus({ success: true, message: 'Backend connected!' });
       } else {
         setConnectionStatus({ success: false, message: `Server returned ${response.status}` });
       }
     } catch (err) {
-      setConnectionStatus({ 
-        success: false, 
-        message: err instanceof Error ? err.message : 'Connection failed' 
-      });
+      setConnectionStatus({ success: false, message: err instanceof Error ? err.message : 'Connection failed' });
     } finally {
       setTestingConnection(false);
     }
   }, [localSettings.backendUrl]);
 
-  // Handle save
   const handleSave = () => {
     onSave(localSettings);
     onClose();
   };
 
-  // Close on escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -194,7 +182,94 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {activeTab === 'api' && (
             <>
-              {/* Backend URL - Auto-detected */}
+              {/* Provider Info Banner */}
+              <div className="p-3 bg-gradient-to-r from-green-900/30 to-blue-900/30 rounded-lg border border-green-700/50">
+                <p className="text-sm text-green-300">
+                  ✨ <strong>ChatGPT Plus detected!</strong> Your subscription includes API access.
+                </p>
+              </div>
+
+              {/* Vision Model - ChatGPT Plus Priority */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-1">
+                  Vision Model (for screen analysis)
+                </label>
+                <select
+                  value={localSettings.visionModel || 'gpt-4o'}
+                  onChange={e => setLocalSettings(prev => ({ ...prev, visionModel: e.target.value }))}
+                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
+                >
+                  <optgroup label="✨ ChatGPT Plus (Recommended)">
+                    {VISION_MODELS.filter(m => m.provider === 'OpenAI' && m.badge === '✨').map(model => (
+                      <option key={model.id} value={model.id}>{model.name}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="OpenAI API">
+                    {VISION_MODELS.filter(m => m.provider === 'OpenAI' && m.badge !== '✨').map(model => (
+                      <option key={model.id} value={model.id}>{model.name}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Anthropic">
+                    {VISION_MODELS.filter(m => m.provider === 'Anthropic').map(model => (
+                      <option key={model.id} value={model.id}>{model.name}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="🆓 Bailian (Free)">
+                    {VISION_MODELS.filter(m => m.provider === 'Bailian').map(model => (
+                      <option key={model.id} value={model.id}>{model.name}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Google">
+                    {VISION_MODELS.filter(m => m.provider === 'Google').map(model => (
+                      <option key={model.id} value={model.id}>{model.name}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+
+              {/* Text Model */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-1">
+                  Text/Reasoning Model
+                </label>
+                <select
+                  value={localSettings.apiProvider || 'gpt-4o'}
+                  onChange={e => setLocalSettings(prev => ({ ...prev, apiProvider: e.target.value }))}
+                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
+                >
+                  <optgroup label="✨ ChatGPT Plus (Recommended)">
+                    {TEXT_MODELS.filter(m => m.badge === '✨').map(model => (
+                      <option key={model.id} value={model.id}>{model.name}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="🆓 Bailian (Free)">
+                    {TEXT_MODELS.filter(m => m.provider === 'Bailian').map(model => (
+                      <option key={model.id} value={model.id}>{model.name}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+
+              {/* API Key / OAuth */}
+              <div>
+                <label className="block text-sm font-medium text-neutral-300 mb-1">
+                  API Key {localSettings.visionModel?.includes('gpt') ? '(or OAuth Token)' : ''}
+                </label>
+                <input
+                  type="password"
+                  value={localSettings.apiKey || ''}
+                  onChange={e => setLocalSettings(prev => ({ ...prev, apiKey: e.target.value }))}
+                  placeholder={localSettings.visionModel?.includes('gpt') ? "sk-... or ChatGPT Plus token" : "API key"}
+                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
+                />
+                {localSettings.visionModel?.includes('gpt') && (
+                  <p className="text-xs text-green-400 mt-1">
+                    ✨ ChatGPT Plus subscribers get API access included!
+                  </p>
+                )}
+              </div>
+
+              {/* Backend URL */}
               <div>
                 <label className="block text-sm font-medium text-neutral-300 mb-1">
                   Game Backend URL
@@ -221,59 +296,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
                 )}
               </div>
-
-              {/* Vision Model */}
-              <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  Vision Model (for screen analysis)
-                </label>
-                <select
-                  value={localSettings.visionModel || 'kimi-k2.5'}
-                  onChange={e => setLocalSettings(prev => ({ ...prev, visionModel: e.target.value }))}
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
-                >
-                  {VISION_MODELS.map(model => (
-                    <option key={model.id} value={model.id}>{model.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Text Model */}
-              <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  Text/Reasoning Model
-                </label>
-                <select
-                  value={localSettings.apiProvider || 'qwen3.5-plus'}
-                  onChange={e => setLocalSettings(prev => ({ ...prev, apiProvider: e.target.value }))}
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
-                >
-                  {TEXT_MODELS.map(model => (
-                    <option key={model.id} value={model.id}>{model.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* OpenClaw Token */}
-              <div>
-                <label className="block text-sm font-medium text-neutral-300 mb-1">
-                  OpenClaw Token (optional)
-                </label>
-                <input
-                  type="password"
-                  value={localSettings.apiKey || ''}
-                  onChange={e => setLocalSettings(prev => ({ ...prev, apiKey: e.target.value }))}
-                  placeholder="Leave empty for local OpenClaw"
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-neutral-200"
-                />
-                <p className="text-xs text-neutral-500 mt-1">Only needed for remote OpenClaw</p>
-              </div>
             </>
           )}
 
           {activeTab === 'agent' && (
             <>
-              {/* Agent Mode */}
               <div className="flex items-center justify-between p-3 bg-neutral-800 rounded-lg">
                 <div>
                   <label className="text-sm font-medium text-neutral-300">Agent Mode</label>
@@ -287,7 +314,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
 
-              {/* Auto Connect */}
               <div className="flex items-center justify-between p-3 bg-neutral-800 rounded-lg">
                 <div>
                   <label className="text-sm font-medium text-neutral-300">Auto Connect</label>
@@ -301,7 +327,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
 
-              {/* Autonomous Level */}
               <div>
                 <label className="block text-sm font-medium text-neutral-300">Autonomous Level</label>
                 <select
@@ -315,7 +340,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 </select>
               </div>
 
-              {/* Agent Personality */}
               <div>
                 <label className="block text-sm font-medium text-neutral-300">Agent Personality</label>
                 <select
@@ -330,7 +354,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 </select>
               </div>
 
-              {/* Objectives */}
               <div>
                 <label className="block text-sm font-medium text-neutral-300">Current Objectives</label>
                 <textarea
@@ -346,7 +369,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {activeTab === 'advanced' && (
             <>
-              {/* OpenClaw MCP - Auto-detected */}
               <div>
                 <label className="block text-sm font-medium text-neutral-300 mb-1">
                   OpenClaw MCP Endpoint
