@@ -1,18 +1,14 @@
 /**
- * AI Game Assistant - Main Application (Enhanced)
+ * AI Game Assistant - Main Application
  * 
- * Features:
- * - Settings saved to localStorage
- * - Auto-connect on startup
- * - Real-time screen streaming (SSE/polling)
- * - Keyboard shortcuts for controls
- * - ROM file picker
- * - Save/Load state buttons
- * - Live decision logs in agent panel
+ * OpenClaw-First Gaming Dashboard
+ * - OpenClaw is the main orchestrator
+ * - Manual control is secondary override
+ * - Simplified, cohesive UI
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings, Play, Pause, Save, FolderOpen, RefreshCw, Activity, MemoryStick, Gamepad2, ChevronDown, ChevronUp, Keyboard, Upload } from 'lucide-react';
+import { Settings, Play, Pause, Save, FolderOpen, RefreshCw, Activity, MemoryStick, Gamepad2, ChevronDown, ChevronUp, Keyboard, Bot } from 'lucide-react';
 import SettingsModal from './src/components/SettingsModal';
 import type { GameState, AgentStatus, MemoryWatch, LogEntry, GameButton, AppSettings } from './services/apiService';
 import apiService from './services/apiService';
@@ -24,7 +20,7 @@ const STORAGE_KEYS = {
 };
 
 // Constants
-const SCREEN_REFRESH_MS = 250;  // Faster refresh for real-time feel
+const SCREEN_REFRESH_MS = 250;
 const STATE_REFRESH_MS = 2000;
 const MEMORY_REFRESH_MS = 5000;
 const DECISION_LOG_MAX = 100;
@@ -86,10 +82,10 @@ const App: React.FC = () => {
     timestamp: '',
   });
 
-  // Agent State
+  // OpenClaw Agent State
   const [agentState, setAgentState] = useState<AgentStatus>({
     connected: false,
-    agent_name: 'OpenClaw Agent',
+    agent_name: 'OpenClaw',
     mode: 'auto',
     autonomous_level: 'moderate',
     current_action: 'Idle',
@@ -106,7 +102,7 @@ const App: React.FC = () => {
     timestamp: '',
   });
 
-  // Decision logs (for agent panel)
+  // Decision logs (for OpenClaw panel)
   const [decisionLogs, setDecisionLogs] = useState<LogEntry[]>([]);
   const [actionLogs, setActionLogs] = useState<LogEntry[]>([]);
 
@@ -124,7 +120,6 @@ const App: React.FC = () => {
   const screenBlobRef = useRef<Blob | null>(null);
   const screenUrlRef = useRef<string | null>(null);
   const [gameScreenUrl, setGameScreenUrl] = useState<string | null>(null);
-  const decisionIdRef = useRef(0);
 
   // ============ API HELPERS ============
 
@@ -413,10 +408,13 @@ const App: React.FC = () => {
       {/* ============ HEADER ============ */}
       <header className="flex items-center justify-between px-4 py-2 bg-neutral-900 border-b border-neutral-800">
         <div className="flex items-center gap-3">
-          <Gamepad2 className="w-5 h-5 text-cyan-400" />
-          <h1 className="text-lg font-semibold">AI Game Assistant</h1>
+          <Bot className="w-6 h-6 text-cyan-400" />
+          <div>
+            <h1 className="text-lg font-bold text-cyan-400">OpenClaw</h1>
+            <p className="text-xs text-neutral-500 -mt-0.5">AI Game Assistant</p>
+          </div>
           {isRomLoaded && (
-            <span className="text-xs px-2 py-0.5 bg-neutral-800 rounded text-neutral-400">{gameState.rom_name}</span>
+            <span className="text-xs px-2 py-0.5 bg-neutral-800 rounded text-neutral-400 ml-2">{gameState.rom_name}</span>
           )}
         </div>
         
@@ -430,11 +428,14 @@ const App: React.FC = () => {
             <span className="text-neutral-400">{connectionStatus}</span>
           </div>
 
-          {/* Mode Badge */}
-          <div className={`px-2 py-1 rounded text-xs font-medium ${
-            agentState.enabled ? 'bg-green-900/50 text-green-400' : 'bg-orange-900/50 text-orange-400'
+          {/* OpenClaw Status Badge */}
+          <div className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 ${
+            agentState.enabled 
+              ? 'bg-cyan-900/40 text-cyan-400 border border-cyan-800' 
+              : 'bg-orange-900/30 text-orange-400 border border-orange-800'
           }`}>
-            {agentState.enabled ? '🤖 Auto' : '👆 Manual'}
+            <Bot className="w-4 h-4" />
+            {agentState.enabled ? '🤖 Autonomous' : '👆 Manual Override'}
           </div>
 
           {/* Keyboard help */}
@@ -459,10 +460,122 @@ const App: React.FC = () => {
       {/* ============ MAIN CONTENT ============ */}
       <main className="flex-grow flex flex-col lg:flex-row gap-4 p-4 min-h-0 overflow-hidden">
         
-        {/* GAME CANVAS (Left/Center) */}
+        {/* OPENCLAW AGENT PANEL (Left) */}
+        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-cyan-900/50 overflow-hidden transition-all ${
+          agentPanelCollapsed ? 'w-14' : 'w-full lg:w-72'
+        }`}>
+          <button 
+            onClick={() => setAgentPanelCollapsed(!agentPanelCollapsed)}
+            className="flex items-center justify-between px-4 py-3 bg-cyan-950/30 border-b border-cyan-900/50 hover:bg-cyan-950/50"
+          >
+            {!agentPanelCollapsed && (
+              <div className="flex items-center gap-2">
+                <Bot className="w-5 h-5 text-cyan-400" />
+                <span className="font-semibold text-cyan-400">OpenClaw Agent</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2 ml-auto">
+              <Activity className={`w-4 h-4 ${agentState.enabled ? 'text-green-400' : 'text-neutral-500'}`} />
+              {agentPanelCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </div>
+          </button>
+
+          {!agentPanelCollapsed && (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Current Action */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-medium text-neutral-500 uppercase tracking-wide">Current Action</h3>
+                <div className="p-3 bg-neutral-800 rounded-lg border border-neutral-700">
+                  <p className="font-mono text-green-400 text-sm">{agentState.current_action}</p>
+                </div>
+              </div>
+
+              {/* Latest Decision */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-medium text-neutral-500 uppercase tracking-wide">Latest Decision</h3>
+                <div className="p-3 bg-neutral-800 rounded-lg border border-neutral-700">
+                  <p className="text-sm text-neutral-300">{agentState.last_decision}</p>
+                </div>
+              </div>
+
+              {/* Live Decision Log */}
+              <div className="space-y-2 flex-1">
+                <h3 className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-2">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></span>
+                  Decision Log
+                </h3>
+                <div className="bg-neutral-800/50 rounded-lg p-2 h-48 overflow-y-auto font-mono text-xs space-y-1 border border-neutral-700">
+                  {decisionLogs.slice(-25).reverse().map((entry) => (
+                    <div key={entry.id} className={`${
+                      entry.type === 'error' ? 'text-red-400' :
+                      entry.type === 'action' ? 'text-yellow-400' :
+                      entry.type === 'thought' ? 'text-cyan-400' :
+                      'text-neutral-300'
+                    }`}>
+                      <span className="text-neutral-600">[{entry.timestamp.split('T')[1].slice(0,8)}]</span>{' '}
+                      {entry.message}
+                    </div>
+                  ))}
+                  {decisionLogs.length === 0 && (
+                    <div className="text-neutral-500 text-center py-4">
+                      Waiting for agent decisions...
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Log (compact) */}
+              <div className="space-y-2">
+                <h3 className="text-xs font-medium text-neutral-500 uppercase tracking-wide">System Log</h3>
+                <div className="bg-neutral-800/50 rounded-lg p-2 h-24 overflow-y-auto font-mono text-xs space-y-1 border border-neutral-700">
+                  {actionLogs.slice(-12).reverse().map((entry) => (
+                    <div key={entry.id} className={`${
+                      entry.type === 'error' ? 'text-red-400' :
+                      entry.type === 'action' ? 'text-green-400' :
+                      entry.type === 'system' ? 'text-blue-400' :
+                      'text-neutral-300'
+                    }`}>
+                      <span className="text-neutral-600">[{entry.timestamp.split('T')[1].slice(0,8)}]</span>{' '}
+                      {entry.message}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Mode Toggle */}
+              <div className="pt-2 border-t border-neutral-700">
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setAgentState(prev => ({ ...prev, mode: 'auto', enabled: true }))}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      agentState.mode === 'auto' 
+                        ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/30' 
+                        : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
+                    }`}
+                  >
+                    🤖 Auto
+                  </button>
+                  <button 
+                    onClick={() => setAgentState(prev => ({ ...prev, mode: 'manual', enabled: false }))}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      agentState.mode === 'manual' 
+                        ? 'bg-orange-600 text-white' 
+                        : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
+                    }`}
+                  >
+                    👆 Manual
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* GAME CANVAS (Center) */}
         <div className="flex-1 flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden">
           <div className="flex items-center justify-between px-3 py-1.5 bg-neutral-800/50 border-b border-neutral-800">
             <div className="flex items-center gap-2">
+              <Gamepad2 className="w-4 h-4 text-neutral-500" />
               <h2 className="text-sm font-medium text-neutral-300">Game</h2>
               {isRomLoaded && (
                 <span className="text-xs text-neutral-500">{gameState.frame_count} frames</span>
@@ -475,13 +588,13 @@ const App: React.FC = () => {
               </label>
               {isRomLoaded && (
                 <>
-                  <button onClick={handleSaveState} className="p-1 hover:bg-neutral-700 rounded" title="Save" disabled={!isRomLoaded}>
+                  <button onClick={handleSaveState} className="p-1.5 hover:bg-neutral-700 rounded" title="Save">
                     <Save className="w-3.5 h-3.5" />
                   </button>
-                  <button onClick={handleLoadState} className="p-1 hover:bg-neutral-700 rounded" title="Load" disabled={!isRomLoaded}>
+                  <button onClick={handleLoadState} className="p-1.5 hover:bg-neutral-700 rounded" title="Load">
                     <FolderOpen className="w-3.5 h-3.5" />
                   </button>
-                  <button onClick={refreshScreen} className="p-1 hover:bg-neutral-700 rounded" title="Refresh">
+                  <button onClick={refreshScreen} className="p-1.5 hover:bg-neutral-700 rounded" title="Refresh">
                     <RefreshCw className="w-3.5 h-3.5" />
                   </button>
                 </>
@@ -506,110 +619,114 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* AGENT PANEL (Middle) - Live Decision Logs */}
-        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${
-          agentPanelCollapsed ? 'w-12' : 'w-full lg:w-80'
-        }`}>
-          <button 
-            onClick={() => setAgentPanelCollapsed(!agentPanelCollapsed)}
-            className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800"
-          >
-            {!agentPanelCollapsed && <h2 className="font-semibold">Agent Panel</h2>}
-            <div className="flex items-center gap-2">
-              <Activity className={`w-4 h-4 ${agentState.enabled ? 'text-green-400' : 'text-neutral-500'}`} />
-              {agentPanelCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-            </div>
-          </button>
-
-          {!agentPanelCollapsed && (
-            <div className="flex-1 overflow-y-auto p-3 space-y-3">
-              {/* Mode Toggle */}
-              <div className="flex gap-1 p-1 bg-neutral-800 rounded-lg">
-                <button 
-                  onClick={() => setAgentState(prev => ({ ...prev, mode: 'auto', enabled: true }))}
-                  className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
-                    agentState.mode === 'auto' ? 'bg-green-600 text-white' : 'text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  🤖 Auto
-                </button>
-                <button 
-                  onClick={() => setAgentState(prev => ({ ...prev, mode: 'manual', enabled: false }))}
-                  className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
-                    agentState.mode === 'manual' ? 'bg-orange-600 text-white' : 'text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  👆 Manual
-                </button>
-              </div>
-
-              {/* Status */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-neutral-500">Current</span>
-                  <span className="text-xs text-green-400">{agentState.current_action}</span>
-                </div>
-                <div className="p-2 bg-neutral-800 rounded text-xs text-neutral-300">
-                  {agentState.last_decision}
-                </div>
-              </div>
-
-              {/* Decision Log */}
-              <div className="space-y-1">
-                <h3 className="text-xs font-medium text-neutral-500">Decision Log</h3>
-                <div className="bg-neutral-800 rounded p-2 h-48 overflow-y-auto font-mono text-xs space-y-0.5">
-                  {decisionLogs.slice(-20).reverse().map((entry) => (
-                    <div key={entry.id} className={`${
-                      entry.type === 'error' ? 'text-red-400' :
-                      entry.type === 'action' ? 'text-yellow-400' :
-                      entry.type === 'thought' ? 'text-cyan-400' : 'text-neutral-300'
-                    }`}>
-                      <span className="text-neutral-600">[{entry.timestamp.split('T')[1].slice(0,5)}]</span>{' '}
-                      {entry.message}
-                    </div>
-                  ))}
-                  {decisionLogs.length === 0 && (
-                    <div className="text-neutral-600 text-center py-4">Waiting...</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
         {/* MEMORY INSPECTOR (Right) */}
         <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${
-          memoryPanelCollapsed ? 'w-12' : 'w-full lg:w-72'
+          memoryPanelCollapsed ? 'w-14' : 'w-full lg:w-64'
         }`}>
           <button 
             onClick={() => setMemoryPanelCollapsed(!memoryPanelCollapsed)}
-            className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800"
+            className="flex items-center justify-between px-4 py-3 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800"
           >
-            {!memoryPanelCollapsed && <h2 className="font-semibold">Memory Inspector</h2>}
-            <div className="flex items-center gap-2">
-              <MemoryStick className={`w-4 h-4 ${isRomLoaded ? 'text-purple-400' : 'text-neutral-500'}`} />
+            {!memoryPanelCollapsed && (
+              <div className="flex items-center gap-2">
+                <MemoryStick className="w-4 h-4 text-purple-400" />
+                <span className="font-semibold">Memory</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2 ml-auto">
               {memoryPanelCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
             </div>
           </button>
 
           {!memoryPanelCollapsed && (
-            <div className="flex-1 overflow-y-auto p-2">
+            <div className="flex-1 overflow-y-auto p-3">
               {isRomLoaded ? (
-                <div className="space-y-0.5 font-mono text-xs">
+                <div className="space-y-1 font-mono text-xs">
                   {memoryState.values.map((mem, idx) => (
-                    <div key={idx} className="flex justify-between items-center px-2 py-1 hover:bg-neutral-800 rounded">
-                      <span className="text-neutral-500">{mem.name}</span>
-                      <span className="text-purple-400 text-xs">
-                        {mem.value !== null ? `0x${mem.value.toString(16).toUpperCase().padStart(2, '0')}` : '—'}
+                    <div key={idx} className="flex justify-between items-center p-2 hover:bg-neutral-800 rounded">
+                      <span className="text-neutral-400">{mem.name}</span>
+                      <span className="text-purple-400">
+                        {mem.value !== null ? `0x${mem.value.toString(16).toUpperCase().padStart(2, '0')}` : 'N/A'}
                       </span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-center text-neutral-600 py-6 text-xs">
-                  Load ROM for memory
+                <div className="text-center text-neutral-500 py-8">
+                  <MemoryStick className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">Load a ROM to view memory</p>
                 </div>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* PARTY PANEL (Right) */}
+        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${
+          partyPanelCollapsed ? 'w-12' : 'w-full lg:w-80'
+        }`}>
+          <button 
+            onClick={() => setPartyPanelCollapsed(!partyPanelCollapsed)}
+            className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800"
+          >
+            {!partyPanelCollapsed && <h2 className="font-semibold">Party</h2>}
+            <div className="flex items-center gap-2">
+              <Heart className={`w-4 h-4 ${isRomLoaded ? 'text-red-400' : 'text-neutral-500'}`} />
+              {partyPanelCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </div>
+          </button>
+
+          {!partyPanelCollapsed && (
+            <div className="flex-1 overflow-y-auto">
+              <PartyPanel isRomLoaded={isRomLoaded} onPartyUpdate={setPartyData} />
+            </div>
+          )}
+        </div>
+
+        {/* INVENTORY PANEL (Right) */}
+        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${
+          inventoryPanelCollapsed ? 'w-12' : 'w-full lg:w-80'
+        }`}>
+          <button 
+            onClick={() => setInventoryPanelCollapsed(!inventoryPanelCollapsed)}
+            className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800"
+          >
+            {!inventoryPanelCollapsed && <h2 className="font-semibold">Inventory</h2>}
+            <div className="flex items-center gap-2">
+              <Backpack className={`w-4 h-4 ${isRomLoaded ? 'text-yellow-400' : 'text-neutral-500'}`} />
+              {inventoryPanelCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </div>
+          </button>
+
+          {!inventoryPanelCollapsed && (
+            <div className="flex-1 overflow-y-auto">
+              <InventoryPanel isRomLoaded={isRomLoaded} onInventoryUpdate={setInventoryData} />
+            </div>
+          )}
+        </div>
+
+        {/* VISION ANALYSIS PANEL (Right) */}
+        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${
+          visionPanelCollapsed ? 'w-12' : 'w-full lg:w-80'
+        }`}>
+          <button 
+            onClick={() => setVisionPanelCollapsed(!visionPanelCollapsed)}
+            className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800"
+          >
+            {!visionPanelCollapsed && <h2 className="font-semibold">Vision Analysis</h2>}
+            <div className="flex items-center gap-2">
+              <Eye className={`w-4 h-4 ${isRomLoaded ? 'text-blue-400' : 'text-neutral-500'}`} />
+              {visionPanelCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </div>
+          </button>
+
+          {!visionPanelCollapsed && (
+            <div className="flex-1 overflow-y-auto">
+              <VisionAnalysisPanel 
+                isRomLoaded={isRomLoaded} 
+                gameScreenUrl={gameScreenUrl}
+                onAnalysisUpdate={setVisionAnalysis}
+              />
             </div>
           )}
         </div>
@@ -644,22 +761,27 @@ interface ControlsProps {
 
 const Controls: React.FC<ControlsProps> = ({ lastButton, onButtonPress, disabled }) => {
   const buttons: { label: string; action: GameButton; color: string }[] = [
-    { label: 'A', action: 'A', color: 'bg-green-600 hover:bg-green-500' },
-    { label: 'B', action: 'B', color: 'bg-red-600 hover:bg-red-500' },
+    { label: 'A', action: 'A', color: 'bg-green-500 hover:bg-green-600' },
+    { label: 'B', action: 'B', color: 'bg-red-500 hover:bg-red-600' },
   ];
 
   const dpadButtons: { label: string; action: GameButton; gridArea: string }[] = [
-    { label: '↑', action: 'UP', gridArea: '1 / 2' },
-    { label: '←', action: 'LEFT', gridArea: '2 / 1' },
-    { label: '→', action: 'RIGHT', gridArea: '2 / 3' },
-    { label: '↓', action: 'DOWN', gridArea: '3 / 2' },
+    { label: '', action: 'UP', gridArea: '1 / 2' },
+    { label: '', action: 'LEFT', gridArea: '2 / 1' },
+    { label: '', action: 'RIGHT', gridArea: '2 / 3' },
+    { label: '', action: 'DOWN', gridArea: '3 / 2' },
+  ];
+
+  const systemButtons: { label: string; action: GameButton }[] = [
+    { label: 'SELECT', action: 'SELECT' },
+    { label: 'START', action: 'START' },
   ];
 
   return (
-    <div className="flex items-center justify-center gap-6">
+    <div className="flex items-center justify-center gap-8">
       {/* D-Pad */}
       <div 
-        className="grid grid-cols-3 grid-rows-3 gap-0.5 w-24 h-24"
+        className="grid grid-cols-3 grid-rows-3 gap-1 w-32 h-32"
         style={{ gridTemplateAreas: `". up ." "left . right" ". down ."` }}
       >
         {dpadButtons.map(({ label, action, gridArea }) => (
@@ -669,28 +791,28 @@ const Controls: React.FC<ControlsProps> = ({ lastButton, onButtonPress, disabled
             onClick={() => onButtonPress(action)}
             disabled={disabled}
             className={`
-              flex items-center justify-center rounded transition-all text-sm
-              ${disabled ? 'bg-neutral-800 text-neutral-600 cursor-not-allowed' : 'bg-neutral-700 text-neutral-300 hover:bg-neutral-600 active:scale-90'}
-              ${lastButton === action ? 'bg-cyan-600 scale-90' : ''}
+              w-12 h-12 flex items-center justify-center rounded-lg transition-all
+              ${disabled ? 'bg-neutral-800 cursor-not-allowed' : 'bg-neutral-700 hover:bg-neutral-600 active:scale-95'}
+              ${lastButton === action ? 'bg-cyan-600 scale-95' : ''}
             `}
           >
-            {label}
+            <span className="text-neutral-400 text-xs">{label}</span>
           </button>
         ))}
-        <div className="w-8 h-8" style={{ gridArea: '2 / 2' }} />
+        <div className="w-12 h-12" style={{ gridArea: '2 / 2' }} />
       </div>
 
       {/* System Buttons */}
-      <div className="flex flex-col gap-1.5">
-        {(['SELECT', 'START'] as const).map(label => (
+      <div className="flex flex-col gap-2">
+        {systemButtons.map(({ label, action }) => (
           <button
-            key={label}
-            onClick={() => onButtonPress(label as GameButton)}
+            key={action}
+            onClick={() => onButtonPress(action)}
             disabled={disabled}
             className={`
-              px-3 py-1.5 rounded text-xs font-medium transition-all
-              ${disabled ? 'bg-neutral-800 text-neutral-600 cursor-not-allowed' : 'bg-neutral-700 text-neutral-300 hover:bg-neutral-600 active:scale-95'}
-              ${lastButton === label ? 'bg-cyan-600 scale-95' : ''}
+              px-4 py-2 rounded-full text-xs font-medium transition-all
+              ${disabled ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed' : 'bg-neutral-700 hover:bg-neutral-600 active:scale-95'}
+              ${lastButton === action ? 'bg-cyan-600 scale-95' : ''}
             `}
           >
             {label}
@@ -699,16 +821,16 @@ const Controls: React.FC<ControlsProps> = ({ lastButton, onButtonPress, disabled
       </div>
 
       {/* A/B Buttons */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4">
         {buttons.map(({ label, action, color }) => (
           <button
             key={action}
             onClick={() => onButtonPress(action)}
             disabled={disabled}
             className={`
-              w-11 h-11 rounded-full font-bold text-sm transition-all
-              ${disabled ? 'bg-neutral-700 text-neutral-500 cursor-not-allowed' : `${color} text-white active:scale-90`}
-              ${lastButton === action ? 'scale-90 ring-2 ring-white' : ''}
+              w-14 h-14 rounded-full font-bold text-lg transition-all
+              ${disabled ? 'bg-neutral-700 text-neutral-500 cursor-not-allowed' : `${color} text-white active:scale-95`}
+              ${lastButton === action ? 'scale-95 ring-2 ring-white' : ''}
             `}
           >
             {label}

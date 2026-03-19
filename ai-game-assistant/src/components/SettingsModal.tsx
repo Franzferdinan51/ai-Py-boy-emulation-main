@@ -1,6 +1,6 @@
 /**
- * Settings Modal - Simplified Settings Flow
- * Flow: Backend → OpenClaw → Model → Done
+ * Settings Modal - Simplified Configuration
+ * Focus on essential settings only, hide complexity
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -13,7 +13,6 @@ interface Settings {
   agentPersonality: string;
   agentObjectives: string;
   agentMode: boolean;
-  apiKey: string;
 }
 
 interface SettingsModalProps {
@@ -25,18 +24,6 @@ interface SettingsModalProps {
 
 const DEFAULT_BACKEND = 'http://localhost:5002';
 const DEFAULT_OPENCLAW = 'http://localhost:18789';
-
-// Simplified model list - Bailian first (free)
-const VISION_MODELS = [
-  { id: 'kimi-k2.5', name: 'kimi-k2.5 (Bailian - Free)', badge: '🆓' },
-  { id: 'qwen-vl-plus', name: 'qwen-vl-plus (Bailian - Free)', badge: '🆓' },
-];
-
-const TEXT_MODELS = [
-  { id: 'MiniMax-M2.5', name: 'MiniMax-M2.5 (Bailian - Free)', badge: '🆓' },
-  { id: 'qwen3.5-plus', name: 'qwen3.5-plus (Bailian)', badge: '🆓' },
-  { id: 'glm-5', name: 'glm-5 (Bailian)', badge: '🆓' },
-];
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -121,10 +108,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div className="relative bg-neutral-900 border border-neutral-700 rounded-xl w-full max-w-lg mx-4 max-h-[85vh] overflow-hidden flex flex-col">
+      <div className="relative bg-neutral-900 border border-neutral-700 rounded-xl w-full max-w-md mx-4 max-h-[85vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-neutral-700">
-          <h2 className="text-lg font-semibold text-neutral-200">Settings</h2>
+          <div className="flex items-center gap-3">
+            <svg className="w-6 h-6 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <h2 className="text-lg font-semibold text-neutral-200">Configuration</h2>
+          </div>
           <button onClick={onClose} className="p-1 text-neutral-400 hover:text-white">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -132,16 +125,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        {/* Content - Simple single-column flow */}
+        {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-5">
           
-          {/* Step 1: Backend */}
+          {/* Game Server */}
           <section>
-            <h3 className="text-sm font-medium text-cyan-400 mb-2 flex items-center gap-2">
-              <span className="w-5 h-5 rounded bg-cyan-900/50 flex items-center justify-center text-xs">1</span>
-              Game Backend
-            </h3>
-            <p className="text-xs text-neutral-500 mb-2">PyBoy MCP server URL</p>
+            <h3 className="text-sm font-medium text-cyan-400 mb-2">Game Server</h3>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -165,13 +154,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </section>
 
-          {/* Step 2: OpenClaw */}
+          {/* OpenClaw Endpoint */}
           <section>
-            <h3 className="text-sm font-medium text-purple-400 mb-2 flex items-center gap-2">
-              <span className="w-5 h-5 rounded bg-purple-900/50 flex items-center justify-center text-xs">2</span>
-              OpenClaw Agent
-            </h3>
-            <p className="text-xs text-neutral-500 mb-2">OpenClaw Gateway MCP endpoint</p>
+            <h3 className="text-sm font-medium text-purple-400 mb-2">OpenClaw Gateway</h3>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -195,31 +180,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </section>
 
-          {/* Step 3: Model */}
-          <section>
-            <h3 className="text-sm font-medium text-green-400 mb-2 flex items-center gap-2">
-              <span className="w-5 h-5 rounded bg-green-900/50 flex items-center justify-center text-xs">3</span>
-              Vision Model
-            </h3>
-            <p className="text-xs text-neutral-500 mb-2">AI model for screen analysis</p>
-            <select
-              value={localSettings.visionModel}
-              onChange={e => setLocalSettings(prev => ({ ...prev, visionModel: e.target.value }))}
-              className="w-full px-3 py-2 bg-neutral-800 border border-neutral-600 rounded-lg text-sm text-neutral-200"
-            >
-              {VISION_MODELS.map(m => (
-                <option key={m.id} value={m.id}>{m.badge} {m.name}</option>
-              ))}
-            </select>
-          </section>
-
-          {/* Step 4: Agent Settings */}
+          {/* Agent Behavior */}
           <section className="border-t border-neutral-700 pt-4">
             <h3 className="text-sm font-medium text-neutral-300 mb-3">Agent Behavior</h3>
             
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-neutral-500 mb-1">Autonomy</label>
+                <label className="block text-xs text-neutral-500 mb-1">Autonomy Level</label>
                 <select
                   value={localSettings.autonomousLevel}
                   onChange={e => setLocalSettings(prev => ({ ...prev, autonomousLevel: e.target.value }))}
@@ -256,13 +223,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               />
             </div>
 
-            <div className="mt-3 flex items-center justify-between">
-              <span className="text-sm text-neutral-300">Agent Mode</span>
+            {/* Agent Mode Toggle */}
+            <div className="mt-4 flex items-center justify-between p-3 bg-neutral-800 rounded-lg">
+              <div>
+                <span className="text-sm text-neutral-300">Start in Autonomous Mode</span>
+                <p className="text-xs text-neutral-500">OpenClaw controls the game automatically</p>
+              </div>
               <button
                 onClick={() => setLocalSettings(prev => ({ ...prev, agentMode: !prev.agentMode }))}
-                className={`relative w-10 h-5 rounded-full transition-colors ${localSettings.agentMode ? 'bg-green-600' : 'bg-neutral-600'}`}
+                className={`relative w-11 h-6 rounded-full transition-colors ${localSettings.agentMode ? 'bg-cyan-600' : 'bg-neutral-600'}`}
               >
-                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${localSettings.agentMode ? 'left-5' : 'left-0.5'}`} />
+                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${localSettings.agentMode ? 'left-5' : 'left-0.5'}`} />
               </button>
             </div>
           </section>
