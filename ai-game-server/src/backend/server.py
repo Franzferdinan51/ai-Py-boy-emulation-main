@@ -1646,6 +1646,25 @@ def api_game_state():
     state = get_game_state()
     return jsonify(state), 200
 
+@app.route('/api/memory/watch', methods=['GET'])
+def api_memory_watch():
+    state = get_game_state()
+    active = state.get('active_emulator')
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify({'addresses': [], 'values': [], 'timestamp': datetime.now().isoformat()}), 200
+    try:
+        emulator = emulators[active]
+        # minimal compatibility payload for frontend
+        payload = {
+            'addresses': [],
+            'values': [],
+            'timestamp': datetime.now().isoformat(),
+            'frame_count': emulator.get_frame_count() if hasattr(emulator, 'get_frame_count') else 0
+        }
+        return jsonify(payload), 200
+    except Exception as e:
+        return jsonify({'addresses': [], 'values': [], 'timestamp': datetime.now().isoformat(), 'error': str(e)}), 200
+
 @app.route('/api/agent/mode', methods=['POST'])
 def api_agent_mode_set():
     data = request.get_json(silent=True) or {}

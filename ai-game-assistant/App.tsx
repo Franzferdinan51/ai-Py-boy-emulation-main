@@ -197,18 +197,18 @@ const App: React.FC = () => {
 
       try {
         const runtimeProvider = nextSettings.aiProvider || 'openclaw';
-        const runtimeEndpoint = (
+        const runtimeEndpoint = ((
           runtimeProvider === 'lmstudio' || runtimeProvider === 'openai-compatible'
             ? nextSettings.lmStudioUrl || nextSettings.customEndpoint || ''
             : nextSettings.customEndpoint || ''
-        ).trim();
-        const runtimeModel = (
+        ) || '').trim();
+        const runtimeModel = ((
           runtimeProvider === 'lmstudio'
             ? nextSettings.lmStudioThinkingModel || nextSettings.customThinkingModel || ''
             : runtimeProvider === 'openai-compatible'
               ? nextSettings.lmStudioThinkingModel || nextSettings.customThinkingModel || ''
               : nextSettings.customThinkingModel || ''
-        ).trim();
+        ) || '').trim();
 
         const [openClawConfig, aiRuntimeConfig, modeResponse] = await Promise.all([
           apiService.updateOpenClawConfig({
@@ -682,7 +682,7 @@ const App: React.FC = () => {
   const openClawTone = getOpenClawTone(settings.autoConnect, openClawHealth);
   const isRuntimeReady = connectionStatus === 'connected' && gameState.rom_loaded;
   const latestDecision =
-    agentState.last_decision.trim() ||
+    (agentState.last_decision || '').trim() ||
     (connectionStatus === 'connected'
       ? 'Waiting for runtime data from OpenClaw.'
       : 'Connect the backend to receive decisions and actions.');
@@ -700,7 +700,7 @@ const App: React.FC = () => {
     : isRuntimeReady
       ? 'Manual input keeps OpenClaw paused'
       : 'Connect and load a ROM to begin';
-  const currentActionLabel = agentState.current_action.trim() || (agentState.enabled ? 'Thinking' : 'Idle');
+  const currentActionLabel = (agentState.current_action || '').trim() || (agentState.enabled ? 'Thinking' : 'Idle');
   const backendStatusLabel = backendTone === 'standby'
     ? 'Standby'
     : backendTone === 'checking'
