@@ -96,6 +96,8 @@ const App: React.FC = () => {
   const [inventoryData, setInventoryData] = useState<InventoryData | null>(null);
   const [insightTab, setInsightTab] = useState<InsightTab>('party');
   const [lastRomName, setLastRomName] = useState<string | null>(() => localStorage.getItem(LAST_ROM_STORAGE_KEY));
+  const [providerStatus, setProviderStatus] = useState<Record<string, { status: string; available: boolean }>>({});
+  const [activeProvider, setActiveProvider] = useState<string>('openclaw');
 
   const lastDecisionRef = useRef(agentState.last_decision);
   const lastActionRef = useRef(agentState.current_action);
@@ -217,6 +219,11 @@ const App: React.FC = () => {
         setLastRomName(nextGameState.rom_name);
       }
 
+      // Track active provider from agent status
+      if (nextAgentState.provider) {
+        setActiveProvider(nextAgentState.provider);
+      }
+
       if (nextGameState.rom_loaded) {
         void refreshScreen();
         void refreshMemory();
@@ -247,6 +254,14 @@ const App: React.FC = () => {
         error: error instanceof Error ? error.message : 'Failed to reach OpenClaw',
         checked_at: new Date().toISOString(),
       });
+    }
+
+    // Fetch provider status
+    try {
+      const providers = await apiService.getProviderStatus();
+      setProviderStatus(providers);
+    } catch (error) {
+      appendSystemLog('error', error instanceof Error ? error.message : 'Failed to fetch provider status');
     }
   }, [appendDecisionLog, appendSystemLog, refreshMemory, refreshScreen, setConnection, settings.backendUrl, settings.openclawMcpEndpoint]);
 
@@ -471,6 +486,7 @@ const App: React.FC = () => {
           <div className="flex items-center gap-3">
             <StatusPill label="Backend" status={connectionStatus} />
             <StatusPill label="OpenClaw" status={openClawHealth?.ok ? 'connected' : 'disconnected'} />
+            <StatusPill label="AI Provider" status={activeProvider === 'openclaw' ? 'connected' : activeProvider === 'mock' ? 'disconnected' : 'connected'} extra={activeProvider} />
             <button
               onClick={() => setShowKeyboardHelp(true)}
               className="rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-300 transition hover:border-neutral-500 hover:text-white"
@@ -511,9 +527,14 @@ const App: React.FC = () => {
                 hint={`${settings.autonomousLevel} autonomy`}
               />
               <RuntimeStat
-                label="Personality"
-                value={settings.agentPersonality}
-                hint={`Vision ${settings.visionModel}`}
+                label="AI Provider"
+                value={activeProvider === 'openclaw' ? 'OpenClaw (Native)' : activeProvider === 'mock' ? 'Mock (Fallback)' : activeProvider}
+                hint={activeProvider === 'openclaw' ? 'Using OpenClaw Gateway' : activeProvider === 'mock' ? 'No API keys configured' : 'External provider'}
+              />
+              <RuntimeStat
+                label="Vision Model"
+                value={agentState.vision_model || settings.visionModel}
+                hint={agentState.vision_model ? 'From OpenClaw' : 'WebUI default'}
               />
               <RuntimeStat
                 label="Current action"
@@ -765,7 +786,7 @@ const ToolbarButton: React.FC<{
   </button>
 );
 
-const StatusPill: React.FC<{ label: string; status: ConnectionStatus | 'connected' | 'disconnected' }> = ({ label, status }) => {
+const StatusPill: React.FC<{ label: string; status: ConnectionStatus | 'connected' | 'disconnected'; extra?: string }> = ({ label, status, extra }) => {
   const statusClasses =
     status === 'connected'
       ? 'bg-green-950/60 text-green-300 border-green-900/60'
@@ -777,6 +798,7 @@ const StatusPill: React.FC<{ label: string; status: ConnectionStatus | 'connecte
     <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs uppercase tracking-wide ${statusClasses}`}>
       <span className="h-2 w-2 rounded-full bg-current" />
       {label}
+      {extra && <span className="ml-1 opacity-80">({extra})</span>}
     </span>
   );
 };

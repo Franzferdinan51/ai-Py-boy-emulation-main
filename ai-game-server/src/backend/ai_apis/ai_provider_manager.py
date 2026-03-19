@@ -13,6 +13,7 @@ from .openai_compatible import OpenAICompatibleConnector
 from .nvidia_api import NVIDIAAPIConnector
 from .mock_ai_provider import MockAIProvider
 from .tetris_genetic_ai import TetrisGeneticAI
+from .openclaw_ai_provider import OpenClawAIProvider
 
 class ProviderStatus(Enum):
     """Provider status enumeration"""
@@ -31,32 +32,42 @@ class AIProviderManager:
         self.fallback_providers: List[str] = []
         self.last_refresh_time = 0
         self.refresh_interval = 300  # Refresh every 5 minutes
-        self.default_provider = os.environ.get('DEFAULT_AI_PROVIDER', 'mock')
+        # Default to openclaw for OpenClaw-native integration, fallback to mock only if explicitly set
+        self.default_provider = os.environ.get('DEFAULT_AI_PROVIDER', 'openclaw')
         self.initialize_providers()
 
     def initialize_providers(self):
         """Initialize all available AI providers"""
         self.logger.info("Initializing AI providers...")
 
-        # Define provider configurations
+        # Define provider configurations (OpenClaw-first for native integration)
         provider_configs = [
+            {
+                'name': 'openclaw',
+                'env_key': None,  # No API key required - uses local MCP
+                'class': OpenClawAIProvider,
+                'priority': 1,  # Highest priority for OpenClaw-native
+                'extra_params': {
+                    'base_url': os.environ.get('OPENCLAW_MCP_ENDPOINT', 'http://localhost:18789')
+                }
+            },
             {
                 'name': 'gemini',
                 'env_key': 'GEMINI_API_KEY',
                 'class': GeminiAPIConnector,
-                'priority': 1
+                'priority': 2
             },
             {
                 'name': 'openrouter',
                 'env_key': 'OPENROUTER_API_KEY',
                 'class': OpenRouterAPIConnector,
-                'priority': 2
+                'priority': 3
             },
             {
                 'name': 'openai-compatible',
                 'env_key': 'OPENAI_API_KEY',
                 'class': OpenAICompatibleConnector,
-                'priority': 3,
+                'priority': 4,
                 'extra_params': {
                     'base_url': os.environ.get('OPENAI_ENDPOINT')
                 }
@@ -65,13 +76,13 @@ class AIProviderManager:
                 'name': 'nvidia',
                 'env_key': 'NVIDIA_API_KEY',
                 'class': NVIDIAAPIConnector,
-                'priority': 4
+                'priority': 5
             },
             {
                 'name': 'mock',
                 'env_key': None,  # No API key required
                 'class': MockAIProvider,
-                'priority': 1 if self.default_provider == 'mock' else 99,  # High priority if set as default
+                'priority': 99,  # Lowest priority - only if nothing else works
                 'extra_params': {}
             },
             {
@@ -106,11 +117,19 @@ class AIProviderManager:
         extra_params = config.get('extra_params', {})
 
         try:
-            # Special handling for mock provider - no API key needed
-            if name == 'mock':
+            # Special handling for providers that don't need API keys
+            if name == 'openclaw':
+                # OpenClaw uses local MCP - no API key needed
+                api_key = "openclaw-mcp-key"
+                self.logger.info(f"Using OpenClaw provider - local MCP integration")
+            elif name == 'mock':
+                # Mock provider never needs API key
                 api_key = "mock-key"
+                self.logger.info(f"Using mock provider - no API key required")
             elif name == 'tetris-genetic':
-                api_key = None  # No API key required
+                # Tetris genetic AI doesn't need API key
+                api_key = "genetic-key"
+                self.logger.info(f"Using tetris-genetic provider - no API key required")
             elif env_key:
                 api_key = os.environ.get(env_key)
             else:
@@ -255,8 +274,8 @@ class AIProviderManager:
     def _test_provider_connection(self, connector: AIAPIConnector, provider_name: str) -> bool:
         """Test if a provider connection is working"""
         try:
-            # Mock provider is always available
-            if provider_name == 'mock':
+            # OpenClaw and mock providers are always available (local)
+            if provider_name in ('openclaw', 'mock'):
                 return True
 
             # Try to get models list as a simple test for other providers

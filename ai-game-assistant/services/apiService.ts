@@ -314,6 +314,10 @@ class ApiService {
     const params = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : '';
     return this.request<OpenClawHealthResponse>(`/api/openclaw/health${params}`);
   }
+
+  getProviderStatus() {
+    return this.request<Record<string, { status: string; priority: number; error: string | null; available: boolean }>>('/api/providers/status');
+  }
 }
 
 const apiService = new ApiService();
