@@ -135,6 +135,7 @@ build/
 # Documentation and summaries
 *.md
 !README.md
+!QUICKSTART.md
 !CLAUDE.md
 !CLAUDEPLAYER-INTEGRATION.md
 !ENHANCEMENTS.md
@@ -160,9 +161,11 @@ logging_config.yaml
 
 # Demo and test files
 demo_*.py
-test_*.py
 *_test.py
 *_demo.py
+!tests/test_api.py
+!tests/test_mcp.py
+!tests/conftest.py
 
 # Backup files
 *_backup*
