@@ -1,91 +1,33 @@
 # 🎮 AI GameBoy Emulator
 
-OpenClaw Agent-powered emulation for Game Boy, Game Boy Color, and Game Boy Advance games. Now with **live streaming**, **tile-based rendering**, and **mobile support**!
+**42 MCP tools** for autonomous Game Boy emulation. Works with **ANY** GB/GBC/GBA game!
 
 ## What This Is
 
-An MCP server + web interface that lets AI agents control Game Boy emulation. Features:
-- **Live Screen Streaming** - Real-time 60fps via SSE
-- **Tile-Based Rendering** - Works in headless environments (no display required)
-- **Mobile-Friendly** - Single proxy server serves both frontend and API
-- **Memory Reading** - Position, inventory, HP, party data
-- **Vision AI** - Screen analysis with dual-model routing
-- **Autonomous Play** - AI makes intelligent decisions
+An MCP server + web interface for AI agents to control Game Boy emulation. Features:
+- **Live Streaming** - Real-time 60fps via SSE
+- **42 MCP Tools** - Comprehensive controls for any game
+- **Mobile Support** - Single URL works on desktop + mobile
+- **Memory Access** - Read/write game RAM
+- **Vision AI** - Screen analysis ready
 
-## ✨ Latest Features
-
-| Feature | Description |
-|---------|-------------|
-| **Live Streaming** | SSE-based 60fps screen streaming |
-| **Tile Rendering** | Direct VRAM tile reading - works on headless servers |
-| **Mobile Proxy** | Single server handles frontend + API for cross-device access |
-| **Auto-Reconnect** | SSE automatically reconnects on connection loss |
-| **Mobile Polling** | Fallback to polling on iOS/Android for compatibility |
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Proxy Server :5173                     │
-│  ┌─────────────────┐    ┌────────────────────────────┐  │
-│  │  Static Files  │    │     API Proxy              │  │
-│  │  (Frontend)     │───▶│  /api/* ──▶ :5002        │  │
-│  │                 │    │  /health ──▶ :5002        │  │
-│  └─────────────────┘    └────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                   ┌─────────────────────┐
-                   │  PyBoy Backend :5002 │
-                   │  ┌───────────────┐  │
-                   │  │  Tile Renderer │  │
-                   │  │  (VRAM tiles) │  │
-                   │  └───────────────┘  │
-                   │  ┌───────────────┐  │
-                   │  │  SSE Stream   │  │
-                   │  │  60fps        │  │
-                   │  └───────────────┘  │
-                   └─────────────────────┘
-```
-
-## Supported Systems
-
-| System | Formats |
-|--------|---------|
-| Game Boy | .gb |
-| Game Boy Color | .gbc |
-| Game Boy Advance | .gba |
-
-## Requirements
-
-- Python 3.10+
-- Node.js 18+ (for web UI)
-- PyBoy: `pip install pyboy`
-- MCP: `pip install mcp`
-
-## Installation
+## ⚡ Quick Start
 
 ```bash
-# Clone repo
-git clone https://github.com/Franzferdinan51/ai-Py-boy-emulation-main
-cd ai-Py-boy-emulation-main
+# 1. Start backend
+cd ai-game-server/src
+BACKEND_PORT=5002 python3 main.py
 
-# Install Python dependencies
-cd ai-game-server
-pip install -r requirements.txt
-
-# Install Node dependencies (for web UI)
+# 2. Start proxy (serves frontend + API)
 cd ../ai-game-assistant
-npm install
+python3 proxy-server.py
+
+# 3. Open http://localhost:5173
 ```
 
-## LM Studio / MCP Setup
+## 🔧 LM Studio Setup
 
-The AI GameBoy Emulator includes a **GENERIC** MCP server that works with **ANY** Game Boy game - not just Pokemon!
-
-### Add to LM Studio MCP Config
-
-Add this to your `~/.lmstudio/mcp.json`:
+Add to `~/.lmstudio/mcp.json`:
 
 ```json
 {
@@ -98,13 +40,13 @@ Add this to your `~/.lmstudio/mcp.json`:
 }
 ```
 
-### MCP Tools Available (42 Tools - Work with ANY Game!)
+## 📋 MCP Tools (42 Total)
 
-#### Button Controls
+### 🎮 Buttons (10)
 | Tool | Description |
 |------|-------------|
-| `press_a` | Press A button |
-| `press_b` | Press B button |
+| `press_a` | Press A |
+| `press_b` | Press B |
 | `press_up` | Press UP |
 | `press_down` | Press DOWN |
 | `press_left` | Press LEFT |
@@ -112,34 +54,33 @@ Add this to your `~/.lmstudio/mcp.json`:
 | `press_start` | Press START |
 | `press_select` | Press SELECT |
 | `press_button_combo` | Combo (UP+A) |
-| `hold_button` | Hold button N frames |
+| `hold_button` | Hold N frames |
 
-#### Screen & Visuals
+### 📺 Screen (5)
 | Tool | Description |
 |------|-------------|
-| `get_screen` | Get current screen |
-| `screenshot` | Take screenshot |
+| `get_screen` | Current screen |
+| `screenshot` | Screenshot |
 | `tick` | Advance frames |
-| `compare_screens` | Detect screen changes |
-| `get_tile_data` | VRAM tile data |
+| `compare_screens` | Detect changes |
+| `get_tile_data` | VRAM tiles |
 
-#### Game State
+### 🎯 Game State (7)
 | Tool | Description |
 |------|-------------|
 | `get_state` | Emulator state |
 | `get_game_info` | Game info |
-| `get_system_info` | ROM header, system |
-| `save_state` | Save state |
-| `load_state` | Load state |
+| `get_system_info` | ROM header |
+| `save_state` | Save |
+| `load_state` | Load |
 | `quick_save` | Quick save |
 | `quick_load` | Quick load |
-| `list_save_slots` | List saves |
 
-#### Pokemon-Specific
+### 🐭 Pokemon (8)
 | Tool | Description |
 |------|-------------|
 | `get_party` | Party Pokemon |
-| `get_inventory` | Inventory |
+| `get_inventory` | Items |
 | `get_position` | X,Y position |
 | `get_map` | Current map |
 | `get_money` | Money |
@@ -147,225 +88,114 @@ Add this to your `~/.lmstudio/mcp.json`:
 | `get_wild_pokemon` | Wild Pokemon |
 | `get_enemy_info` | Enemy info |
 
-#### Generic (ANY game)
+### 🎲 Generic - ANY Game (5)
 | Tool | Description |
 |------|-------------|
-| `get_health` | HP/Health |
-| `get_score` | Score (Tetris, etc.) |
+| `get_health` | HP |
+| `get_score` | Score |
 | `get_level` | Level/Area |
 | `get_lives` | Lives |
 | `get_game_time` | Timer |
 
-#### Memory Access
+### 💾 Memory (6)
 | Tool | Description |
 |------|-------------|
 | `get_memory` | Read address |
 | `read_ram` | Read RAM range |
 | `write_ram` | Write RAM |
 | `search_ram` | Search RAM |
+| `list_save_slots` | List saves |
 | `load_rom` | Load ROM |
 
-### Supported Games
+## 🎮 Supported Games
 
-Works with **ANY** Game Boy game:
+**ANY Game Boy game works!**
+
+| System | Formats |
+|--------|---------|
+| Game Boy | .gb |
+| Game Boy Color | .gbc |
+| Game Boy Advance | .gba |
+
+### Examples
 - ✅ Pokemon Red/Blue/Yellow
 - ✅ Super Mario
 - ✅ Legend of Zelda
 - ✅ Tetris
-- ✅ Any .gb, .gbc, or .gba game!
+- ✅ Any .gb, .gbc, .gba!
 
-### Using with OpenClaw
+## 📱 Mobile Access
 
-The MCP server works with OpenClaw agents for autonomous gameplay. Configure in your OpenClaw MCP settings.
-
-## Quick Start
-
-### 1. Start Backend
-
-```bash
-cd ai-game-server/src
-BACKEND_PORT=5002 python3 main.py
+Connect from phone to same URL:
+```
+Desktop: http://localhost:5173
+Mobile:  http://YOUR_IP:5173
 ```
 
-### 2. Start Proxy Server (serves both frontend + API)
+Proxy server handles routing automatically.
 
-```bash
-cd ai-game-assistant
-python3 proxy-server.py
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────┐
+│  Proxy Server :5173            │
+│  ┌─────────┐  ┌────────────┐  │
+│  │Frontend │──│API Proxy   │  │
+│  └─────────┘  └─────┬──────┘  │
+└──────────────────────┼──────────┘
+                       │
+                       ▼
+              ┌────────────────┐
+              │ Backend :5002  │
+              │ ┌────────────┐ │
+              │ │Tile Renderer│ │
+              │ │SSE Stream  │ │
+              │ └────────────┘ │
+              └────────────────┘
 ```
 
-### 3. Access the Web UI
-
-**Desktop:** http://localhost:5173
-
-**Mobile:** http://YOUR_MAC_IP:5173
-
-Both use the same URL - the proxy handles routing automatically!
-
-## Mobile Access Setup
-
-On your phone, connect to your Mac's IP address:
-
-```bash
-# Find your Mac's IP
-ifconfig | grep "inet " | grep -v 127.0.0.1
-```
-
-Then open `http://192.168.x.x:5173` on your phone. The proxy server automatically forwards API requests to the backend.
-
-## MCP Tools
-
-### Core Controls
-
-| Tool | Description |
-|------|-------------|
-| `emulator_load_rom` | Load a ROM file |
-| `emulator_press_button` | Press GB button (A/B/START/SELECT/UP/DOWN/LEFT/RIGHT) |
-| `emulator_tick` | Advance N frames |
-| `emulator_get_state` | Get emulator state |
-
-### Vision & Screen
-
-| Tool | Description |
-|------|-------------|
-| `get_screen_base64` | Get screen as base64 for AI vision |
-
-### Memory Reading
-
-| Tool | Description |
-|------|-------------|
-| `get_memory_address` | Read memory at address with description |
-| `set_memory_address` | Write to memory address (⚠️ can corrupt game state) |
-| `get_player_position` | Get player X,Y coordinates |
-| `get_party_pokemon` | Get all Pokemon in party with stats |
-| `get_inventory` | Get bag items with quantities |
-| `get_map_location` | Get current location |
-| `get_money` | Get player money |
-
-### Save States
-
-| Tool | Description |
-|------|-------------|
-| `save_game_state` | Save game progress |
-| `load_game_state` | Load saved game |
-
-### Auto-Play Modes 🤖
-
-| Tool | Description |
-|------|-------------|
-| `auto_battle_mode` | AI fights Pokemon automatically |
-| `auto_explore_mode` | AI explores the world |
-
-### Session Management
-
-| Tool | Description |
-|------|-------------|
-| `session_start` | Create new gaming session |
-| `session_get` | Get session data |
-| `session_set` | Store session data |
-| `session_list` | List all sessions |
-| `session_delete` | Delete session |
-
-## HTTP API Endpoints
-
-### Core
-- `GET /health` - Health check
-- `GET /api/status` - Server status
-- `GET /api/config` - Configuration
-
-### Emulator
-- `POST /api/load_rom` - Load ROM
-- `POST /api/action` - Send button input
-- `POST /api/ai-action` - Get AI action
-- `GET /api/screen` - Get screen image (polling)
-- `GET /api/stream` - SSE stream of screen updates (60fps)
-
-### Save/Load
-- `POST /api/save_state` - Save state
-- `POST /api/load_state` - Load state
-
-### Memory
-- `POST /memory` - Read memory
-- `GET /characters` - Get sprites
-- `GET /tilemap` - Get tilemap
-- `GET /sprites` - Get sprites
-
-### AI
-- `POST /api/chat` - Chat with AI
-- `GET /api/providers/status` - AI provider status
-
-## Web UI Features
-
-- **Live Screen** - 60fps streaming via SSE (desktop) or polling (mobile)
-- **Game Controls** - D-pad, A/B, Start/Select
-- **Party View** - Pokemon stats, HP bars, moves
-- **Inventory** - Bag contents
-- **Memory Watch** - Debug watched addresses
-- **OpenClaw Status** - Agent decision feed
-
-## Tile-Based Rendering (Headless Mode)
-
-PyBoy normally requires a display for SDL2 rendering. This project uses **direct VRAM tile reading** to render screens in headless environments:
-
-- **Tile Map:** `0x9800-0x9BFF` (32x32 tiles, 20x18 visible)
-- **Tile Data:** `0x8000-0x87FF` (128 tiles, 16 bytes each)
-- **Palette:** Game Boy DMG green tones
-
-This enables the backend to run on headless servers without X11/display.
-
-## Troubleshooting
-
-### Screen shows white/blank
-- Backend needs display for SDL2 rendering
-- Use tile-based rendering (enabled by default)
-- Or use Xvfb: `xvfb-run python3 main.py`
-
-### Mobile can't connect
-- Ensure phone and Mac on same WiFi
-- Check Mac's firewall allows port 5173
-- Try hard refresh on phone browser
-
-### SSE not working on iOS
-- iOS Chrome has limited SSE support
-- Fallback to polling (automatic on mobile)
-
-### Backend won't start
-- Check Python version (3.10+)
-- Verify dependencies installed
-- Check port not in use: `lsof -i :5002`
-
-## Documentation
-
-- [📖 API Reference](guides/API_REFERENCE.md) - Complete API docs
-- [🚀 Quick Start](QUICKSTART.md) - New user guide
-- [🧠 Decision Tree](guides/DECISION_TREE.md) - How AI makes decisions
-- [👁️ Vision Guide](guides/VISION_GUIDE.md) - Vision AI integration
-- [📝 Examples](EXAMPLES.md) - Example prompts and sessions
-- [🔧 Troubleshooting](TROUBLESHOOTING.md) - Common issues
-
-## File Structure
+## 📁 File Structure
 
 ```
 ai-Py-boy-emulation-main/
-├── ai-game-server/         # Python backend + MCP
-│   ├── mcp_server.py       # MCP server
-│   └── src/                # Flask API
-│       └── backend/
-│           └── emulators/
-│               └── pyboy_emulator.py  # Tile-based renderer
-├── ai-game-assistant/      # React web UI
-│   ├── proxy-server.py    # Unified proxy (frontend + API)
-│   └── services/
-│       └── apiService.ts   # API client
-├── skills/                 # OpenClaw skills
-├── tools/                  # Agent utilities
-└── guides/                 # Documentation
+├── ai-game-server/
+│   ├── src/
+│   │   ├── backend/           # Flask API
+│   │   │   └── emulators/
+│   │   │       └── pyboy_emulator.py
+│   │   └── server.py
+│   └── generic_mcp_server.py   # MCP server (42 tools)
+├── ai-game-assistant/
+│   ├── proxy-server.py       # Unified proxy
+│   ├── App.tsx               # React frontend
+│   └── services/apiService.ts
+└── README.md
 ```
 
-## License
+## 🔧 Troubleshooting
 
-MIT
+### Screen shows white
+- Use tile-based rendering (default)
+- Or use Xvfb: `xvfb-run python3 main.py`
 
----
+### Mobile can't connect
+- Phone must be on same network
+- Try: `ifconfig | grep "inet "` to get IP
+- Check firewall allows port 5173
 
-**🦆 DuckBot is playing Pokemon Red!** - See SOUL.md for current progress
+### MCP not working in LM Studio
+- Restart LM Studio
+- Check Python path: `/opt/homebrew/opt/python@3.14/bin/python3.14`
+
+## 📚 Docs
+
+- [API Reference](guides/API_REFERENCE.md)
+- [Quick Start](QUICKSTART.md)
+- [Vision Guide](guides/VISION_GUIDE.md)
+- [Troubleshooting](TROUBLESHOOTING.md)
+
+## 🦆 DuckBot
+
+DuckBot uses this for autonomous Pokemon Red gameplay via OpenClaw.
+
+**GitHub:** https://github.com/Franzferdinan51/ai-Py-boy-emulation-main
