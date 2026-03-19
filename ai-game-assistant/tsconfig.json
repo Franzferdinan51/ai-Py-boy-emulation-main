@@ -20,10 +20,10 @@
     "App.tsx",
     "index.tsx",
     "services/apiService.ts",
+    "services/webUiSettings.ts",
     "src/components/SettingsModal.tsx",
     "src/components/PartyPanel.tsx",
     "src/components/InventoryPanel.tsx",
-    "src/components/index.ts",
-    "src/lib/**/*.ts"
+    "src/components/index.ts"
   ]
 }

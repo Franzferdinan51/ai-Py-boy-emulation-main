@@ -28,7 +28,7 @@ import apiService, {
 import InventoryPanel from './src/components/InventoryPanel';
 import PartyPanel from './src/components/PartyPanel';
 import SettingsModal from './src/components/SettingsModal';
-import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './src/lib/settings';
+import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './services/webUiSettings';
 
 const STATUS_REFRESH_MS = 3000;
 const SCREEN_REFRESH_MS = 500;

@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import WebUiApp from './src/WebUiApp';
-import './index.css';
+import App from './App';
 
 const rootElement = document.getElementById('root');
 
@@ -11,6 +10,6 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <WebUiApp />
-  </React.StrictMode>
+    <App />
+  </React.StrictMode>,
 );
