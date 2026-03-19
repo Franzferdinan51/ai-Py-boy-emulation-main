@@ -512,7 +512,7 @@ ai-Py-boy-emulation-main/
 │   ├── openclaw_agent.py           # Python agent
 │   └── requirements.txt
 ├── skills/duckbot/
-│   └── SKILL.md                   # ← DuckBot skill guide
+│   └── SKILL.md                   # ← Agent skill guide
 ├── tools/
 │   ├── AGENT_QUICKSTART.md        # ← 5-minute setup!
 │   ├── spawn-gaming-agent.sh       # Spawn agents
@@ -542,7 +542,7 @@ During play:
 
 ## 🔗 Related Documentation
 
-- [skills/duckbot/SKILL.md](skills/duckbot/SKILL.md) - DuckBot persona & tips
+- [skills/duckbot/SKILL.md](skills/duckbot/SKILL.md) - Agent persona & tips
 - [skills/pyboy/SKILL.md](skills/pyboy/SKILL.md) - PyBoy skill reference
 - [tools/AGENT_QUICKSTART.md](tools/AGENT_QUICKSTART.md) - 5-minute setup
 

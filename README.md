@@ -1,4 +1,4 @@
-# 🦆 DuckBot AI-PyBoy-Emulation
+# 🦆 AI GameBoy Emulator - Agent-First
 
 **OpenClaw Agent-first Game Boy emulation**
 
@@ -61,7 +61,7 @@ openclaw sessions spawn --task "Play Pokemon Red"
 
 ## For Humans
 
-**DuckBot is playing Pokemon Red!** 🦆
+**AI GameBoy is playing Pokemon Red!** 🦆
 
 ### Current Status
 
@@ -84,7 +84,7 @@ Access the game through the Agent Dashboard or connect directly:
 ./tools/spawn-gaming-agent.sh auto pokemon-red.gb bailian/kimi-k2.5 50
 ```
 
-### DuckBot's Goal
+### AI GameBoy's Goal
 
 Beat Pokemon Red and become Champion!
 
@@ -128,12 +128,12 @@ cd ai-game-server/src && BACKEND_PORT=5003 python3 main.py
 
 - **GitHub:** https://github.com/Franzferdinan51/ai-Py-boy-emulation-main
 - **Documentation:** [AGENTS.md](AGENTS.md)
-- **DuckBot Skill:** [skills/duckbot/SKILL.md](skills/duckbot/SKILL.md)
+- **AI GameBoy Skill:** [skills/duckbot/SKILL.md](skills/duckbot/SKILL.md)
 - **PyBoy Skill:** [skills/pyboy/SKILL.md](skills/pyboy/SKILL.md)
 
 ---
 
-**DuckBot** 🦆 - *Quack! Let's play!*
+**AI GameBoy** 🦆 - *Quack! Let's play!*
 
 *Autonomous Game Boy gameplay powered by OpenClaw + Bailian AI*
 ---

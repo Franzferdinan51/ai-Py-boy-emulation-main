@@ -36,8 +36,8 @@ echo ""
 # Check if MCP server is registered
 check_mcp() {
     echo -e "${YELLOW}Checking MCP server registration...${NC}"
-    if mcporter list 2>/dev/null | grep -q "duckbot-emulator"; then
-        echo -e "${GREEN}✓ MCP server 'duckbot-emulator' is registered${NC}"
+    if mcporter list 2>/dev/null | grep -q "gameboy-emulator"; then
+        echo -e "${GREEN}✓ MCP server 'gameboy-emulator' is registered${NC}"
         return 0
     else
         echo -e "${YELLOW}! MCP server not registered. Registering now...${NC}"
@@ -48,7 +48,7 @@ check_mcp() {
 # Register MCP server
 register_mcp() {
     echo -e "${BLUE}Registering DuckBot MCP server...${NC}"
-    mcporter add duckbot-emulator --stdio "python3 $MCP_SERVER"
+    mcporter add gameboy-emulator --stdio "python3 $MCP_SERVER"
     echo -e "${GREEN}✓ MCP server registered${NC}"
 }
 
@@ -94,18 +94,18 @@ spawn_agent() {
     echo "  sessions_spawn \\"
     echo "    --task \"$task\" \\"
     echo "    --model $model \\"
-    echo "    --agentId duckbot-gaming"
+    echo "    --agentId gameboy-gaming"
     echo ""
     echo -e "${BLUE}Or use the MCP tools directly:${NC}"
     echo ""
     echo "  # Load ROM"
-    echo "  mcporter call duckbot-emulator.emulator_load_rom rom_path=\"$ROMS_DIR/$game\""
+    echo "  mcporter call gameboy-emulator.emulator_load_rom rom_path=\"$ROMS_DIR/$game\""
     echo ""
     echo "  # Start playing"
-    echo "  mcporter call duckbot-emulator.emulator_press_sequence sequence=\"W W W START\""
+    echo "  mcporter call gameboy-emulator.emulator_press_sequence sequence=\"W W W START\""
     echo ""
     echo "  # Get screen for vision"
-    echo "  mcporter call duckbot-emulator.emulator_get_frame include_base64=true"
+    echo "  mcporter call gameboy-emulator.emulator_get_frame include_base64=true"
     echo ""
 }
 
