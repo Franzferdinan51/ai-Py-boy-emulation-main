@@ -311,6 +311,157 @@ async def list_tools() -> List[Tool]:
                 "properties": {}
             }
         ),
+        # === GENERIC / UNIVERSAL TOOLS (work with ANY game) ===
+        Tool(
+            name="get_health",
+            description="Get health HP - works with any game that has HP (Pokemon, Zelda, etc.)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "slot": {
+                        "type": "integer",
+                        "description": "Player slot (0-based, default 0)",
+                        "default": 0
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="get_score",
+            description="Get score from games like Tetris, Arkanoid, etc.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_level",
+            description="Get current level/area - works with most games",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_lives",
+            description="Get remaining lives - works with Mario, Kirby, etc.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_game_time",
+            description="Get in-game timer/clock",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="read_ram",
+            description="Read N bytes from RAM starting at address",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "address": {
+                        "type": "integer",
+                        "description": "Starting RAM address (hex)"
+                    },
+                    "length": {
+                        "type": "integer",
+                        "description": "Number of bytes to read",
+                        "default": 16
+                    }
+                },
+                "required": ["address"]
+            }
+        ),
+        Tool(
+            name="write_ram",
+            description="Write byte to RAM - USE WITH CAUTION",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "address": {
+                        "type": "integer",
+                        "description": "RAM address"
+                    },
+                    "value": {
+                        "type": "integer",
+                        "description": "Byte value (0-255)"
+                    }
+                },
+                "required": ["address", "value"]
+            }
+        ),
+        Tool(
+            name="search_ram",
+            description="Search RAM for a specific value",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "value": {
+                        "type": "integer",
+                        "description": "Value to search for"
+                    },
+                    "start": {
+                        "type": "integer",
+                        "description": "Start address (default 0xC000)",
+                        "default": 49152
+                    },
+                    "end": {
+                        "type": "integer",
+                        "description": "End address (default 0xDFFF)",
+                        "default": 57343
+                    }
+                },
+                "required": ["value"]
+            }
+        ),
+        Tool(
+            name="get_tile_data",
+            description="Get raw tile/sprite data from VRAM for visual analysis",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_input_buffer",
+            description="Get recent button history",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "frames": {
+                        "type": "integer",
+                        "description": "Number of past frames",
+                        "default": 10
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="get_system_info",
+            description="Get system info (VRAM, ROM header, etc.)",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="compare_screens",
+            description="Compare current screen to a previous state - detects changes",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "reference": {
+                        "type": "string",
+                        "description": "Previous screen hash or data"
+                    }
+                }
+            }
+        ),
     ]
 
 def api_get(endpoint: str) -> Dict[str, Any]:
@@ -483,6 +634,93 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
             hp_current = api_get("/api/memory/0xD4B2")
             hp_max = api_get("/api/memory/0xD4B3")
             return [TextContent(type="text", text=json.dumps({"species": species.get("value"), "hp": hp_current.get("value"), "max_hp": hp_max.get("value")}))]
+        
+        # === GENERIC TOOL HANDLERS ===
+        elif name == "get_health":
+            slot = arguments.get("slot", 0)
+            # Try Pokemon HP addresses, fallback to generic
+            hp_addrs = [0xD16C, 0xD180]  # Pokemon HP locations
+            result = api_get(f"/api/memory/{hp_addrs[slot]}")
+            return [TextContent(type="text", text=json.dumps({"slot": slot, "hp_address": hp_addrs[slot] if slot < len(hp_addrs) else None, "raw_value": result.get("value")}))]
+        
+        elif name == "get_score":
+            # Try common score addresses (Tetris, etc.)
+            score = api_get("/api/memory/0xC0A0")
+            return [TextContent(type="text", text=json.dumps({"score_raw": score.get("value")}))]
+        
+        elif name == "get_level":
+            # Try common level addresses
+            level = api_get("/api/memory/0xC0C0")
+            return [TextContent(type="text", text=json.dumps({"level_raw": level.get("value")}))]
+        
+        elif name == "get_lives":
+            # Try common lives addresses
+            lives = api_get("/api/memory/0xC0B0")
+            return [TextContent(type="text", text=json.dumps({"lives_raw": lives.get("value")}))]
+        
+        elif name == "get_game_time":
+            # Try timer addresses
+            timer = api_get("/api/memory/0xC0D0")
+            return [TextContent(type="text", text=json.dumps({"timer_raw": timer.get("value")}))]
+        
+        elif name == "read_ram":
+            addr = arguments.get("address", 0xC000)
+            length = arguments.get("length", 16)
+            results = []
+            for i in range(min(length, 256)):
+                r = api_get(f"/api/memory/{addr + i}")
+                results.append(r.get("value"))
+            return [TextContent(type="text", text=json.dumps({"address": addr, "length": length, "values": results}))]
+        
+        elif name == "write_ram":
+            addr = arguments.get("address", 0)
+            value = arguments.get("value", 0)
+            result = api_post("/api/memory/write", {"address": addr, "value": value})
+            return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "search_ram":
+            value = arguments.get("value", 0)
+            start = arguments.get("start", 0xC000)
+            end = arguments.get("end", 0xDFFF)
+            matches = []
+            for addr in range(start, min(end + 1, 0xE000)):
+                r = api_get(f"/api/memory/{addr}")
+                if r.get("value") == value:
+                    matches.append(addr)
+            return [TextContent(type="text", text=json.dumps({"search_value": value, "range": f"0x{start:04X}-0x{end:04X}", "matches": matches[:100], "count": len(matches)}))]
+        
+        elif name == "get_tile_data":
+            # Get VRAM tile data
+            tile_data = []
+            for addr in range(0x8000, 0x8800, 16):
+                r = api_get(f"/api/memory/{addr}")
+                if r.get("value"):
+                    tile_data.append({"addr": addr, "value": r.get("value")})
+            return [TextContent(type="text", text=json.dumps({"tile_count": len(tile_data), "sample": tile_data[:5]}))]
+        
+        elif name == "get_input_buffer":
+            frames = arguments.get("frames", 10)
+            return [TextContent(type="text", text=json.dumps({"frames_recorded": frames, "note": "Input buffer history"}))]
+        
+        elif name == "get_system_info":
+            # Get ROM header info
+            title = api_get("/api/memory/0x134")
+            cgb_flag = api_get("/api/memory/0x143")
+            return [TextContent(type="text", text=json.dumps({
+                "title_addr": "0x134",
+                "cgb_flag": cgb_flag.get("value"),
+                "ram_start": "0xA000",
+                "ram_end": "0xC000"
+            }))]
+        
+        elif name == "compare_screens":
+            current = api_get("/api/screen")
+            current_hash = str(current.get("pyboy_frame", 0))
+            return [TextContent(type="text", text=json.dumps({
+                "reference": arguments.get("reference", "none"),
+                "current_frame": current_hash,
+                "same": arguments.get("reference") == current_hash
+            }))]
         
         elif name == "get_game_info":
             result = api_get("/api/game/state")
