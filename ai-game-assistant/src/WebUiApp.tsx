@@ -200,8 +200,8 @@ function toHex(value: number, padding = 4) {
   return `0x${value.toString(16).toUpperCase().padStart(padding, '0')}`;
 }
 
-function parseNumericInput(raw: string) {
-  const value = raw.trim();
+function parseNumericInput(raw: string | null | undefined) {
+  const value = (raw || '').trim();
   if (!value) {
     return null;
   }
@@ -548,11 +548,11 @@ const WebUiApp: React.FC = () => {
   const handleSaveSettings = async () => {
     const normalized = {
       ...settingsDraft,
-      backendUrl: settingsDraft.backendUrl.trim() || DEFAULT_SETTINGS.backendUrl,
-      apiEndpoint: settingsDraft.apiEndpoint.trim(),
-      model: settingsDraft.model.trim(),
-      apiKey: settingsDraft.apiKey.trim(),
-      goal: settingsDraft.goal.trim() || DEFAULT_SETTINGS.goal,
+      backendUrl: (settingsDraft.backendUrl || '').trim() || DEFAULT_SETTINGS.backendUrl,
+      apiEndpoint: (settingsDraft.apiEndpoint || '').trim(),
+      model: (settingsDraft.model || '').trim(),
+      apiKey: (settingsDraft.apiKey || '').trim(),
+      goal: (settingsDraft.goal || '').trim() || DEFAULT_SETTINGS.goal,
       screenRefreshMs: Math.max(250, Math.min(2000, settingsDraft.screenRefreshMs)),
     };
 
@@ -582,7 +582,7 @@ const WebUiApp: React.FC = () => {
   };
 
   const handleLoadRomFromPath = async () => {
-    const trimmedPath = romPath.trim();
+    const trimmedPath = (romPath || '').trim();
     if (!trimmedPath) {
       addActivity('warning', 'rom', 'Enter a ROM path before loading from disk');
       return;
@@ -639,7 +639,7 @@ const WebUiApp: React.FC = () => {
   };
 
   const requestAiAction = async (applyAfter = false) => {
-    if (!settings.goal.trim()) {
+    if (!(settings.goal || '').trim()) {
       addActivity('warning', 'assistant', 'Set an AI goal before requesting an action');
       return;
     }
@@ -682,7 +682,7 @@ const WebUiApp: React.FC = () => {
   };
 
   const handleSendChat = async () => {
-    const message = chatInput.trim();
+    const message = (chatInput || '').trim();
     if (!message) {
       return;
     }
@@ -742,7 +742,7 @@ const WebUiApp: React.FC = () => {
       enabled: agentDraft.enabled,
       autonomous_level: agentDraft.autonomousLevel,
       direction: agentDraft.direction,
-      target: agentDraft.target.trim() || undefined,
+      target: (agentDraft.target || '').trim() || undefined,
     }), {
       successMessage: `Agent mode set to ${agentDraft.mode}`,
       source: 'agent',
