@@ -92,10 +92,10 @@ class PyBoyEmulator(EmulatorInterface):
                 # Initialize PyBoy using the official API pattern
                 logger.info(f"Initializing PyBoy with ROM: {os.path.basename(rom_path)}")
 
-                # Use null window for server process - UI will be in separate process
+                # Use SDL2 window for proper screen buffer rendering
                 self.pyboy = PyBoy(
                     rom_path,
-                    window="null",  # Always use null for server process
+                    window="SDL2",  # SDL2 for proper screen capture
                     scale=2,
                     sound_emulated=False,  # Disable sound to prevent buffer overrun crashes
                     sound_volume=0
@@ -1122,10 +1122,10 @@ class PyBoyEmulatorMP(EmulatorInterface):
     def _pyboy_worker(self, rom_path: str, command_queue: Queue, result_queue: Queue, stop_event: Event):
         """Worker function that runs PyBoy in a separate process"""
         try:
-            # Initialize PyBoy in worker process
+            # Initialize PyBoy in worker process with SDL2 for proper rendering
             pyboy = PyBoy(
                 rom_path,
-                window="null",
+                window="SDL2",
                 scale=2,
                 sound_emulated=False,
                 sound_volume=0
