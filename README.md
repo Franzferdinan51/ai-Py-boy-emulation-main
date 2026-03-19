@@ -1,271 +1,124 @@
-# 🎮 AI GameBoy Emulator
+# AI GameBoy Emulator
 
-**42 MCP tools** for autonomous Game Boy emulation. Works with **ANY** GB/GBC/GBA game!
+An **agent-first Game Boy platform** built on PyBoy, with:
+- web UI + proxy frontend
+- stable backend emulator API
+- MCP / LM Studio integration
+- live streaming
+- real save/load support
+- operator panels for party, inventory, memory, minimap, NPCs, and strategy
 
-## What This Is
+This project is no longer just a demo UI. It is intended to be a working foundation for **AI agents that can observe, reason, and act inside Game Boy games**.
 
-An MCP server + web interface for AI agents to control Game Boy emulation. Features:
-- **Live Streaming** - Real-time 60fps via SSE or WebSocket
-- **WebSocket Support** - Primary streaming method with bidirectional communication
-- **42 MCP Tools** - Comprehensive controls for any game
-- **Mobile Support** - Single URL works on desktop + mobile
-- **Memory Access** - Read/write game RAM
-- **Vision AI** - Screen analysis ready
+## What it includes
+- **Frontend**: `ai-game-assistant/`
+- **Backend**: `ai-game-server/`
+- **MCP wrapper**: `ai-game-server/generic_mcp_server.py`
+- **Repo-local skills**: `skills/`
+- **Verification/docs**: `docs/`
 
-## ⚡ Quick Start
+## Runtime ports
+- Frontend/proxy: `http://localhost:5173`
+- Backend API: `http://localhost:5002`
+- WebSocket stream: `ws://localhost:5003/`
 
+## Quick start
+### 1. Start backend
 ```bash
-# 1. Start backend
-cd ai-game-server/src
-BACKEND_PORT=5002 python3 main.py
+cd ai-game-server
+PYTHONPATH="$PWD/src" python3 -c "from backend.server import app; app.run(host='0.0.0.0', port=5002, debug=False, threaded=True, use_reloader=False)"
+```
 
-# 2. Start proxy (serves frontend + API)
-cd ../ai-game-assistant
+### 2. Start frontend/proxy
+```bash
+cd ai-game-assistant
 python3 proxy-server.py
-
-# 3. Open http://localhost:5173
 ```
 
-## 📡 Streaming Endpoints
-
-### WebSocket (Primary) - `ws://localhost:5003`
-
-WebSocket provides the best streaming experience with bidirectional communication.
-
-**Connect to:** `ws://localhost:5003/` (runs on port 5003 by default)
-
-**Protocol:**
-
-| Direction | Message Type | Example |
-|-----------|--------------|---------|
-| Server → Client | `frame` | `{"type": "frame", "image": "base64...", "shape": [144, 160, 3]}` |
-| Server → Client | `status` | `{"type": "status", "status": "no_rom"}` |
-| Server → Client | `connected` | `{"type": "connected", "client_id": "ws_xxx"}` |
-| Client → Server | `button` | `{"type": "button", "button": "A"}` |
-| Client → Server | `ping` | `{"type": "ping"}` |
-| Client → Server | `config` | `{"type": "config", "fps": 30}` |
-
-**WebSocket Control Endpoints:**
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/ws/status` | GET | Get WebSocket server status |
-| `/api/ws/start` | POST | Start WebSocket server |
-| `/api/ws/stop` | POST | Stop WebSocket server |
-
-**Example WebSocket Client (JavaScript):**
-
-```javascript
-const ws = new WebSocket('ws://localhost:5003/');
-
-ws.onopen = () => {
-    console.log('Connected to PyBoy stream');
-    // Press a button
-    ws.send(JSON.stringify({type: 'button', button: 'A'}));
-};
-
-ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.type === 'frame') {
-        // Display frame: data.image is base64 JPEG
-        img.src = 'data:image/jpeg;base64,' + data.image;
-    }
-};
-
-// Change FPS
-ws.send(JSON.stringify({type: 'config', fps: 60}));
+### 3. Open UI
+```text
+http://localhost:5173
 ```
 
-### SSE (Fallback) - `/api/stream`
+## Key API routes
+### Core emulator
+- `POST /api/load_rom`
+- `GET /api/game/state`
+- `POST /api/game/button`
+- `POST /api/game/action`
+- `POST /api/action`
+- `GET /api/screen`
+- `GET /api/stream`
 
-Server-Sent Events endpoint for backward compatibility. Uses HTTP long-polling.
+### Save/load
+- `POST /api/save_state`
+- `POST /api/load_state`
 
-**Environment Variables:**
+### UI compatibility
+- `GET /api/party`
+- `GET /api/inventory`
+- `GET /api/memory/watch`
+- `GET /api/agent/status`
+- `POST /api/agent/mode`
+- `POST /api/ai/runtime`
+- `POST /api/openclaw/config`
+- `GET /api/openclaw/health`
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WS_PORT` | 5003 | WebSocket server port |
+### Spatial / AI panels
+- `GET /api/spatial/position`
+- `GET /api/spatial/minimap`
+- `GET /api/spatial/npcs`
+- `GET /api/spatial/strategy`
 
-## 🔧 LM Studio Setup
+## MCP / LM Studio
+LM Studio can connect through:
+- `ai-game-server/generic_mcp_server.py`
 
-Add to `~/.lmstudio/mcp.json`:
+The wrapper exposes emulator control, save/load, button presses, screen capture, memory access, and game-state helpers.
 
-```json
-{
-  "mcpServers": {
-    "gameboy": {
-      "command": "/opt/homebrew/opt/python@3.14/bin/python3.14",
-      "args": ["/path/to/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"]
-    }
-  }
-}
-```
+If web UI behavior and LM Studio behavior diverge, inspect the MCP wrapper first.
 
-## 📋 MCP Tools (42 Total)
+## Agent-first files
+If you are extending this repo for agents, read:
+- `AGENTS.md` — project invariants and agent workflow
+- `TOOLS.md` — local runtime/route/tool notes
+- `skills/pyboy-platform/SKILL.md` — repo-local agent skill
+- `ai-game-server/API-CONTRACT.md` — endpoint response shapes
 
-### 🎮 Buttons (10)
-| Tool | Description |
-|------|-------------|
-| `press_a` | Press A |
-| `press_b` | Press B |
-| `press_up` | Press UP |
-| `press_down` | Press DOWN |
-| `press_left` | Press LEFT |
-| `press_right` | Press RIGHT |
-| `press_start` | Press START |
-| `press_select` | Press SELECT |
-| `press_button_combo` | Combo (UP+A) |
-| `hold_button` | Hold N frames |
+## Important engineering rules
+1. **One tick owner**
+   - avoid race conditions between stream loops and background emulator loops
+2. **Stable payloads**
+   - empty arrays/defaults are better than missing fields
+3. **Real save/load**
+   - never return placeholder success for state restore
+4. **Null-safe UI**
+   - assume data may be partial during startup
+5. **MCP parity**
+   - LM Studio and web UI should use the same real backend behaviors
 
-### 📺 Screen (5)
-| Tool | Description |
-|------|-------------|
-| `get_screen` | Current screen |
-| `screenshot` | Screenshot |
-| `tick` | Advance frames |
-| `compare_screens` | Detect changes |
-| `get_tile_data` | VRAM tiles |
+## Verified areas
+This repo has had focused repair work around:
+- stream stability
+- ROM load compatibility
+- frontend/backend route compatibility
+- save/load API wiring
+- LM Studio save/load tool routing
+- operator UI null safety
 
-### 🎯 Game State (7)
-| Tool | Description |
-|------|-------------|
-| `get_state` | Emulator state |
-| `get_game_info` | Game info |
-| `get_system_info` | ROM header |
-| `save_state` | Save |
-| `load_state` | Load |
-| `quick_save` | Quick save |
-| `quick_load` | Quick load |
+See `docs/` for verification notes and results.
 
-### 🐭 Pokemon (8)
-| Tool | Description |
-|------|-------------|
-| `get_party` | Party Pokemon |
-| `get_inventory` | Items |
-| `get_position` | X,Y position |
-| `get_map` | Current map |
-| `get_money` | Money |
-| `get_badges` | Badges |
-| `get_wild_pokemon` | Wild Pokemon |
-| `get_enemy_info` | Enemy info |
+## Repo direction
+The intended direction is:
+- autonomous gameplay via agents
+- clean operator UI for world state and planning
+- MCP-aware panels (world, NPCs, strategy, memory)
+- reliable backend contracts that support both UI and agents
 
-### 🎲 Generic - ANY Game (5)
-| Tool | Description |
-|------|-------------|
-| `get_health` | HP |
-| `get_score` | Score |
-| `get_level` | Level/Area |
-| `get_lives` | Lives |
-| `get_game_time` | Timer |
-
-### 💾 Memory (6)
-| Tool | Description |
-|------|-------------|
-| `get_memory` | Read address |
-| `read_ram` | Read RAM range |
-| `write_ram` | Write RAM |
-| `search_ram` | Search RAM |
-| `list_save_slots` | List saves |
-| `load_rom` | Load ROM |
-
-## 🎮 Supported Games
-
-**ANY Game Boy game works!**
-
-| System | Formats |
-|--------|---------|
-| Game Boy | .gb |
-| Game Boy Color | .gbc |
-| Game Boy Advance | .gba |
-
-### Examples
-- ✅ Pokemon Red/Blue/Yellow
-- ✅ Super Mario
-- ✅ Legend of Zelda
-- ✅ Tetris
-- ✅ Any .gb, .gbc, .gba!
-
-## 📱 Mobile Access
-
-Connect from phone to same URL:
-```
-Desktop: http://localhost:5173
-Mobile:  http://YOUR_IP:5173
-```
-
-Proxy server handles routing automatically.
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────┐
-│  Proxy Server :5173            │
-│  ┌─────────┐  ┌────────────┐  │
-│  │Frontend │──│API Proxy   │  │
-│  └─────────┘  └─────┬──────┘  │
-└──────────────────────┼──────────┘
-                       │
-                       ▼
-              ┌────────────────┐
-              │ Backend :5002  │
-              │ ┌────────────┐ │
-              │ │Tile Renderer│ │
-              │ │SSE Stream  │ │
-              │ └────────────┘ │
-              └───────┬────────┘
-                      │
-                      ▼
-              ┌────────────────┐
-              │ WebSocket :5003│
-              │ ┌────────────┐ │
-              │ │Frame Stream│ │
-              │ │Button Input│ │
-              │ └────────────┘ │
-              └────────────────┘
-```
-
-## 📁 File Structure
-
-```
-ai-Py-boy-emulation-main/
-├── ai-game-server/
-│   ├── src/
-│   │   ├── backend/           # Flask API
-│   │   │   └── emulators/
-│   │   │       └── pyboy_emulator.py
-│   │   └── server.py
-│   └── generic_mcp_server.py   # MCP server (42 tools)
-├── ai-game-assistant/
-│   ├── proxy-server.py       # Unified proxy
-│   ├── App.tsx               # React frontend
-│   └── services/apiService.ts
-└── README.md
-```
-
-## 🔧 Troubleshooting
-
-### Screen shows white
-- Use tile-based rendering (default)
-- Or use Xvfb: `xvfb-run python3 main.py`
-
-### Mobile can't connect
-- Phone must be on same network
-- Try: `ifconfig | grep "inet "` to get IP
-- Check firewall allows port 5173
-
-### MCP not working in LM Studio
-- Restart LM Studio
-- Check Python path: `/opt/homebrew/opt/python@3.14/bin/python3.14`
-
-## 📚 Docs
-
-- [API Reference](guides/API_REFERENCE.md)
-- [Quick Start](QUICKSTART.md)
-- [Vision Guide](guides/VISION_GUIDE.md)
-- [Troubleshooting](TROUBLESHOOTING.md)
-
-## 🦆 DuckBot
-
-DuckBot uses this for autonomous Pokemon Red gameplay via OpenClaw.
-
-**GitHub:** https://github.com/Franzferdinan51/ai-Py-boy-emulation-main
+## Next-step friendly areas
+Good extension targets:
+- richer minimap/world model
+- stronger NPC/interactable detection
+- better strategy recommendations
+- cleaner backend contract normalization
+- stronger gameplay-state save/load proofs
