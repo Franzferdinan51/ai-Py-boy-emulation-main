@@ -444,17 +444,15 @@ finally:
             return False
 
     def get_screen(self) -> np.ndarray:
-        """Get the current screen as a numpy array - simple direct capture"""
+        """Get the current screen as a numpy array - simple direct capture (no tick)"""
         if not self.initialized or self.pyboy is None:
             logger.warning("PyBoy not initialized, returning black screen")
             return np.zeros((144, 160, 3), dtype=np.uint8)
 
         try:
             with self._emulator_lock:
-                # Tick once to update screen
-                self.pyboy.tick(1, True)
-                
                 # Direct screen capture - works in headless mode
+                # Don't tick here - caller should tick before calling
                 screen = self.pyboy.screen.ndarray
                 
                 # Convert RGBA to RGB if needed

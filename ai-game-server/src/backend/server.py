@@ -3140,7 +3140,7 @@ def stream_screen():
                                 return emulator.get_screen()
 
                             # Timeout-protected PyBoy calls with adaptive timeouts
-                            step_timeout = 0.05 if pyboy_timeout_count == 0 else 0.1
+                            step_timeout = 0.2 if pyboy_timeout_count == 0 else 0.5
                             try:
                                 success = executor.submit(step_emulator).result(timeout=step_timeout)
                                 pyboy_timeout_count = 0  # Reset timeout counter on success
