@@ -81,7 +81,7 @@ npm install
 
 ## LM Studio / MCP Setup
 
-The AI GameBoy Emulator includes an MCP server for integration with LM Studio and other AI tools.
+The AI GameBoy Emulator includes a **GENERIC** MCP server that works with **ANY** Game Boy game - not just Pokemon!
 
 ### Add to LM Studio MCP Config
 
@@ -90,35 +90,40 @@ Add this to your `~/.lmstudio/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "pyboy": {
+    "gameboy": {
       "command": "python3",
-      "args": ["/path/to/ai-Py-boy-emulation-main/ai-game-server/mcp_server.py"],
-      "cwd": "/path/to/ai-Py-boy-emulation-main/ai-game-server"
+      "args": ["/path/to/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"]
     }
   }
 }
 ```
 
-### MCP Tools Available
+### MCP Tools Available (13 Tools - Work with ANY Game!)
 
 | Tool | Description |
 |------|-------------|
-| `emulator_load_rom` | Load a ROM file |
-| `emulator_press_button` | Press button (A/B/START/SELECT/UP/DOWN/LEFT/RIGHT) |
-| `emulator_tick` | Advance N frames |
-| `emulator_get_state` | Get emulator state |
-| `get_screen_base64` | Get screen for vision AI |
-| `get_memory_address` | Read memory address |
-| `set_memory_address` | Write to memory address |
-| `get_player_position` | Get player X,Y |
-| `get_party_pokemon` | Get party stats |
-| `get_inventory` | Get bag items |
-| `get_map_location` | Get current map |
-| `get_money` | Get player money |
-| `save_game_state` | Save game |
-| `load_game_state` | Load game |
-| `auto_explore_mode` | Autonomous exploration |
-| `auto_battle_mode` | AI battle assistant |
+| `load_rom` | Load a ROM file (.gb, .gbc, .gba) - **ANY game works!** |
+| `press_button` | Press button (A/B/START/SELECT/UP/DOWN/LEFT/RIGHT) |
+| `press_buttons` | Press multiple buttons in sequence |
+| `get_screen` | Get current screen as image |
+| `tick` | Advance N frames |
+| `get_memory` | Read memory at address |
+| `set_memory` | Write to memory address |
+| `get_state` | Get emulator state |
+| `save_state` | Save game state |
+| `load_state` | Load game state |
+| `list_saves` | List all save states |
+| `reset` | Reset emulator |
+| `get_game_info` | Get loaded game info |
+
+### Supported Games
+
+Works with **ANY** Game Boy game:
+- ✅ Pokemon Red/Blue/Yellow
+- ✅ Super Mario
+- ✅ Legend of Zelda
+- ✅ Tetris
+- ✅ Any .gb, .gbc, or .gba game!
 
 ### Using with OpenClaw
 
