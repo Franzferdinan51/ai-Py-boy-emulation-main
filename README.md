@@ -79,6 +79,51 @@ cd ../ai-game-assistant
 npm install
 ```
 
+## LM Studio / MCP Setup
+
+The AI GameBoy Emulator includes an MCP server for integration with LM Studio and other AI tools.
+
+### Add to LM Studio MCP Config
+
+Add this to your `~/.lmstudio/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "pyboy": {
+      "command": "python3",
+      "args": ["/path/to/ai-Py-boy-emulation-main/ai-game-server/mcp_server.py"],
+      "cwd": "/path/to/ai-Py-boy-emulation-main/ai-game-server"
+    }
+  }
+}
+```
+
+### MCP Tools Available
+
+| Tool | Description |
+|------|-------------|
+| `emulator_load_rom` | Load a ROM file |
+| `emulator_press_button` | Press button (A/B/START/SELECT/UP/DOWN/LEFT/RIGHT) |
+| `emulator_tick` | Advance N frames |
+| `emulator_get_state` | Get emulator state |
+| `get_screen_base64` | Get screen for vision AI |
+| `get_memory_address` | Read memory address |
+| `set_memory_address` | Write to memory address |
+| `get_player_position` | Get player X,Y |
+| `get_party_pokemon` | Get party stats |
+| `get_inventory` | Get bag items |
+| `get_map_location` | Get current map |
+| `get_money` | Get player money |
+| `save_game_state` | Save game |
+| `load_game_state` | Load game |
+| `auto_explore_mode` | Autonomous exploration |
+| `auto_battle_mode` | AI battle assistant |
+
+### Using with OpenClaw
+
+The MCP server works with OpenClaw agents for autonomous gameplay. Configure in your OpenClaw MCP settings.
+
 ## Quick Start
 
 ### 1. Start Backend
