@@ -50,11 +50,16 @@ export interface AgentStatus {
   connected: boolean;
   agent_name: string;
   mode: string;
+  actual_mode?: string;  // Actual backend mode (auto_explore, manual, etc.)
   autonomous_level: AgentAutonomy;
   current_action: string;
   last_decision: string;
   enabled: boolean;
   game_running: boolean;
+  provider?: string;     // Current AI provider being used
+  vision_model?: string; // Current vision model
+  objectives?: string;   // Current objectives
+  personality?: string;  // Agent personality
   timestamp: string;
 }
 

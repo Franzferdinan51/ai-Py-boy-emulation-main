@@ -463,8 +463,8 @@ const App: React.FC = () => {
               <Bot className="h-6 w-6" />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-cyan-400">OpenClaw Emulator Control</h1>
-              <p className="text-sm text-neutral-400">OpenClaw is primary. Manual play is an explicit override.</p>
+              <h1 className="text-xl font-semibold text-cyan-400">OpenClaw Game Control</h1>
+              <p className="text-sm text-neutral-400">Autonomous play with manual override</p>
             </div>
           </div>
 
@@ -499,9 +499,7 @@ const App: React.FC = () => {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">OpenClaw Runtime</h2>
-                <p className="mt-2 text-sm text-neutral-400">
-                  The WebUI pushes objective, vision model, and control mode into the backend runtime.
-                </p>
+                <p className="mt-2 text-sm text-neutral-400">Push objective, vision model, and control mode to backend</p>
               </div>
               <Bot className="h-5 w-5 text-cyan-400" />
             </div>
@@ -578,7 +576,7 @@ const App: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Decision Log</h2>
-                <p className="mt-1 text-sm text-neutral-400">Live runtime output from the backend agent state.</p>
+                <p className="mt-1 text-sm text-neutral-400">Live agent output</p>
               </div>
               <Activity className={`h-4 w-4 ${agentState.enabled ? 'text-green-400' : 'text-neutral-500'}`} />
             </div>
@@ -647,20 +645,19 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid gap-3 border-t border-neutral-800 px-5 py-4 md:grid-cols-3">
-              <StatCard label="Backend" value={backendHealth?.status || connectionStatus} subtext={backendHealth?.service || settings.backendUrl} />
-              <StatCard label="OpenClaw" value={openClawHealth?.ok ? 'reachable' : 'offline'} subtext={openClawHealth?.endpoint || settings.openclawMcpEndpoint} />
-              <StatCard label="ROM" value={gameState.rom_loaded ? 'loaded' : 'idle'} subtext={gameState.emulator || settings.emulatorType} />
-            </div>
+            {gameState.rom_loaded && gameState.fps > 0 && (
+              <div className="flex items-center gap-4 text-sm text-neutral-400">
+                <span>{gameState.fps} FPS</span>
+                <span>{gameState.frame_count.toLocaleString()} frames</span>
+              </div>
+            )}
           </div>
 
           <div className="rounded-3xl border border-neutral-800 bg-neutral-900/80 p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Manual Controller</h2>
-                <p className="mt-1 text-sm text-neutral-400">
-                  Any manual input automatically switches the backend to manual override first.
-                </p>
+                <p className="mt-1 text-sm text-neutral-400">Manual input triggers override mode</p>
               </div>
               {agentState.enabled && (
                 <div className="flex items-center gap-2 rounded-full border border-amber-800 bg-amber-950/40 px-3 py-1 text-xs text-amber-300">
@@ -692,7 +689,7 @@ const App: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">System Log</h2>
-                <p className="mt-1 text-sm text-neutral-400">Connection events, ROM actions, and overrides.</p>
+                <p className="mt-1 text-sm text-neutral-400">Connection events and actions</p>
               </div>
               <RefreshCw className="h-4 w-4 text-neutral-500" />
             </div>
@@ -714,7 +711,7 @@ const App: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Runtime State</h2>
-                <p className="mt-1 text-sm text-neutral-400">Party, bag, and key watched memory in one place.</p>
+                <p className="mt-1 text-sm text-neutral-400">Party, inventory, and memory</p>
               </div>
               <Package className="h-4 w-4 text-neutral-500" />
             </div>
@@ -746,16 +743,6 @@ const App: React.FC = () => {
               memoryState={memoryState}
             />
           )}
-
-          <div className="rounded-3xl border border-neutral-800 bg-neutral-900/80 p-5">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">At a glance</h3>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <SummaryStat label="Party size" value={partyData ? String(partyData.party_count) : '--'} />
-              <SummaryStat label="Bag items" value={inventoryData ? String(inventoryData.item_count) : '--'} />
-              <SummaryStat label="FPS" value={String(gameState.fps || 0)} />
-              <SummaryStat label="Frame count" value={gameState.frame_count.toLocaleString()} />
-            </div>
-          </div>
         </section>
       </main>
     </div>
@@ -799,21 +786,6 @@ const RuntimeStat: React.FC<{ label: string; value: string; hint: string }> = ({
     <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">{label}</p>
     <p className="mt-2 text-sm font-medium text-white">{value}</p>
     <p className="mt-1 text-xs text-neutral-500">{hint}</p>
-  </div>
-);
-
-const StatCard: React.FC<{ label: string; value: string; subtext: string }> = ({ label, value, subtext }) => (
-  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 px-4 py-3">
-    <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">{label}</p>
-    <p className="mt-2 text-lg font-semibold text-white">{value}</p>
-    <p className="mt-1 truncate text-xs text-neutral-500">{subtext}</p>
-  </div>
-);
-
-const SummaryStat: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="rounded-2xl border border-neutral-800 bg-neutral-950/80 px-4 py-3">
-    <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">{label}</p>
-    <p className="mt-2 text-lg font-semibold text-white">{value}</p>
   </div>
 );
 
@@ -871,7 +843,7 @@ const MemorySummaryCard: React.FC<{ isRomLoaded: boolean; memoryState: MemoryWat
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-cyan-400">Watched Memory</h3>
-          <p className="mt-1 text-sm text-neutral-400">Pulled from the backend default watch list.</p>
+          <p className="mt-1 text-sm text-neutral-400">Backend watch list</p>
         </div>
         <ChevronRight className="h-4 w-4 text-neutral-500" />
       </div>
