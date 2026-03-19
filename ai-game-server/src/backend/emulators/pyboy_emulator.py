@@ -104,12 +104,15 @@ class PyBoyEmulator(EmulatorInterface):
                 # Initialize PyBoy using the official API pattern
                 logger.info(f"Initializing PyBoy with ROM: {os.path.basename(rom_path)}")
 
-                # Use headless mode for macOS compatibility
-                # Screen capture works via tile-based rendering from VRAM
+                # Use SDL2 window with hidden display for proper screen rendering
+                # PyBoy requires actual SDL2 window to populate screen buffer
+                # SDL_WINDOW_HIDDEN makes window invisible while still rendering
+                os.environ['SDL_WINDOW_HIDDEN'] = '1'
+                os.environ['SDL_AUDIODRIVER'] = 'disk'
                 
                 self.pyboy = PyBoy(
                     rom_path,
-                    window="null",
+                    window="headless",
                     scale=2,
                     sound_emulated=False,
                     sound_volume=0
@@ -339,7 +342,7 @@ try:
         print(f"ERROR: ROM file not found: {rom_path}")
         sys.exit(1)
 
-    pyboy = PyBoy(rom_path, window="null", scale=2, sound_emulated=False, debug=False)
+    pyboy = PyBoy(rom_path, window="headless", scale=2, sound_emulated=False, debug=False)
     print("PyBoy initialized successfully")
     pyboy.set_emulation_speed(1)
     print("Emulation speed set to 1")
@@ -697,7 +700,7 @@ finally:
                 # Re-initialize PyBoy with simplified configuration
                 self.pyboy = PyBoy(
                     self.rom_path,
-                    window="null" if self.auto_launch_ui else "null",
+                    window="headless" if self.auto_launch_ui else "null",
                     scale=2,
                     sound_emulated=True,
                     sound_volume=50
@@ -1177,12 +1180,15 @@ class PyBoyEmulatorMP(EmulatorInterface):
 
     def _pyboy_worker(self, rom_path: str, command_queue: Queue, result_queue: Queue, stop_event: Event):
         """Worker function that runs PyBoy in a separate process"""
+        import os
         try:
             # Initialize PyBoy in worker process with headless mode
+            os.environ['SDL_WINDOW_HIDDEN'] = '1'
+            os.environ['SDL_AUDIODRIVER'] = 'disk'
             
             pyboy = PyBoy(
                 rom_path,
-                window="null",
+                window="headless",
                 scale=2,
                 sound_emulated=False,
                 sound_volume=0
