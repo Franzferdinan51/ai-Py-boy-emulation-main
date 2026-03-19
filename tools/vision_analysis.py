@@ -433,4 +433,214 @@ Return JSON:
     
     def detect_menu_state(self, image_path: str) -> Dict[str, Any]:
         """
-        Detect if
+        Detect if a menu is open and what type
+        
+        Args:
+            image_path: Path to screenshot
+            
+        Returns:
+            Dict with menu state information
+        """
+        image_base64 = self._encode_image(image_path)
+        
+        prompt = """Analyze this Pokemon Red screen to detect menu state.
+Is a menu open? What type? What options are visible?
+
+Return JSON:
+{
+    "menu_open": true/false,
+    "menu_type": "start_menu|battle_menu|inventory|pokemon_party|shop|pc|dialog|none",
+    "menu_options": ["list", "of", "visible", "options"],
+    "selected_option": "currently selected option or null",
+    "cursor_position": {"x": int, "y": int} or null
+}"""
+        
+        response = self._call_kimi_vision(image_base64, prompt)
+        
+        try:
+            if "```json" in response:
+                json_str = response.split("```json")[1].split("```")[0].strip()
+            elif "```" in response:
+                json_str = response.split("```")[1].split("```")[0].strip()
+            else:
+                json_str = response.strip()
+            
+            return json.loads(json_str)
+        except:
+            return {
+                "menu_open": False,
+                "menu_type": "none",
+                "menu_options": [],
+                "selected_option": None,
+                "cursor_position": None
+            }
+    
+    def detect_battle_state(self, image_path: str) -> Dict[str, Any]:
+        """
+        Detect battle state and information
+        
+        Args:
+            image_path: Path to screenshot
+            
+        Returns:
+            Dict with battle information
+        """
+        image_base64 = self._encode_image(image_path)
+        
+        prompt = """Analyze this Pokemon Red screen for battle information.
+Is there an active battle? What Pokemon are involved? What are their stats?
+
+Return JSON:
+{
+    "in_battle": true/false,
+    "battle_type": "wild|trainer|none",
+    "player_pokemon": {
+        "name": "Pokemon name",
+        "level": int,
+        "hp_current": int or null,
+        "hp_max": int or null,
+        "hp_percent": int,
+        "status": "normal|poison|paralyze|sleep|burn|freeze|null"
+    } or null,
+    "enemy_pokemon": {
+        "name": "Pokemon name",
+        "level": int,
+        "hp_percent": int,
+        "status": "normal|poison|paralyze|sleep|burn|freeze|null"
+    } or null,
+    "enemy_trainer": "trainer name or null",
+    "battle_phase": "intro|player_turn|enemy_turn|move_selection|item_selection|pokemon_selection|victory|defeat",
+    "available_moves": ["move1", "move2", ...] or null,
+    "battle_message": "current battle text or null"
+}"""
+        
+        response = self._call_kimi_vision(image_base64, prompt)
+        
+        try:
+            if "```json" in response:
+                json_str = response.split("```json")[1].split("```")[0].strip()
+            elif "```" in response:
+                json_str = response.split("```")[1].split("```")[0].strip()
+            else:
+                json_str = response.strip()
+            
+            return json.loads(json_str)
+        except:
+            return {
+                "in_battle": False,
+                "battle_type": "none",
+                "player_pokemon": None,
+                "enemy_pokemon": None,
+                "enemy_trainer": None,
+                "battle_phase": "none",
+                "available_moves": None,
+                "battle_message": None
+            }
+    
+    def detect_map_transition(self, image_path: str, previous_analysis: Optional[VisionAnalysisResult] = None) -> Dict[str, Any]:
+        """
+        Detect if player is transitioning between maps
+        
+        Args:
+            image_path: Path to current screenshot
+            previous_analysis: Previous analysis result for comparison
+            
+        Returns:
+            Dict with transition information
+        """
+        image_base64 = self._encode_image(image_path)
+        
+        prompt = """Analyze this Pokemon Red screen for map/location information.
+What is the current location? Is there a transition happening (black screen, warp, etc.)?
+
+Return JSON:
+{
+    "current_location": "location name (Pallet Town, Route 1, etc.)",
+    "location_type": "town|route|cave|building|gym|center|mart|house|indoor|outdoor",
+    "transition_detected": true/false,
+    "transition_type": "door|warp|edge|stairs|cave|none",
+    "screen_type": "normal|black|white|flash|none",
+    "visible_exits": ["north", "south", "east", "west"]
+}"""
+        
+        response = self._call_kimi_vision(image_base64, prompt)
+        
+        try:
+            if "```json" in response:
+                json_str = response.split("```json")[1].split("```")[0].strip()
+            elif "```" in response:
+                json_str = response.split("```")[1].split("```")[0].strip()
+            else:
+                json_str = response.strip()
+            
+            result = json.loads(json_str)
+            
+            # Compare with previous if provided
+            if previous_analysis:
+                result["location_changed"] = result.get("current_location") != previous_analysis.current_location
+            else:
+                result["location_changed"] = False
+            
+            return result
+        except:
+            return {
+                "current_location": "unknown",
+                "location_type": "unknown",
+                "transition_detected": False,
+                "transition_type": "none",
+                "screen_type": "normal",
+                "visible_exits": [],
+                "location_changed": False
+            }
+    
+    def get_recommendations(self, image_path: str) -> List[str]:
+        """
+        Get AI recommendations for current game state
+        
+        Args:
+            image_path: Path to screenshot
+            
+        Returns:
+            List of recommended actions
+        """
+        image_base64 = self._encode_image(image_path)
+        
+        prompt = """Analyze this Pokemon Red screen and provide strategic recommendations.
+What should the player do next? Consider:
+- Current game state (overworld, battle, menu)
+- Pokemon health and status
+- Available items
+- Progress toward goals
+- Risk assessment
+
+Return JSON:
+{
+    "recommendations": [
+        "First recommended action with reasoning",
+        "Second option",
+        "Third option"
+    ],
+    "priority": "high|medium|low",
+    "reasoning": "brief explanation of recommendation"
+}"""
+        
+        response = self._call_kimi_vision(image_base64, prompt)
+        
+        try:
+            if "```json" in response:
+                json_str = response.split("```json")[1].split("```")[0].strip()
+            elif "```" in response:
+                json_str = response.split("```")[1].split("```")[0].strip()
+            else:
+                json_str = response.strip()
+            
+            data = json.loads(json_str)
+            return data.get("recommendations", [])
+        except:
+            return ["Could not generate recommendations"]
+    
+    def export_to_json(self, result: VisionAnalysisResult, output_path: str):
+        """Export analysis result to JSON file"""
+        data = {
+            "game_state": result.game_state.value,
+            "battle_state": result.battle_state
