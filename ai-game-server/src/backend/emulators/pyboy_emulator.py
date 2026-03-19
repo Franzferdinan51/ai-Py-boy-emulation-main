@@ -246,20 +246,22 @@ class PyBoyEmulator(EmulatorInterface):
             logger.info("Starting UI subprocess...")
 
             # Use secure subprocess execution
+            popen_kwargs = dict(
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                shell=False,
+                env={
+                    **os.environ,
+                    'PYTHONUNBUFFERED': '1'
+                }
+            )
+            if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
+                popen_kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
+
             self.ui_process = subprocess.Popen([
                 sys.executable, script_path
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-            text=True,
-            # Security enhancements
-            shell=False,  # Never use shell=True
-            env={  # Clean environment
-                'PYTHONPATH': "C:\\Users\\Ryan\\Desktop\\ROMS\\PyGB\\PyBoy;C:\\Users\\Ryan\\Desktop\\ROMS\\PyGB",
-                'PYTHONUNBUFFERED': '1'
-            }
-            )
+            ], **popen_kwargs)
 
             # Wait a moment and check if process started
             time.sleep(1)

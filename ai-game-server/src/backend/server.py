@@ -1354,7 +1354,9 @@ def upload_rom():
         else:
             return jsonify({"error": "No ROM file provided"}), 400
         emulator_type = request.form.get('emulator_type', 'gb')
-        launch_ui = request.form.get('launch_ui', 'true')
+        if emulator_type == 'gb':
+            emulator_type = 'pyboy'
+        launch_ui = request.form.get('launch_ui', 'false')
 
         logger.info(f"File received: {file.filename}")
         logger.info(f"Emulator type: {emulator_type}")
@@ -1615,20 +1617,19 @@ def load_rom():
             rom_path = data.get('path') or data.get('rom_path')
             emulator_type = data.get('emulator_type', 'gb')
             launch_ui = data.get('launch_ui', False)
+            if emulator_type == 'gb':
+                emulator_type = 'pyboy'
             if not rom_path:
                 return jsonify({"error": "No ROM path provided"}), 400
             if emulator_type not in emulators:
                 return jsonify({"error": f"Emulator {emulator_type} not found"}), 404
             emulator = emulators[emulator_type]
-            result = emulator.load_rom(rom_path, launch_ui=launch_ui)
+            if hasattr(emulator, 'set_auto_launch_ui'):
+                emulator.set_auto_launch_ui(bool(launch_ui))
+            result = emulator.load_rom(rom_path)
             if result:
-                game_states[emulator_type].update({
-                    'rom_loaded': True,
-                    'rom_name': Path(rom_path).name,
-                    'window_open': True,
-                    'last_updated': time.time()
-                })
-                return jsonify({"status": "success", "rom_loaded": True, "rom_name": Path(rom_path).name, "emulator": emulator_type}), 200
+                sync_loaded_rom_state(emulator_type, rom_path, os.path.basename(rom_path))
+                return jsonify({"status": "success", "rom_loaded": True, "rom_name": os.path.basename(rom_path), "emulator": emulator_type}), 200
             return jsonify({"error": "Failed to load ROM"}), 500
 
         return jsonify({"error": "No ROM file provided"}), 400
@@ -1644,6 +1645,31 @@ def load_rom():
 def api_game_state():
     state = get_game_state()
     return jsonify(state), 200
+
+@app.route('/api/agent/mode', methods=['POST'])
+def api_agent_mode_set():
+    data = request.get_json(silent=True) or {}
+    mode = data.get('mode', 'manual')
+    if 'agent_state' in globals():
+        agent_state['mode'] = mode
+    return jsonify({'ok': True, 'mode': mode}), 200
+
+@app.route('/api/ai/runtime', methods=['POST'])
+def api_ai_runtime_set():
+    data = request.get_json(silent=True) or {}
+    provider = data.get('provider')
+    model = data.get('model')
+    if 'ai_runtime_state' in globals():
+        if provider is not None:
+            ai_runtime_state['provider'] = provider
+        if model is not None:
+            ai_runtime_state['model'] = model
+    return jsonify({'ok': True, 'state': ai_runtime_state if 'ai_runtime_state' in globals() else {}}), 200
+
+@app.route('/api/openclaw/config', methods=['POST'])
+def api_openclaw_config_set():
+    data = request.get_json(silent=True) or {}
+    return jsonify({'ok': True, 'config': data}), 200
 
 @app.route('/api/agent/status', methods=['GET'])
 def api_agent_status():
