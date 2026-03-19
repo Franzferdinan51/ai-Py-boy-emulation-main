@@ -18,6 +18,15 @@ const VISION_MODELS: Array<{ value: AppSettings['visionModel']; label: string; n
   { value: 'qwen-vl-plus', label: 'Qwen VL Plus', note: 'Alternative vision profile for inspection-heavy runs.' },
 ];
 
+const AI_PROVIDERS: Array<{ value: NonNullable<AppSettings['aiProvider']>; label: string; note: string }> = [
+  { value: 'openclaw', label: 'OpenClaw MCP', note: 'Local OpenClaw integration (recommended).' },
+  { value: 'lmstudio', label: 'LM Studio', note: 'Local models with custom endpoint support.' },
+  { value: 'gemini', label: 'Google Gemini', note: 'Google AI models.' },
+  { value: 'openrouter', label: 'OpenRouter', note: 'Multi-provider API gateway.' },
+  { value: 'openai-compatible', label: 'OpenAI Compatible', note: 'Any OpenAI-compatible endpoint.' },
+  { value: 'nvidia', label: 'NVIDIA NIM', note: 'NVIDIA AI models.' },
+];
+
 const PERSONALITIES: Array<{ value: AppSettings['agentPersonality']; label: string }> = [
   { value: 'strategic', label: 'Strategic' },
   { value: 'casual', label: 'Casual' },
@@ -54,14 +63,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [draft, setDraft] = useState<AppSettings>(settings);
   const [backendStatus, setBackendStatus] = useState<ProbeStatus | null>(null);
   const [openClawStatus, setOpenClawStatus] = useState<ProbeStatus | null>(null);
+  const [lmStudioStatus, setLmStudioStatus] = useState<ProbeStatus | null>(null);
   const [testingBackend, setTestingBackend] = useState(false);
   const [testingOpenClaw, setTestingOpenClaw] = useState(false);
+  const [testingLmStudio, setTestingLmStudio] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setDraft(settings);
       setBackendStatus(null);
       setOpenClawStatus(null);
+      setLmStudioStatus(null);
     }
   }, [isOpen, settings]);
 
@@ -140,6 +152,35 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       });
     } finally {
       setTestingOpenClaw(false);
+    }
+  };
+
+  const testLmStudio = async () => {
+    setTestingLmStudio(true);
+    setLmStudioStatus(null);
+
+    try {
+      const lmUrl = (draft.lmStudioUrl || 'http://localhost:1234/v1').replace(/\/+$/, '');
+      // Test by fetching models list
+      const response = await fetch(`${lmUrl}/models`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const modelCount = payload.data?.length || 0;
+      
+      setLmStudioStatus({
+        ok: true,
+        message: `LM Studio connected - ${modelCount} model${modelCount !== 1 ? 's' : ''} available`,
+      });
+    } catch (error) {
+      setLmStudioStatus({
+        ok: false,
+        message: normalizeProbeMessage(error, 'LM Studio not reachable at specified URL'),
+      });
+    } finally {
+      setTestingLmStudio(false);
     }
   };
 
@@ -228,6 +269,100 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 )}
               </label>
             </div>
+          </section>
+
+          <section className="modal-section">
+            <div className="modal-section__header">
+              <span className="modal-section__eyebrow">AI Provider</span>
+              <h3>Local models and LM Studio</h3>
+            </div>
+
+            <div className="settings-grid">
+              <label className="form-field">
+                <span className="form-field__label">AI Provider</span>
+                <select
+                  value={draft.aiProvider || 'openclaw'}
+                  onChange={(event) => update('aiProvider', event.target.value as AppSettings['aiProvider'])}
+                  className="select-input"
+                >
+                  {AI_PROVIDERS.map((provider) => (
+                    <option key={provider.value} value={provider.value}>
+                      {provider.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="form-field__help">
+                  {AI_PROVIDERS.find(p => p.value === (draft.aiProvider || 'openclaw'))?.note}
+                </span>
+              </label>
+            </div>
+
+            {(draft.aiProvider === 'lmstudio' || draft.aiProvider === 'openai-compatible') && (
+              <>
+                <div className="modal-section__divider" />
+                
+                <div className="settings-grid">
+                  <label className="form-field">
+                    <span className="form-field__label">Custom Endpoint URL</span>
+                    <div className="field-row">
+                      <input
+                        type="text"
+                        value={draft.lmStudioUrl || ''}
+                        onChange={(event) => update('lmStudioUrl', event.target.value)}
+                        className="text-input"
+                        placeholder="http://localhost:1234/v1"
+                      />
+                      <button
+                        type="button"
+                        onClick={testLmStudio}
+                        disabled={testingLmStudio}
+                        className="field-button"
+                      >
+                        {testingLmStudio ? 'Testing...' : 'Test'}
+                      </button>
+                    </div>
+                    <span className="form-field__help">
+                      LM Studio default: http://localhost:1234/v1. Must be OpenAI-compatible.
+                    </span>
+                    {lmStudioStatus && (
+                      <span className={lmStudioStatus.ok ? 'probe-badge probe-badge--ok' : 'probe-badge probe-badge--error'}>
+                        {lmStudioStatus.message}
+                      </span>
+                    )}
+                  </label>
+                </div>
+
+                <div className="settings-grid settings-grid--two-up">
+                  <label className="form-field">
+                    <span className="form-field__label">Thinking Model</span>
+                    <input
+                      type="text"
+                      value={draft.lmStudioThinkingModel || ''}
+                      onChange={(event) => update('lmStudioThinkingModel', event.target.value)}
+                      className="text-input"
+                      placeholder="qwen3.5-35b-a3b"
+                    />
+                    <span className="form-field__help">
+                      Model for text reasoning and decision-making. Leave empty for auto-detect.
+                    </span>
+                  </label>
+
+                  <label className="form-field">
+                    <span className="form-field__label">Vision Model</span>
+                    <input
+                      type="text"
+                      value={draft.lmStudioVisionModel || ''}
+                      onChange={(event) => update('lmStudioVisionModel', event.target.value)}
+                      className="text-input"
+                      placeholder="qwen3-vl-8b"
+                    />
+                    <span className="form-field__help">
+                      Model for screen/image analysis. Leave empty for auto-detect.
+                    </span>
+                  </label>
+                </div>
+              </>
+            )}
           </section>
 
           <section className="modal-section">

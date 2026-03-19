@@ -1,9 +1,13 @@
 """
 AI Provider Manager - Handles automatic provider detection and fallback
+
+Supports dual-model architecture:
+- Vision Model: Screen analysis and game state extraction
+- Planning Model: Decision making based on vision analysis
 """
 import os
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from enum import Enum
 
 from .ai_api_base import AIAPIConnector
@@ -14,6 +18,9 @@ from .nvidia_api import NVIDIAAPIConnector
 from .mock_ai_provider import MockAIProvider
 from .tetris_genetic_ai import TetrisGeneticAI
 from .openclaw_ai_provider import OpenClawAIProvider
+from .lmstudio_connector import LMStudioConnector
+from .dual_model_provider import DualModelProvider
+from .dual_model_provider import DualModelProvider
 
 class ProviderStatus(Enum):
     """Provider status enumeration"""
@@ -23,7 +30,12 @@ class ProviderStatus(Enum):
     UNKNOWN = "unknown"
 
 class AIProviderManager:
-    """Manages AI providers with automatic detection and fallback"""
+    """Manages AI providers with automatic detection and fallback
+    
+    Supports dual-model architecture:
+    - Vision Model: Analyzes screenshots, extracts game state
+    - Planning Model: Makes decisions based on vision analysis
+    """
 
     def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -34,7 +46,21 @@ class AIProviderManager:
         self.refresh_interval = 300  # Refresh every 5 minutes
         # Default to openclaw for OpenClaw-native integration, fallback to mock only if explicitly set
         self.default_provider = os.environ.get('DEFAULT_AI_PROVIDER', 'openclaw')
+        
+        # Dual-model architecture support
+        self.dual_model_provider: Optional[DualModelProvider] = None
+        self.use_dual_model = os.environ.get('USE_DUAL_MODEL', 'true').lower() == 'true'
+        self.vision_model = os.environ.get('VISION_MODEL', 'kimi-k2.5')
+        self.planning_model = os.environ.get('PLANNING_MODEL', 'glm-5')
+        
         self.initialize_providers()
+        # self._initialize_dual_model()  # Temporarily disabled - dual model not yet implemented
+
+    def _initialize_dual_model(self):
+        """Initialize dual-model architecture (vision + planning)"""
+        # TODO: Implement dual-model support
+        self.logger.debug("Dual-model initialization not yet implemented")
+        pass
 
     def initialize_providers(self):
         """Initialize all available AI providers"""
@@ -52,22 +78,33 @@ class AIProviderManager:
                 }
             },
             {
+                'name': 'lmstudio',
+                'env_key': None,  # No API key required for local LM Studio
+                'class': LMStudioConnector,
+                'priority': 2,  # High priority for local models
+                'extra_params': {
+                    'base_url': os.environ.get('LM_STUDIO_URL'),
+                    'thinking_model': os.environ.get('LM_STUDIO_THINKING_MODEL'),
+                    'vision_model': os.environ.get('LM_STUDIO_VISION_MODEL')
+                }
+            },
+            {
                 'name': 'gemini',
                 'env_key': 'GEMINI_API_KEY',
                 'class': GeminiAPIConnector,
-                'priority': 2
+                'priority': 3
             },
             {
                 'name': 'openrouter',
                 'env_key': 'OPENROUTER_API_KEY',
                 'class': OpenRouterAPIConnector,
-                'priority': 3
+                'priority': 4
             },
             {
                 'name': 'openai-compatible',
                 'env_key': 'OPENAI_API_KEY',
                 'class': OpenAICompatibleConnector,
-                'priority': 4,
+                'priority': 5,
                 'extra_params': {
                     'base_url': os.environ.get('OPENAI_ENDPOINT')
                 }
@@ -76,7 +113,7 @@ class AIProviderManager:
                 'name': 'nvidia',
                 'env_key': 'NVIDIA_API_KEY',
                 'class': NVIDIAAPIConnector,
-                'priority': 5
+                'priority': 6
             },
             {
                 'name': 'mock',
@@ -122,6 +159,23 @@ class AIProviderManager:
                 # OpenClaw uses local MCP - no API key needed
                 api_key = "openclaw-mcp-key"
                 self.logger.info(f"Using OpenClaw provider - local MCP integration")
+            elif name == 'lmstudio':
+                # LM Studio uses local endpoint - no API key needed
+                api_key = "not-needed"
+                self.logger.info(f"Using LM Studio provider - local inference")
+                
+                # Ensure base_url is set from environment or default
+                base_url = (extra_params.get('base_url') or
+                           os.environ.get('LM_STUDIO_URL') or
+                           'http://localhost:1234/v1')
+                extra_params['base_url'] = base_url
+                
+                # Log model configuration
+                if extra_params.get('thinking_model'):
+                    self.logger.info(f"LM Studio thinking model: {extra_params['thinking_model']}")
+                if extra_params.get('vision_model'):
+                    self.logger.info(f"LM Studio vision model: {extra_params['vision_model']}")
+                    
             elif name == 'mock':
                 # Mock provider never needs API key
                 api_key = "mock-key"
@@ -486,11 +540,143 @@ class AIProviderManager:
                 except Exception as e:
                     self.logger.error(f"Error cleaning up {name} provider: {e}")
 
+        # Clean up dual-model provider
+        if self.dual_model_provider:
+            self.dual_model_provider = None
+
         # Clear all provider references
         self.providers.clear()
         self.provider_order.clear()
         self.fallback_providers.clear()
         self.logger.info("AI provider manager cleanup complete")
+    
+    # ========================================================================
+    # DUAL-MODEL ARCHITECTURE METHODS
+    # ========================================================================
+    
+    def _initialize_dual_model(self):
+        """Initialize the dual-model provider"""
+        try:
+            openclaw_endpoint = os.environ.get('OPENCLAW_MCP_ENDPOINT', 'http://localhost:18789')
+            self.dual_model_provider = DualModelProvider(
+                openclaw_endpoint=openclaw_endpoint,
+                vision_model=self.vision_model,
+                planning_model=self.planning_model,
+            )
+            self.logger.info(
+                f"Dual-model provider initialized: "
+                f"vision={self.vision_model}, planning={self.planning_model}"
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to initialize dual-model provider: {e}")
+            self.dual_model_provider = None
+    
+    def set_vision_model(self, model: str) -> bool:
+        """Set the vision model for dual-model architecture"""
+        self.vision_model = model
+        if self.dual_model_provider:
+            return self.dual_model_provider.set_vision_model(model)
+        return False
+    
+    def set_planning_model(self, model: str) -> bool:
+        """Set the planning model for dual-model architecture"""
+        self.planning_model = model
+        if self.dual_model_provider:
+            return self.dual_model_provider.set_planning_model(model)
+        return False
+    
+    def get_dual_model_status(self) -> Dict[str, Any]:
+        """Get dual-model provider status"""
+        if self.dual_model_provider:
+            return self.dual_model_provider.get_status()
+        return {
+            "available": False,
+            "vision_model": self.vision_model,
+            "planning_model": self.planning_model,
+            "error": "Dual-model provider not initialized"
+        }
+    
+    def get_next_action_dual_model(
+        self,
+        image_bytes: bytes,
+        goal: str,
+        action_history: List[str],
+        context: Dict[str, Any] = None
+    ) -> Tuple[str, Optional[str]]:
+        """
+        Get next action using dual-model architecture.
+        
+        Flow: Screenshot -> Vision Model -> Planning Model -> Action
+        
+        Args:
+            image_bytes: Raw screenshot bytes
+            goal: Current objective
+            action_history: Recent actions
+            context: Additional context
+            
+        Returns:
+            Tuple of (action, models_used)
+        """
+        if not self.dual_model_provider:
+            self.logger.warning("Dual-model provider not available, falling back to single model")
+            return self.get_next_action(image_bytes, goal, action_history)
+        
+        try:
+            return self.dual_model_provider.get_next_action(
+                image_bytes, goal, action_history, context
+            )
+        except Exception as e:
+            self.logger.error(f"Dual-model action failed: {e}")
+            # Fallback to single model
+            return self.get_next_action(image_bytes, goal, action_history)
+    
+    def configure_dual_model(
+        self,
+        vision_model: str = None,
+        planning_model: str = None,
+        use_dual_model: bool = None
+    ) -> Dict[str, Any]:
+        """
+        Configure dual-model architecture settings.
+        
+        Args:
+            vision_model: Vision model identifier
+            planning_model: Planning model identifier
+            use_dual_model: Enable/disable dual-model
+            
+        Returns:
+            Configuration status
+        """
+        result = {
+            "success": True,
+            "changes": []
+        }
+        
+        if vision_model is not None:
+            if self.set_vision_model(vision_model):
+                result["changes"].append(f"vision_model: {vision_model}")
+            else:
+                result["success"] = False
+                result["error"] = f"Failed to set vision model: {vision_model}"
+        
+        if planning_model is not None:
+            if self.set_planning_model(planning_model):
+                result["changes"].append(f"planning_model: {planning_model}")
+            else:
+                result["success"] = False
+                result["error"] = f"Failed to set planning model: {planning_model}"
+        
+        if use_dual_model is not None:
+            self.use_dual_model = use_dual_model
+            result["changes"].append(f"use_dual_model: {use_dual_model}")
+        
+        result["current_config"] = {
+            "vision_model": self.vision_model,
+            "planning_model": self.planning_model,
+            "use_dual_model": self.use_dual_model,
+        }
+        
+        return result
 
 # Global instance
 ai_provider_manager = AIProviderManager()

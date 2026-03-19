@@ -312,6 +312,8 @@ def add_security_headers(response):
 from backend.emulators.pyboy_emulator import PyBoyEmulator, PyBoyEmulatorMP
 from backend.emulators.pygba_emulator import PyGBAEmulator
 from backend.ai_apis.ai_provider_manager import ai_provider_manager
+from backend.ai_apis.lmstudio_connector import LMStudioConnector
+from backend.ai_apis.openclaw_model_discovery import get_model_discovery
 
 # Configuration for emulator mode
 USE_MULTI_PROCESS = os.environ.get('USE_MULTI_PROCESS', 'false').lower() == 'true'
@@ -2303,18 +2305,18 @@ def get_screen():
 
         emulator = emulators[current_state["active_emulator"]]
 
-        # Get screen array with optimization
-        if OPTIMIZATION_SYSTEM_AVAILABLE and hasattr(optimization_system_manager, 'thread_pool_manager'):
-            # Use thread pool for screen capture if available
-            def capture_screen():
-                return emulator.get_screen()
+        # Advance a few idle frames before reading the screen so the live view
+        # keeps moving even when there is no active button input.
+        if hasattr(emulator, 'step'):
+            try:
+                emulator.step('NOOP', 4)
+            except Exception:
+                pass
 
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(capture_screen)
-                screen_array = future.result(timeout=5.0)  # 5 second timeout
-        else:
-            screen_array = emulator.get_screen()
+        # Get screen array directly from the emulator.
+        # For live gameplay view, correctness is more important than async screen-capture
+        # optimization/caching layers, which can freeze the displayed frame.
+        screen_array = emulator.get_screen()
 
         # Validate screen data - don't use placeholders
         if screen_array is None or screen_array.size == 0:
@@ -2324,52 +2326,10 @@ def get_screen():
         # Convert to base64 with optimization
         conversion_start = time.time()
 
-        # Use optimized conversion if available
-        if OPTIMIZATION_SYSTEM_AVAILABLE and hasattr(optimization_system_manager, 'ai_cache_manager'):
-            # Convert screen array to bytes for caching
-            screen_bytes = screen_array.tobytes()
-
-            # Create game state context for caching
-            game_context = {
-                'frame_count': emulator.get_frame_count() if hasattr(emulator, 'get_frame_count') else 0,
-                'active_emulator': current_state["active_emulator"],
-                'timestamp': time.time()
-            }
-
-            # Try to get cached screen
-            screen_hash = optimization_system_manager.ai_cache_manager.generate_screen_hash(screen_bytes, game_context)
-            cached_capture = optimization_system_manager.ai_cache_manager.get_screen_capture(screen_hash)
-
-            if cached_capture:
-                # Use cached screen data
-                img_base64 = base64.b64encode(cached_capture.image_data).decode()
-                conversion_time = time.time() - conversion_start
-                cache_hit = True
-                logger.debug("Screen capture cache hit")
-            else:
-                # Convert screen and cache it
-                img_base64 = numpy_to_base64_image(screen_array)
-                conversion_time = time.time() - conversion_start
-
-                # Cache the screen capture for future use
-                try:
-                    optimization_system_manager.ai_cache_manager.cache_screen_capture(
-                        image_data=screen_bytes,
-                        game_state=game_context,
-                        frame_number=game_context['frame_count'],
-                        resolution=tuple(screen_array.shape[:2]) if len(screen_array.shape) >= 2 else (160, 144),
-                        format='raw',
-                        quality=100
-                    )
-                except Exception as cache_error:
-                    logger.debug(f"Failed to cache screen capture: {cache_error}")
-
-                cache_hit = False
-        else:
-            # Standard conversion without caching
-            img_base64 = numpy_to_base64_image(screen_array)
-            conversion_time = time.time() - conversion_start
-            cache_hit = False
+        # Use direct conversion without screen caching for live gameplay view.
+        img_base64 = numpy_to_base64_image(screen_array)
+        conversion_time = time.time() - conversion_start
+        cache_hit = False
 
         if not img_base64:
             logger.error("Failed to convert screen to base64")
@@ -3912,6 +3872,8 @@ agent_mode_state = {
 openclaw_runtime_state = {
     "endpoint": "http://localhost:18789",
     "vision_model": "kimi-k2.5",
+    "planning_model": "glm-5",  # NEW: Independent planning model
+    "use_dual_model": True,  # NEW: Enable dual-model architecture
     "objectives": "Complete Pokemon Red with safe exploration and clear progress.",
     "personality": "strategic",
 }
@@ -3990,6 +3952,7 @@ def _probe_openclaw_health(endpoint: Optional[str]) -> Dict:
 def get_openclaw_config_api():
     return jsonify({
         **openclaw_runtime_state,
+        "dual_model_status": ai_provider_manager.get_dual_model_status() if hasattr(ai_provider_manager, 'get_dual_model_status') else None,
         "timestamp": datetime.now().isoformat(),
     }), 200
 
@@ -3998,16 +3961,22 @@ def get_openclaw_config_api():
 def update_openclaw_config_api():
     try:
         data = request.get_json(silent=True) or {}
-        allowed_vision_models = {"kimi-k2.5", "qwen-vl-plus"}
+        allowed_vision_models = {"kimi-k2.5", "qwen-vl-plus", "glm-4v-flash", "MiniMax-M2.7"}
+        allowed_planning_models = {"glm-5", "qwen3.5-plus", "MiniMax-M2.7", "MiniMax-M2.5"}
         allowed_personalities = {"strategic", "casual", "speedrun", "explorer"}
 
         endpoint = _normalize_openclaw_endpoint(data.get("endpoint", openclaw_runtime_state["endpoint"]))
         vision_model = str(data.get("vision_model", openclaw_runtime_state["vision_model"])).strip()
+        planning_model = str(data.get("planning_model", openclaw_runtime_state["planning_model"])).strip()
+        use_dual_model = data.get("use_dual_model", openclaw_runtime_state["use_dual_model"])
         personality = str(data.get("personality", openclaw_runtime_state["personality"])).strip()
         objectives = str(data.get("objectives", openclaw_runtime_state["objectives"])).strip()
 
         if vision_model not in allowed_vision_models:
             return jsonify({"error": f"Invalid vision model. Allowed: {sorted(allowed_vision_models)}"}), 400
+
+        if planning_model not in allowed_planning_models:
+            return jsonify({"error": f"Invalid planning model. Allowed: {sorted(allowed_planning_models)}"}), 400
 
         if personality not in allowed_personalities:
             return jsonify({"error": f"Invalid personality. Allowed: {sorted(allowed_personalities)}"}), 400
@@ -4017,8 +3986,18 @@ def update_openclaw_config_api():
 
         openclaw_runtime_state["endpoint"] = endpoint
         openclaw_runtime_state["vision_model"] = vision_model
+        openclaw_runtime_state["planning_model"] = planning_model
+        openclaw_runtime_state["use_dual_model"] = bool(use_dual_model)
         openclaw_runtime_state["personality"] = personality
         openclaw_runtime_state["objectives"] = objectives
+        
+        # Update dual-model provider if available
+        if hasattr(ai_provider_manager, 'configure_dual_model'):
+            ai_provider_manager.configure_dual_model(
+                vision_model=vision_model,
+                planning_model=planning_model,
+                use_dual_model=bool(use_dual_model)
+            )
 
         return jsonify({
             **openclaw_runtime_state,
@@ -4049,6 +4028,80 @@ def get_openclaw_health_api():
             "checked_at": datetime.now().isoformat(),
         }), 400
 
+@app.route('/api/lmstudio/config', methods=['GET'])
+def get_lmstudio_config():
+    """Get LM Studio configuration"""
+    return jsonify({
+        "endpoint": os.environ.get('LM_STUDIO_URL', 'http://localhost:1234/v1'),
+        "thinking_model": os.environ.get('LM_STUDIO_THINKING_MODEL', ''),
+        "vision_model": os.environ.get('LM_STUDIO_VISION_MODEL', ''),
+        "timestamp": datetime.now().isoformat(),
+    }), 200
+
+@app.route('/api/lmstudio/config', methods=['POST'])
+def update_lmstudio_config():
+    """Update LM Studio configuration (runtime only - not persisted to .env)"""
+    try:
+        data = request.get_json(silent=True) or {}
+        
+        endpoint = data.get('endpoint', '').strip()
+        thinking_model = data.get('thinking_model', '').strip()
+        vision_model = data.get('vision_model', '').strip()
+        
+        # Validate endpoint URL
+        if endpoint and not endpoint.startswith(('http://', 'https://')):
+            return jsonify({"error": "Endpoint must start with http:// or https://"}), 400
+        
+        # Update environment variables for current session
+        if endpoint:
+            os.environ['LM_STUDIO_URL'] = endpoint
+        if thinking_model:
+            os.environ['LM_STUDIO_THINKING_MODEL'] = thinking_model
+        if vision_model:
+            os.environ['LM_STUDIO_VISION_MODEL'] = vision_model
+        
+        # Reinitialize LM Studio provider if it exists
+        if 'lmstudio' in ai_provider_manager.providers:
+            try:
+                ai_provider_manager._initialize_provider({
+                    'name': 'lmstudio',
+                    'env_key': None,
+                    'class': LMStudioConnector,
+                    'priority': 2,
+                    'extra_params': {
+                        'base_url': os.environ.get('LM_STUDIO_URL'),
+                        'thinking_model': os.environ.get('LM_STUDIO_THINKING_MODEL'),
+                        'vision_model': os.environ.get('LM_STUDIO_VISION_MODEL')
+                    }
+                })
+            except Exception as e:
+                logger.warning(f"Failed to reinitialize LM Studio provider: {e}")
+        
+        return jsonify({
+            "endpoint": os.environ.get('LM_STUDIO_URL', 'http://localhost:1234/v1'),
+            "thinking_model": os.environ.get('LM_STUDIO_THINKING_MODEL', ''),
+            "vision_model": os.environ.get('LM_STUDIO_VISION_MODEL', ''),
+            "message": "LM Studio configuration updated",
+            "timestamp": datetime.now().isoformat(),
+        }), 200
+        
+    except Exception as exc:
+        logger.error(f"Error updating LM Studio config: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
+@app.route('/api/lmstudio/models', methods=['GET'])
+def get_lmstudio_models():
+    """Get list of available models from LM Studio"""
+    try:
+        models = ai_provider_manager.get_models('lmstudio')
+        return jsonify({
+            "models": models,
+            "timestamp": datetime.now().isoformat(),
+        }), 200
+    except Exception as exc:
+        logger.error(f"Error fetching LM Studio models: {exc}")
+        return jsonify({"error": str(exc)}), 500
+
 @app.route('/api/game/state', methods=['GET'])
 def get_game_state_api():
     """Get current game state - screen, running status, etc."""
@@ -4058,6 +4111,13 @@ def get_game_state_api():
 
         if current_state["rom_loaded"] and current_state["active_emulator"]:
             emulator = emulators[current_state["active_emulator"]]
+            # Advance one idle frame so live polling reflects a running game even
+            # when no explicit input is being sent.
+            if hasattr(emulator, 'step'):
+                try:
+                    emulator.step('NOOP', 1)
+                except Exception:
+                    pass
             if hasattr(emulator, 'get_frame_count'):
                 frame_count = emulator.get_frame_count()
                 update_game_state({"frame_count": frame_count})

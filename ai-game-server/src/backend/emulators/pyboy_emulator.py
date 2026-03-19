@@ -414,6 +414,11 @@ finally:
         self._performance_stats['screen_captures'] += 1
 
         try:
+            # Advance a few idle frames so the live view actually updates even
+            # when the user/agent is not actively pressing buttons.
+            for i in range(4):
+                self.pyboy.tick(1, i == 3)
+
             # Use PyBoy's official screen API - get the screen buffer directly
             screen_array = self.pyboy.screen.ndarray
 
@@ -838,6 +843,9 @@ finally:
         if not self.initialized or self.pyboy is None:
             return 0
         try:
+            # Advance one non-rendered idle frame so state polling reflects that
+            # the emulator is still running.
+            self.pyboy.tick(1, False)
             return self.pyboy.frame_count
         except Exception as e:
             logger.error(f"Error getting frame count: {e}")

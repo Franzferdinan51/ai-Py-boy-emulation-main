@@ -46,6 +46,14 @@ export interface AppSettings {
   autonomousLevel: AgentAutonomy;
   agentPersonality: AgentPersonality;
   agentObjectives: string;
+  // LM Studio / Local Model Settings
+  aiProvider?: 'openclaw' | 'lmstudio' | 'gemini' | 'openrouter' | 'openai-compatible' | 'nvidia';
+  lmStudioUrl?: string;
+  lmStudioThinkingModel?: string;
+  lmStudioVisionModel?: string;
+  customEndpoint?: string;
+  customThinkingModel?: string;
+  customVisionModel?: string;
 }
 
 export interface LogEntry {
@@ -345,6 +353,40 @@ class ApiService {
 
   getProviderStatus() {
     return this.request<Record<string, { status: string; priority: number; error: string | null; available: boolean }>>('/api/providers/status');
+  }
+
+  // LM Studio API methods
+  getLmStudioConfig() {
+    return this.request<{
+      endpoint: string;
+      thinking_model: string;
+      vision_model: string;
+      timestamp: string;
+    }>('/api/lmstudio/config');
+  }
+
+  updateLmStudioConfig(payload: {
+    endpoint: string;
+    thinking_model: string;
+    vision_model: string;
+  }) {
+    return this.request<{
+      endpoint: string;
+      thinking_model: string;
+      vision_model: string;
+      message: string;
+      timestamp: string;
+    }>('/api/lmstudio/config', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  getLmStudioModels() {
+    return this.request<{
+      models: string[];
+      timestamp: string;
+    }>('/api/lmstudio/models');
   }
 }
 
