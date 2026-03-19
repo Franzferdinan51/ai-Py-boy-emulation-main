@@ -3815,7 +3815,7 @@ def get_optimization_logs():
         })
     except Exception as e:
         logger.error(f"Error getting optimization logs: {e}")
-        return jsonify({"error": str(e}), 500
+        return jsonify({"error": str(e)}), 500
 
 
 # ========== NEW API ENDPOINTS FOR AI-GAME-ASSISTANT UI ==========

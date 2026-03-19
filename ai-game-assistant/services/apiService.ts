@@ -32,7 +32,8 @@ export interface GameState {
 export interface AgentStatus {
   connected: boolean;
   agent_name: string;
-  mode: string;
+  mode: string;  // Frontend-friendly mode ('auto' or 'manual' or 'idle')
+  actual_mode?: string;  // Actual backend mode (e.g., 'auto_explore', 'auto_battle')
   autonomous_level: AgentAutonomy;
   current_action: string;
   last_decision: string;
@@ -42,7 +43,8 @@ export interface AgentStatus {
 }
 
 export interface AgentModeResponse {
-  mode: string;
+  mode: string;  // Frontend-friendly mode
+  actual_mode?: string;  // Actual backend mode
   enabled: boolean;
   autonomous_level: AgentAutonomy;
   current_action: string;

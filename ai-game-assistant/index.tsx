@@ -1,8 +1,7 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { ThemeProvider } from './components/ThemeProvider';
-import EnhancedApp from './components/EnhancedApp';
+import App from './App';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -12,8 +11,6 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <ThemeProvider>
-      <EnhancedApp />
-    </ThemeProvider>
+    <App />
   </React.StrictMode>
 );

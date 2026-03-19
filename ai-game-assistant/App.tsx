@@ -1,16 +1,24 @@
 /**
- * AI Game Assistant - Main Application
+ * AI Game Assistant - Main Application (Fully Wired)
  * 
- * OpenClaw-First Gaming Dashboard
- * - OpenClaw is the main orchestrator
- * - Manual control is secondary override
- * - Simplified, cohesive UI
+ * Features:
+ * - All backend endpoints wired to UI
+ * - Party, Inventory, Vision Analysis panels
+ * - Agent mode controls (auto/manual)
+ * - Settings saved to localStorage
+ * - Auto-connect on startup
+ * - Real-time screen refresh
+ * - Keyboard shortcuts
+ * - Save/Load state
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Settings, Play, Pause, Save, FolderOpen, RefreshCw, Activity, MemoryStick, Gamepad2, ChevronDown, ChevronUp, Keyboard, Bot } from 'lucide-react';
+import { Settings, Gamepad2, Activity, MemoryStick, Backpack, Heart, Eye, Keyboard, Upload, Save, FolderOpen, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import SettingsModal from './src/components/SettingsModal';
-import type { GameState, AgentStatus, MemoryWatch, LogEntry, GameButton, AppSettings } from './services/apiService';
+import PartyPanel from './src/components/PartyPanel';
+import InventoryPanel from './src/components/InventoryPanel';
+import VisionAnalysisPanel from './src/components/VisionAnalysisPanel';
+import type { GameState, AgentStatus, MemoryWatch, LogEntry, GameButton, AppSettings, PartyData, InventoryData, VisionAnalysis, AgentMode } from './services/apiService';
 import apiService from './services/apiService';
 
 // Storage keys
@@ -23,12 +31,14 @@ const STORAGE_KEYS = {
 const SCREEN_REFRESH_MS = 250;
 const STATE_REFRESH_MS = 2000;
 const MEMORY_REFRESH_MS = 5000;
+const PARTY_REFRESH_MS = 5000;
+const INVENTORY_REFRESH_MS = 10000;
 const DECISION_LOG_MAX = 100;
 
 // Default settings
 const DEFAULT_SETTINGS: AppSettings = {
   aiActionInterval: 5000,
-  backendUrl: 'http://localhost:5002',
+  backendUrl: 'http://localhost:5002',  // Match backend default port
   agentMode: true,
   openclawMcpEndpoint: 'http://localhost:18789',
   visionModel: 'kimi-k2.5',
@@ -41,20 +51,16 @@ const DEFAULT_SETTINGS: AppSettings = {
   model: '',
 };
 
-// Load settings from localStorage
 const loadSettings = (): AppSettings => {
   try {
     const stored = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-    if (stored) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
-    }
+    if (stored) return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
   } catch (e) {
     console.error('Failed to load settings:', e);
   }
   return DEFAULT_SETTINGS;
 };
 
-// Save settings to localStorage
 const saveSettings = (settings: AppSettings): void => {
   try {
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
@@ -64,45 +70,39 @@ const saveSettings = (settings: AppSettings): void => {
 };
 
 const App: React.FC = () => {
-  // ============ STATE MANAGEMENT ============
-  
-  // Settings - loaded from localStorage on mount
+  // Settings
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   // Game State
   const [gameState, setGameState] = useState<GameState>({
-    running: false,
-    rom_loaded: false,
-    rom_name: '',
-    screen_available: false,
-    frame_count: 0,
-    fps: 0,
-    emulator: 'gb',
-    timestamp: '',
+    running: false, rom_loaded: false, rom_name: '', screen_available: false,
+    frame_count: 0, fps: 0, emulator: 'gb', timestamp: '',
   });
 
-  // OpenClaw Agent State
+  // Agent State
   const [agentState, setAgentState] = useState<AgentStatus>({
-    connected: false,
-    agent_name: 'OpenClaw',
-    mode: 'auto',
-    autonomous_level: 'moderate',
-    current_action: 'Idle',
-    last_decision: 'Initializing...',
-    enabled: true,
-    game_running: false,
-    timestamp: '',
+    connected: false, agent_name: 'OpenClaw Agent', mode: 'auto',
+    autonomous_level: 'moderate', current_action: 'Idle', last_decision: 'Initializing...',
+    enabled: true, game_running: false, timestamp: '',
+  });
+
+  // Agent Mode State
+  const [agentModeState, setAgentModeState] = useState<AgentMode>({ 
+    mode: 'auto', autonomous_level: 'moderate', enabled: true 
   });
 
   // Memory State
   const [memoryState, setMemoryState] = useState<MemoryWatch>({
-    addresses: [],
-    values: [],
-    timestamp: '',
+    addresses: [], values: [], timestamp: '',
   });
 
-  // Decision logs (for OpenClaw panel)
+  // Data State
+  const [partyData, setPartyData] = useState<PartyData | null>(null);
+  const [inventoryData, setInventoryData] = useState<InventoryData | null>(null);
+  const [visionAnalysis, setVisionAnalysis] = useState<VisionAnalysis | null>(null);
+
+  // Logs
   const [decisionLogs, setDecisionLogs] = useState<LogEntry[]>([]);
   const [actionLogs, setActionLogs] = useState<LogEntry[]>([]);
 
@@ -115,14 +115,16 @@ const App: React.FC = () => {
   // Panel collapse states
   const [agentPanelCollapsed, setAgentPanelCollapsed] = useState(false);
   const [memoryPanelCollapsed, setMemoryPanelCollapsed] = useState(false);
+  const [partyPanelCollapsed, setPartyPanelCollapsed] = useState(false);
+  const [inventoryPanelCollapsed, setInventoryPanelCollapsed] = useState(false);
+  const [visionPanelCollapsed, setVisionPanelCollapsed] = useState(false);
 
   // Refs
   const screenBlobRef = useRef<Blob | null>(null);
   const screenUrlRef = useRef<string | null>(null);
   const [gameScreenUrl, setGameScreenUrl] = useState<string | null>(null);
 
-  // ============ API HELPERS ============
-
+  // Log helpers
   const addDecisionLog = useCallback((type: LogEntry['type'], message: string) => {
     const entry: LogEntry = {
       id: Date.now(),
@@ -143,6 +145,7 @@ const App: React.FC = () => {
     setActionLogs(prev => [...prev.slice(-49), entry]);
   }, []);
 
+  // Refresh functions
   const refreshGameState = useCallback(async () => {
     try {
       const state = await apiService.getGameState();
@@ -164,17 +167,13 @@ const App: React.FC = () => {
     try {
       const status = await apiService.getAgentStatus();
       setAgentState(status);
-      
-      // Add decision to logs if it's new
       if (status.last_decision && status.last_decision !== agentState.last_decision) {
         addDecisionLog('thought', status.last_decision);
       }
       if (status.current_action && status.current_action !== agentState.current_action) {
         addDecisionLog('action', `→ ${status.current_action}`);
       }
-    } catch (error) {
-      // Silent fail for agent status
-    }
+    } catch (error) { /* Silent */ }
   }, [agentState.last_decision, agentState.current_action, addDecisionLog]);
 
   const refreshMemory = useCallback(async () => {
@@ -182,9 +181,7 @@ const App: React.FC = () => {
     try {
       const memory = await apiService.getMemoryWatch();
       setMemoryState(memory);
-    } catch (error) {
-      // Silent fail for memory
-    }
+    } catch (error) { /* Silent */ }
   }, [isRomLoaded]);
 
   const refreshScreen = useCallback(async () => {
@@ -193,21 +190,13 @@ const App: React.FC = () => {
       const blob = await apiService.getScreen();
       screenBlobRef.current = blob;
       const newUrl = URL.createObjectURL(blob);
-      
-      // Cleanup old URL
-      if (screenUrlRef.current) {
-        URL.revokeObjectURL(screenUrlRef.current);
-      }
+      if (screenUrlRef.current) URL.revokeObjectURL(screenUrlRef.current);
       screenUrlRef.current = newUrl;
       setGameScreenUrl(newUrl);
-    } catch (error) {
-      // Silent fail for screen refresh
-    }
+    } catch (error) { /* Silent */ }
   }, [isRomLoaded, connectionStatus]);
 
-  // ============ EFFECTS ============
-
-  // Initial connection on mount - Auto-connect
+  // Effects
   useEffect(() => {
     const connect = async () => {
       setConnectionStatus('checking');
@@ -223,98 +212,63 @@ const App: React.FC = () => {
       }
     };
     connect();
-  }, []); // Only run once on mount
+  }, []);
 
-  // Re-connect when backend URL changes
   useEffect(() => {
-    const reconnect = async () => {
-      if (settings.backendUrl) {
-        apiService.setBaseUrl(settings.backendUrl);
-        await refreshGameState();
-        await refreshAgentStatus();
-      }
-    };
-    reconnect();
+    if (settings.backendUrl) {
+      apiService.setBaseUrl(settings.backendUrl);
+      refreshGameState();
+      refreshAgentStatus();
+    }
   }, [settings.backendUrl]);
 
-  // Screen refresh interval (real-time)
   useEffect(() => {
     if (!isRomLoaded || connectionStatus !== 'connected') return;
-    
     const interval = setInterval(refreshScreen, SCREEN_REFRESH_MS);
     return () => clearInterval(interval);
   }, [isRomLoaded, connectionStatus, refreshScreen]);
 
-  // Game state refresh interval
   useEffect(() => {
-    const interval = setInterval(() => {
-      refreshGameState();
-      refreshAgentStatus();
-    }, STATE_REFRESH_MS);
+    const interval = setInterval(() => { refreshGameState(); refreshAgentStatus(); }, STATE_REFRESH_MS);
     return () => clearInterval(interval);
   }, [refreshGameState, refreshAgentStatus]);
 
-  // Memory refresh interval
   useEffect(() => {
     const interval = setInterval(refreshMemory, MEMORY_REFRESH_MS);
     return () => clearInterval(interval);
   }, [refreshMemory]);
 
-  // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      if (screenUrlRef.current) {
-        URL.revokeObjectURL(screenUrlRef.current);
-      }
-    };
+    return () => { if (screenUrlRef.current) URL.revokeObjectURL(screenUrlRef.current); };
   }, []);
 
-  // ============ KEYBOARD SHORTCUTS ============
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger shortcuts when typing in inputs
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       const key = e.key.toUpperCase();
       const buttonMap: Record<string, GameButton> = {
-        'ARROWUP': 'UP',
-        'ARROWDOWN': 'DOWN',
-        'ARROWLEFT': 'LEFT',
-        'ARROWRIGHT': 'RIGHT',
-        'Z': 'A',
-        'X': 'B',
-        'ENTER': 'START',
-        'SHIFT': 'SELECT',
+        'ARROWUP': 'UP', 'ARROWDOWN': 'DOWN', 'ARROWLEFT': 'LEFT', 'ARROWRIGHT': 'RIGHT',
+        'Z': 'A', 'X': 'B', 'ENTER': 'START', 'SHIFT': 'SELECT',
       };
-
       const button = buttonMap[key];
       if (button) {
         e.preventDefault();
         handleButtonPress(button);
       }
-
-      // Toggle keyboard help
-      if (e.key === '?') {
-        setShowKeyboardHelp(prev => !prev);
-      }
+      if (e.key === '?') setShowKeyboardHelp(prev => !prev);
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isRomLoaded]);
 
-  // ============ HANDLERS ============
-
+  // Handlers
   const handleButtonPress = async (button: GameButton) => {
     if (!isRomLoaded) return;
-    
     setLastButtonPressed(button);
     try {
       await apiService.pressButton(button);
       addActionLog('action', `Pressed: ${button}`);
-      // Refresh screen after button press
       setTimeout(refreshScreen, 50);
     } catch (error) {
       addActionLog('error', `Failed to press ${button}`);
@@ -327,7 +281,6 @@ const App: React.FC = () => {
       await apiService.loadRom(file);
       setIsRomLoaded(true);
       addActionLog('system', `Loaded ROM: ${file.name}`);
-      // Save last ROM name
       localStorage.setItem(STORAGE_KEYS.LAST_ROM, file.name);
       await refreshGameState();
     } catch (error) {
@@ -358,9 +311,7 @@ const App: React.FC = () => {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      handleLoadRom(file);
-    }
+    if (file) handleLoadRom(file);
   };
 
   const handleSettingsSave = (newSettings: AppSettings) => {
@@ -370,8 +321,26 @@ const App: React.FC = () => {
     addActionLog('system', '⚙️ Settings saved');
   };
 
-  // ============ RENDER HELPERS ============
+  const handleSetAgentMode = async (mode: 'auto' | 'manual') => {
+    try {
+      const newMode = await apiService.setAgentMode({ mode, enabled: mode === 'auto' });
+      setAgentModeState(newMode);
+      setAgentState(prev => ({ ...prev, mode, enabled: mode === 'auto' }));
+      addActionLog('system', `Agent mode: ${mode.toUpperCase()}`);
+    } catch (error) {
+      setAgentState(prev => ({ ...prev, mode, enabled: mode === 'auto' }));
+      addActionLog('error', 'Failed to update agent mode');
+    }
+  };
 
+  const handlePartyUpdate = (party: PartyData) => setPartyData(party);
+  const handleInventoryUpdate = (inventory: InventoryData) => setInventoryData(inventory);
+  const handleVisionUpdate = (analysis: VisionAnalysis) => setVisionAnalysis(analysis);
+  const handleVisionLog = (entry: LogEntry) => {
+    if (entry.type === 'vision' || entry.type === 'action') addDecisionLog(entry.type, entry.message);
+  };
+
+  // Render helpers
   const getConnectionColor = () => {
     switch (connectionStatus) {
       case 'connected': return 'text-green-400';
@@ -380,274 +349,160 @@ const App: React.FC = () => {
     }
   };
 
-  // ============ RENDER ============
-
   return (
     <div className="h-screen w-full flex flex-col bg-neutral-950 text-gray-100 font-sans overflow-hidden">
-      {/* Keyboard Shortcuts Help Modal */}
+      {/* Keyboard Help Modal */}
       {showKeyboardHelp && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowKeyboardHelp(false)}>
-          <div className="bg-neutral-900 rounded-xl p-5 max-w-xs border border-neutral-700" onClick={e => e.stopPropagation()}>
-            <h2 className="text-base font-semibold mb-3 text-neutral-200">Keyboard Shortcuts</h2>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="flex justify-between px-2 py-1 bg-neutral-800 rounded"><span>↑</span><span className="text-neutral-400">Up</span></div>
-              <div className="flex justify-between px-2 py-1 bg-neutral-800 rounded"><span>↓</span><span className="text-neutral-400">Down</span></div>
-              <div className="flex justify-between px-2 py-1 bg-neutral-800 rounded"><span>←</span><span className="text-neutral-400">Left</span></div>
-              <div className="flex justify-between px-2 py-1 bg-neutral-800 rounded"><span>→</span><span className="text-neutral-400">Right</span></div>
-              <div className="flex justify-between px-2 py-1 bg-neutral-800 rounded"><span>Z</span><span className="text-neutral-400">A</span></div>
-              <div className="flex justify-between px-2 py-1 bg-neutral-800 rounded"><span>X</span><span className="text-neutral-400">B</span></div>
-              <div className="flex justify-between px-2 py-1 bg-neutral-800 rounded"><span>Enter</span><span className="text-neutral-400">Start</span></div>
-              <div className="flex justify-between px-2 py-1 bg-neutral-800 rounded"><span>Shift</span><span className="text-neutral-400">Select</span></div>
+          <div className="bg-neutral-900 rounded-xl p-6 max-w-md border border-neutral-800" onClick={e => e.stopPropagation()}>
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><Keyboard className="w-5 h-5" /> Keyboard Shortcuts</h2>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between"><span>↑↓←→</span><span className="text-neutral-400">D-Pad</span></div>
+              <div className="flex justify-between"><span>Z</span><span className="text-neutral-400">A Button</span></div>
+              <div className="flex justify-between"><span>X</span><span className="text-neutral-400">B Button</span></div>
+              <div className="flex justify-between"><span>Enter</span><span className="text-neutral-400">Start</span></div>
+              <div className="flex justify-between"><span>Shift</span><span className="text-neutral-400">Select</span></div>
+              <div className="flex justify-between"><span>?</span><span className="text-neutral-400">Toggle help</span></div>
             </div>
-            <p className="text-xs text-neutral-500 mt-3 text-center">Press <kbd className="px-1 py-0.5 bg-neutral-800 rounded">?</kbd> to toggle</p>
-            <button onClick={() => setShowKeyboardHelp(false)} className="mt-3 w-full px-3 py-1.5 bg-neutral-700 hover:bg-neutral-600 rounded text-sm">Close</button>
+            <button onClick={() => setShowKeyboardHelp(false)} className="mt-4 w-full px-4 py-2 bg-neutral-700 hover:bg-neutral-600 rounded">Close</button>
           </div>
         </div>
       )}
 
-      {/* ============ HEADER ============ */}
-      <header className="flex items-center justify-between px-4 py-2 bg-neutral-900 border-b border-neutral-800">
+      {/* Header */}
+      <header className="flex items-center justify-between px-4 py-3 bg-neutral-900 border-b border-neutral-800">
         <div className="flex items-center gap-3">
-          <Bot className="w-6 h-6 text-cyan-400" />
-          <div>
-            <h1 className="text-lg font-bold text-cyan-400">OpenClaw</h1>
-            <p className="text-xs text-neutral-500 -mt-0.5">AI Game Assistant</p>
-          </div>
-          {isRomLoaded && (
-            <span className="text-xs px-2 py-0.5 bg-neutral-800 rounded text-neutral-400 ml-2">{gameState.rom_name}</span>
-          )}
+          <Gamepad2 className="w-6 h-6 text-blue-400" />
+          <h1 className="text-xl font-bold">AI Game Assistant</h1>
         </div>
-        
-        <div className="flex items-center gap-3">
-          {/* Connection Status */}
-          <div className="flex items-center gap-1.5 px-2 py-1 bg-neutral-800 rounded text-xs">
-            <span className={`w-2 h-2 rounded-full ${
-              connectionStatus === 'connected' ? 'bg-green-400' : 
-              connectionStatus === 'disconnected' ? 'bg-red-400' : 'bg-yellow-400 animate-pulse'
-            }`} />
-            <span className="text-neutral-400">{connectionStatus}</span>
-          </div>
-
-          {/* OpenClaw Status Badge */}
-          <div className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 ${
-            agentState.enabled 
-              ? 'bg-cyan-900/40 text-cyan-400 border border-cyan-800' 
-              : 'bg-orange-900/30 text-orange-400 border border-orange-800'
-          }`}>
-            <Bot className="w-4 h-4" />
-            {agentState.enabled ? '🤖 Autonomous' : '👆 Manual Override'}
-          </div>
-
-          {/* Keyboard help */}
-          <button 
-            onClick={() => setShowKeyboardHelp(true)}
-            className="p-1.5 hover:bg-neutral-800 rounded transition-colors"
-            title="Keyboard Shortcuts"
-          >
-            <Keyboard className="w-4 h-4 text-neutral-500" />
+        <div className="flex items-center gap-4">
+          <button onClick={() => setShowKeyboardHelp(true)} className="p-2 hover:bg-neutral-800 rounded-lg" title="Shortcuts">
+            <Keyboard className="w-5 h-5 text-neutral-400" />
           </button>
-
-          {/* Settings */}
-          <button 
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-1.5 hover:bg-neutral-800 rounded transition-colors"
-          >
-            <Settings className="w-4 h-4 text-neutral-500" />
+          <div className="flex items-center gap-2 px-3 py-1 bg-neutral-800 rounded-lg">
+            <Activity className={`w-4 h-4 ${getConnectionColor()}`} />
+            <span className={`text-sm font-medium ${getConnectionColor()}`}>{agentState.enabled ? 'Agent Active' : 'Manual'}</span>
+            <span className="text-neutral-500">|</span>
+            <span className={`text-sm ${agentState.mode === 'auto' ? 'text-blue-400' : 'text-orange-400'}`}>{agentState.mode.toUpperCase()}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-400' : connectionStatus === 'disconnected' ? 'bg-red-400' : 'bg-yellow-400 animate-pulse'}`} />
+            <span className="text-sm text-neutral-400">{settings.backendUrl}</span>
+          </div>
+          <button onClick={() => setIsSettingsOpen(true)} className="p-2 hover:bg-neutral-800 rounded-lg">
+            <Settings className="w-5 h-5 text-neutral-400" />
           </button>
         </div>
       </header>
 
-      {/* ============ MAIN CONTENT ============ */}
+      {/* Main Content */}
       <main className="flex-grow flex flex-col lg:flex-row gap-4 p-4 min-h-0 overflow-hidden">
         
-        {/* OPENCLAW AGENT PANEL (Left) */}
-        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-cyan-900/50 overflow-hidden transition-all ${
-          agentPanelCollapsed ? 'w-14' : 'w-full lg:w-72'
-        }`}>
-          <button 
-            onClick={() => setAgentPanelCollapsed(!agentPanelCollapsed)}
-            className="flex items-center justify-between px-4 py-3 bg-cyan-950/30 border-b border-cyan-900/50 hover:bg-cyan-950/50"
-          >
-            {!agentPanelCollapsed && (
-              <div className="flex items-center gap-2">
-                <Bot className="w-5 h-5 text-cyan-400" />
-                <span className="font-semibold text-cyan-400">OpenClaw Agent</span>
+        {/* Game Canvas */}
+        <div className="flex-1 flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800">
+            <h2 className="font-semibold">Game Canvas</h2>
+            <div className="flex items-center gap-2">
+              <label className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm cursor-pointer flex items-center gap-1">
+                <Upload className="w-3 h-3" />
+                <input type="file" accept=".gb,.gbc,.gba,.zip" onChange={handleFileSelect} className="hidden" />
+                Load ROM
+              </label>
+              <button onClick={handleSaveState} className="p-1 hover:bg-neutral-700 rounded" disabled={!isRomLoaded}><Save className="w-4 h-4" /></button>
+              <button onClick={handleLoadState} className="p-1 hover:bg-neutral-700 rounded" disabled={!isRomLoaded}><FolderOpen className="w-4 h-4" /></button>
+              <button onClick={refreshScreen} className="p-1 hover:bg-neutral-700 rounded"><RefreshCw className="w-4 h-4" /></button>
+            </div>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-4 bg-black">
+            {gameScreenUrl ? (
+              <img src={gameScreenUrl} alt="Game Screen" className="max-w-full max-h-full object-contain aspect-[160:144]" />
+            ) : (
+              <div className="text-neutral-500 text-center">
+                <Gamepad2 className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>No ROM loaded</p>
+                <p className="text-sm mt-2 text-neutral-600">Press ? for shortcuts</p>
               </div>
             )}
-            <div className="flex items-center gap-2 ml-auto">
+          </div>
+          {isRomLoaded && (
+            <div className="px-4 py-1 bg-neutral-800/50 text-xs text-neutral-400 flex justify-between">
+              <span>Frame: {gameState.frame_count}</span>
+              <span>ROM: {gameState.rom_name}</span>
+              <span>Refresh: {SCREEN_REFRESH_MS}ms</span>
+            </div>
+          )}
+        </div>
+
+        {/* Agent Panel */}
+        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${agentPanelCollapsed ? 'w-12' : 'w-full lg:w-80'}`}>
+          <button onClick={() => setAgentPanelCollapsed(!agentPanelCollapsed)} className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800">
+            {!agentPanelCollapsed && <h2 className="font-semibold">Agent Panel</h2>}
+            <div className="flex items-center gap-2">
               <Activity className={`w-4 h-4 ${agentState.enabled ? 'text-green-400' : 'text-neutral-500'}`} />
               {agentPanelCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
             </div>
           </button>
-
           {!agentPanelCollapsed && (
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {/* Current Action */}
               <div className="space-y-2">
-                <h3 className="text-xs font-medium text-neutral-500 uppercase tracking-wide">Current Action</h3>
-                <div className="p-3 bg-neutral-800 rounded-lg border border-neutral-700">
-                  <p className="font-mono text-green-400 text-sm">{agentState.current_action}</p>
-                </div>
-              </div>
-
-              {/* Latest Decision */}
-              <div className="space-y-2">
-                <h3 className="text-xs font-medium text-neutral-500 uppercase tracking-wide">Latest Decision</h3>
-                <div className="p-3 bg-neutral-800 rounded-lg border border-neutral-700">
-                  <p className="text-sm text-neutral-300">{agentState.last_decision}</p>
-                </div>
-              </div>
-
-              {/* Live Decision Log */}
-              <div className="space-y-2 flex-1">
-                <h3 className="text-xs font-medium text-neutral-500 uppercase tracking-wide flex items-center gap-2">
-                  <span className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse"></span>
-                  Decision Log
-                </h3>
-                <div className="bg-neutral-800/50 rounded-lg p-2 h-48 overflow-y-auto font-mono text-xs space-y-1 border border-neutral-700">
-                  {decisionLogs.slice(-25).reverse().map((entry) => (
-                    <div key={entry.id} className={`${
-                      entry.type === 'error' ? 'text-red-400' :
-                      entry.type === 'action' ? 'text-yellow-400' :
-                      entry.type === 'thought' ? 'text-cyan-400' :
-                      'text-neutral-300'
-                    }`}>
-                      <span className="text-neutral-600">[{entry.timestamp.split('T')[1].slice(0,8)}]</span>{' '}
-                      {entry.message}
-                    </div>
-                  ))}
-                  {decisionLogs.length === 0 && (
-                    <div className="text-neutral-500 text-center py-4">
-                      Waiting for agent decisions...
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Action Log (compact) */}
-              <div className="space-y-2">
-                <h3 className="text-xs font-medium text-neutral-500 uppercase tracking-wide">System Log</h3>
-                <div className="bg-neutral-800/50 rounded-lg p-2 h-24 overflow-y-auto font-mono text-xs space-y-1 border border-neutral-700">
-                  {actionLogs.slice(-12).reverse().map((entry) => (
-                    <div key={entry.id} className={`${
-                      entry.type === 'error' ? 'text-red-400' :
-                      entry.type === 'action' ? 'text-green-400' :
-                      entry.type === 'system' ? 'text-blue-400' :
-                      'text-neutral-300'
-                    }`}>
-                      <span className="text-neutral-600">[{entry.timestamp.split('T')[1].slice(0,8)}]</span>{' '}
-                      {entry.message}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Mode Toggle */}
-              <div className="pt-2 border-t border-neutral-700">
+                <h3 className="text-sm font-medium text-neutral-400 uppercase">Mode</h3>
                 <div className="flex gap-2">
-                  <button 
-                    onClick={() => setAgentState(prev => ({ ...prev, mode: 'auto', enabled: true }))}
-                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      agentState.mode === 'auto' 
-                        ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/30' 
-                        : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
-                    }`}
-                  >
-                    🤖 Auto
-                  </button>
-                  <button 
-                    onClick={() => setAgentState(prev => ({ ...prev, mode: 'manual', enabled: false }))}
-                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      agentState.mode === 'manual' 
-                        ? 'bg-orange-600 text-white' 
-                        : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
-                    }`}
-                  >
-                    👆 Manual
-                  </button>
+                  <button onClick={() => handleSetAgentMode('auto')} className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium ${agentState.mode === 'auto' ? 'bg-blue-600 text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}>Auto</button>
+                  <button onClick={() => handleSetAgentMode('manual')} className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium ${agentState.mode === 'manual' ? 'bg-orange-600 text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}>Manual</button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-neutral-400 uppercase">Current Action</h3>
+                <div className="p-3 bg-neutral-800 rounded-lg"><p className="font-mono text-green-400">{agentState.current_action}</p></div>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-neutral-400 uppercase">Last Decision</h3>
+                <div className="p-3 bg-neutral-800 rounded-lg"><p className="text-sm">{agentState.last_decision}</p></div>
+              </div>
+              <div className="space-y-2 flex-1">
+                <h3 className="text-sm font-medium text-neutral-400 uppercase flex items-center gap-2">
+                  <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>Live Decision Log
+                </h3>
+                <div className="bg-neutral-800 rounded-lg p-2 h-64 overflow-y-auto font-mono text-xs space-y-1">
+                  {decisionLogs.slice(-30).reverse().map(entry => (
+                    <div key={entry.id} className={`${entry.type === 'error' ? 'text-red-400' : entry.type === 'action' ? 'text-yellow-400' : entry.type === 'thought' ? 'text-blue-400' : 'text-neutral-300'}`}>
+                      <span className="text-neutral-600">[{entry.timestamp.split('T')[1].slice(0,8)}]</span> {entry.message}
+                    </div>
+                  ))}
+                  {decisionLogs.length === 0 && <div className="text-neutral-500 text-center py-4">Waiting for decisions...</div>}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-neutral-400 uppercase">Action Log</h3>
+                <div className="bg-neutral-800 rounded-lg p-2 h-32 overflow-y-auto font-mono text-xs space-y-1">
+                  {actionLogs.slice(-15).reverse().map(entry => (
+                    <div key={entry.id} className={`${entry.type === 'error' ? 'text-red-400' : entry.type === 'action' ? 'text-green-400' : entry.type === 'system' ? 'text-blue-400' : 'text-neutral-300'}`}>
+                      <span className="text-neutral-600">[{entry.timestamp.split('T')[1].slice(0,8)}]</span> {entry.message}
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* GAME CANVAS (Center) */}
-        <div className="flex-1 flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-1.5 bg-neutral-800/50 border-b border-neutral-800">
+        {/* Memory Inspector */}
+        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${memoryPanelCollapsed ? 'w-12' : 'w-full lg:w-72'}`}>
+          <button onClick={() => setMemoryPanelCollapsed(!memoryPanelCollapsed)} className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800">
+            {!memoryPanelCollapsed && <h2 className="font-semibold">Memory Inspector</h2>}
             <div className="flex items-center gap-2">
-              <Gamepad2 className="w-4 h-4 text-neutral-500" />
-              <h2 className="text-sm font-medium text-neutral-300">Game</h2>
-              {isRomLoaded && (
-                <span className="text-xs text-neutral-500">{gameState.frame_count} frames</span>
-              )}
-            </div>
-            <div className="flex items-center gap-1">
-              <label className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 rounded text-xs cursor-pointer transition-colors">
-                <input type="file" accept=".gb,.gbc,.gba,.zip" onChange={handleFileSelect} className="hidden" />
-                Load ROM
-              </label>
-              {isRomLoaded && (
-                <>
-                  <button onClick={handleSaveState} className="p-1.5 hover:bg-neutral-700 rounded" title="Save">
-                    <Save className="w-3.5 h-3.5" />
-                  </button>
-                  <button onClick={handleLoadState} className="p-1.5 hover:bg-neutral-700 rounded" title="Load">
-                    <FolderOpen className="w-3.5 h-3.5" />
-                  </button>
-                  <button onClick={refreshScreen} className="p-1.5 hover:bg-neutral-700 rounded" title="Refresh">
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-          
-          <div className="flex-1 flex items-center justify-center p-2 bg-black">
-            {gameScreenUrl ? (
-              <img 
-                src={gameScreenUrl} 
-                alt="Game Screen" 
-                className="max-w-full max-h-full object-contain aspect-[160:144]"
-              />
-            ) : (
-              <div className="text-neutral-500 text-center">
-                <Gamepad2 className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                <p className="text-sm">No ROM loaded</p>
-                <p className="text-xs mt-1 text-neutral-600">Click "Load ROM" to start</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* MEMORY INSPECTOR (Right) */}
-        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${
-          memoryPanelCollapsed ? 'w-14' : 'w-full lg:w-64'
-        }`}>
-          <button 
-            onClick={() => setMemoryPanelCollapsed(!memoryPanelCollapsed)}
-            className="flex items-center justify-between px-4 py-3 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800"
-          >
-            {!memoryPanelCollapsed && (
-              <div className="flex items-center gap-2">
-                <MemoryStick className="w-4 h-4 text-purple-400" />
-                <span className="font-semibold">Memory</span>
-              </div>
-            )}
-            <div className="flex items-center gap-2 ml-auto">
+              <MemoryStick className={`w-4 h-4 ${isRomLoaded ? 'text-purple-400' : 'text-neutral-500'}`} />
               {memoryPanelCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
             </div>
           </button>
-
           {!memoryPanelCollapsed && (
-            <div className="flex-1 overflow-y-auto p-3">
+            <div className="flex-1 overflow-y-auto p-4">
               {isRomLoaded ? (
                 <div className="space-y-1 font-mono text-xs">
                   {memoryState.values.map((mem, idx) => (
                     <div key={idx} className="flex justify-between items-center p-2 hover:bg-neutral-800 rounded">
                       <span className="text-neutral-400">{mem.name}</span>
-                      <span className="text-purple-400">
-                        {mem.value !== null ? `0x${mem.value.toString(16).toUpperCase().padStart(2, '0')}` : 'N/A'}
-                      </span>
+                      <span className="text-purple-400">{mem.value !== null ? `0x${mem.value.toString(16).toUpperCase().padStart(2, '0')} (${mem.value})` : 'N/A'}</span>
                     </div>
                   ))}
                 </div>
@@ -661,98 +516,55 @@ const App: React.FC = () => {
           )}
         </div>
 
-        {/* PARTY PANEL (Right) */}
-        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${
-          partyPanelCollapsed ? 'w-12' : 'w-full lg:w-80'
-        }`}>
-          <button 
-            onClick={() => setPartyPanelCollapsed(!partyPanelCollapsed)}
-            className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800"
-          >
-            {!partyPanelCollapsed && <h2 className="font-semibold">Party</h2>}
+        {/* Party Panel */}
+        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${partyPanelCollapsed ? 'w-12' : 'w-full lg:w-80'}`}>
+          <button onClick={() => setPartyPanelCollapsed(!partyPanelCollapsed)} className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800">
+            {!partyPanelCollapsed && <h2 className="font-semibold flex items-center gap-2"><Heart className="w-4 h-4" /> Party</h2>}
             <div className="flex items-center gap-2">
-              <Heart className={`w-4 h-4 ${isRomLoaded ? 'text-red-400' : 'text-neutral-500'}`} />
+              <Heart className={`w-4 h-4 ${isRomLoaded ? 'text-pink-400' : 'text-neutral-500'}`} />
               {partyPanelCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
             </div>
           </button>
-
-          {!partyPanelCollapsed && (
-            <div className="flex-1 overflow-y-auto">
-              <PartyPanel isRomLoaded={isRomLoaded} onPartyUpdate={setPartyData} />
-            </div>
-          )}
+          {!partyPanelCollapsed && <PartyPanel isRomLoaded={isRomLoaded} onPartyUpdate={handlePartyUpdate} />}
         </div>
 
-        {/* INVENTORY PANEL (Right) */}
-        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${
-          inventoryPanelCollapsed ? 'w-12' : 'w-full lg:w-80'
-        }`}>
-          <button 
-            onClick={() => setInventoryPanelCollapsed(!inventoryPanelCollapsed)}
-            className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800"
-          >
-            {!inventoryPanelCollapsed && <h2 className="font-semibold">Inventory</h2>}
+        {/* Inventory Panel */}
+        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${inventoryPanelCollapsed ? 'w-12' : 'w-full lg:w-80'}`}>
+          <button onClick={() => setInventoryPanelCollapsed(!inventoryPanelCollapsed)} className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800">
+            {!inventoryPanelCollapsed && <h2 className="font-semibold flex items-center gap-2"><Backpack className="w-4 h-4" /> Inventory</h2>}
             <div className="flex items-center gap-2">
-              <Backpack className={`w-4 h-4 ${isRomLoaded ? 'text-yellow-400' : 'text-neutral-500'}`} />
+              <Backpack className={`w-4 h-4 ${isRomLoaded ? 'text-amber-400' : 'text-neutral-500'}`} />
               {inventoryPanelCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
             </div>
           </button>
-
-          {!inventoryPanelCollapsed && (
-            <div className="flex-1 overflow-y-auto">
-              <InventoryPanel isRomLoaded={isRomLoaded} onInventoryUpdate={setInventoryData} />
-            </div>
-          )}
+          {!inventoryPanelCollapsed && <InventoryPanel isRomLoaded={isRomLoaded} onInventoryUpdate={handleInventoryUpdate} />}
         </div>
 
-        {/* VISION ANALYSIS PANEL (Right) */}
-        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${
-          visionPanelCollapsed ? 'w-12' : 'w-full lg:w-80'
-        }`}>
-          <button 
-            onClick={() => setVisionPanelCollapsed(!visionPanelCollapsed)}
-            className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800"
-          >
-            {!visionPanelCollapsed && <h2 className="font-semibold">Vision Analysis</h2>}
+        {/* Vision Analysis Panel */}
+        <div className={`flex flex-col min-h-0 bg-neutral-900 rounded-xl border border-neutral-800 overflow-hidden transition-all ${visionPanelCollapsed ? 'w-12' : 'w-full lg:w-96'}`}>
+          <button onClick={() => setVisionPanelCollapsed(!visionPanelCollapsed)} className="flex items-center justify-between px-4 py-2 bg-neutral-800/50 border-b border-neutral-800 hover:bg-neutral-800">
+            {!visionPanelCollapsed && <h2 className="font-semibold flex items-center gap-2"><Eye className="w-4 h-4" /> Vision Analysis</h2>}
             <div className="flex items-center gap-2">
-              <Eye className={`w-4 h-4 ${isRomLoaded ? 'text-blue-400' : 'text-neutral-500'}`} />
+              <Eye className={`w-4 h-4 ${isRomLoaded ? 'text-cyan-400' : 'text-neutral-500'}`} />
               {visionPanelCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
             </div>
           </button>
-
-          {!visionPanelCollapsed && (
-            <div className="flex-1 overflow-y-auto">
-              <VisionAnalysisPanel 
-                isRomLoaded={isRomLoaded} 
-                gameScreenUrl={gameScreenUrl}
-                onAnalysisUpdate={setVisionAnalysis}
-              />
-            </div>
-          )}
+          {!visionPanelCollapsed && <VisionAnalysisPanel isRomLoaded={isRomLoaded} gameScreenUrl={gameScreenUrl} onAnalysisUpdate={handleVisionUpdate} onLog={handleVisionLog} />}
         </div>
       </main>
 
-      {/* ============ CONTROLS ============ */}
+      {/* Controls */}
       <div className="bg-neutral-900 border-t border-neutral-800 p-4">
-        <Controls 
-          lastButton={lastButtonPressed} 
-          onButtonPress={handleButtonPress}
-          disabled={!isRomLoaded}
-        />
+        <Controls lastButton={lastButtonPressed} onButtonPress={handleButtonPress} disabled={!isRomLoaded} />
       </div>
 
-      {/* ============ SETTINGS MODAL ============ */}
-      <SettingsModal 
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        settings={settings}
-        onSave={handleSettingsSave}
-      />
+      {/* Settings Modal */}
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} onSave={handleSettingsSave} />
     </div>
   );
 };
 
-// ============ CONTROLS COMPONENT ============
+// Controls Component
 interface ControlsProps {
   lastButton: GameButton | null;
   onButtonPress: (button: GameButton) => void;
@@ -760,79 +572,41 @@ interface ControlsProps {
 }
 
 const Controls: React.FC<ControlsProps> = ({ lastButton, onButtonPress, disabled }) => {
-  const buttons: { label: string; action: GameButton; color: string }[] = [
-    { label: 'A', action: 'A', color: 'bg-green-500 hover:bg-green-600' },
-    { label: 'B', action: 'B', color: 'bg-red-500 hover:bg-red-600' },
+  const buttons = [
+    { label: 'A', action: 'A' as GameButton, color: 'bg-green-500 hover:bg-green-600' },
+    { label: 'B', action: 'B' as GameButton, color: 'bg-red-500 hover:bg-red-600' },
   ];
-
-  const dpadButtons: { label: string; action: GameButton; gridArea: string }[] = [
-    { label: '', action: 'UP', gridArea: '1 / 2' },
-    { label: '', action: 'LEFT', gridArea: '2 / 1' },
-    { label: '', action: 'RIGHT', gridArea: '2 / 3' },
-    { label: '', action: 'DOWN', gridArea: '3 / 2' },
+  const dpadButtons = [
+    { label: '', action: 'UP' as GameButton, gridArea: '1 / 2' },
+    { label: '', action: 'LEFT' as GameButton, gridArea: '2 / 1' },
+    { label: '', action: 'RIGHT' as GameButton, gridArea: '2 / 3' },
+    { label: '', action: 'DOWN' as GameButton, gridArea: '3 / 2' },
   ];
-
-  const systemButtons: { label: string; action: GameButton }[] = [
-    { label: 'SELECT', action: 'SELECT' },
-    { label: 'START', action: 'START' },
+  const systemButtons = [
+    { label: 'SELECT', action: 'SELECT' as GameButton },
+    { label: 'START', action: 'START' as GameButton },
   ];
 
   return (
     <div className="flex items-center justify-center gap-8">
-      {/* D-Pad */}
-      <div 
-        className="grid grid-cols-3 grid-rows-3 gap-1 w-32 h-32"
-        style={{ gridTemplateAreas: `". up ." "left . right" ". down ."` }}
-      >
+      <div className="grid grid-cols-3 grid-rows-3 gap-1 w-32 h-32" style={{ gridTemplateAreas: '". up ." "left . right" ". down ."' }}>
         {dpadButtons.map(({ label, action, gridArea }) => (
-          <button
-            key={action}
-            style={{ gridArea }}
-            onClick={() => onButtonPress(action)}
-            disabled={disabled}
-            className={`
-              w-12 h-12 flex items-center justify-center rounded-lg transition-all
-              ${disabled ? 'bg-neutral-800 cursor-not-allowed' : 'bg-neutral-700 hover:bg-neutral-600 active:scale-95'}
-              ${lastButton === action ? 'bg-cyan-600 scale-95' : ''}
-            `}
-          >
+          <button key={action} style={{ gridArea }} onClick={() => onButtonPress(action)} disabled={disabled} className={`w-12 h-12 flex items-center justify-center rounded-lg transition-all ${disabled ? 'bg-neutral-800 cursor-not-allowed' : 'bg-neutral-700 hover:bg-neutral-600 active:scale-95'} ${lastButton === action ? 'bg-blue-600 scale-95' : ''}`}>
             <span className="text-neutral-400 text-xs">{label}</span>
           </button>
         ))}
         <div className="w-12 h-12" style={{ gridArea: '2 / 2' }} />
       </div>
-
-      {/* System Buttons */}
       <div className="flex flex-col gap-2">
         {systemButtons.map(({ label, action }) => (
-          <button
-            key={action}
-            onClick={() => onButtonPress(action)}
-            disabled={disabled}
-            className={`
-              px-4 py-2 rounded-full text-xs font-medium transition-all
-              ${disabled ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed' : 'bg-neutral-700 hover:bg-neutral-600 active:scale-95'}
-              ${lastButton === action ? 'bg-cyan-600 scale-95' : ''}
-            `}
-          >
+          <button key={action} onClick={() => onButtonPress(action)} disabled={disabled} className={`px-4 py-2 rounded-full text-xs font-medium transition-all ${disabled ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed' : 'bg-neutral-700 hover:bg-neutral-600 active:scale-95'} ${lastButton === action ? 'bg-blue-600 scale-95' : ''}`}>
             {label}
           </button>
         ))}
       </div>
-
-      {/* A/B Buttons */}
       <div className="flex items-center gap-4">
         {buttons.map(({ label, action, color }) => (
-          <button
-            key={action}
-            onClick={() => onButtonPress(action)}
-            disabled={disabled}
-            className={`
-              w-14 h-14 rounded-full font-bold text-lg transition-all
-              ${disabled ? 'bg-neutral-700 text-neutral-500 cursor-not-allowed' : `${color} text-white active:scale-95`}
-              ${lastButton === action ? 'scale-95 ring-2 ring-white' : ''}
-            `}
-          >
+          <button key={action} onClick={() => onButtonPress(action)} disabled={disabled} className={`w-14 h-14 rounded-full font-bold text-lg transition-all ${disabled ? 'bg-neutral-700 text-neutral-500 cursor-not-allowed' : `${color} text-white active:scale-95`} ${lastButton === action ? 'scale-95 ring-2 ring-white' : ''}`}>
             {label}
           </button>
         ))}
