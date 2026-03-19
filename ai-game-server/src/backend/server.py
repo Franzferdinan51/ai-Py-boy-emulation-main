@@ -3965,6 +3965,701 @@ def get_memory_watch():
         return jsonify({"error": str(e)}), 500
 
 
+# ============================================================================
+# MEMORY API ENDPOINTS
+# ============================================================================
+
+@app.route('/api/memory/<int:address>', methods=['GET'])
+def read_memory(address):
+    """
+    Read memory from the active emulator.
+    
+    Args:
+        address: Memory address to read (0x0000-0xFFFF)
+        
+    Query params:
+        size: Number of bytes to read (default: 1, max: 256)
+        format: Output format - 'int', 'hex', 'binary' (default: 'int')
+    """
+    try:
+        # Validate address range
+        if address < 0 or address > 0xFFFF:
+            return jsonify({"error": "Address must be between 0x0000 and 0xFFFF"}), 400
+        
+        # Get size parameter
+        size = request.args.get('size', 1, type=int)
+        size = min(max(1, size), 256)  # Clamp between 1-256
+        
+        output_format = request.args.get('format', 'int')
+        
+        current_state = get_game_state()
+        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+            return jsonify({"error": "No ROM loaded"}), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        
+        # Read memory using PyBoy API
+        values = []
+        for i in range(size):
+            addr = (address + i) & 0xFFFF  # Wrap around
+            try:
+                if hasattr(emulator, 'pyboy') and emulator.pyboy:
+                    value = emulator.pyboy.memory[addr]
+                elif hasattr(emulator, 'memory'):
+                    value = emulator.memory[addr]
+                else:
+                    return jsonify({"error": "Emulator does not support memory access"}), 503
+                values.append(value)
+            except Exception as mem_error:
+                logger.error(f"Memory read error at {hex(addr)}: {mem_error}")
+                return jsonify({"error": f"Failed to read memory at {hex(addr)}"}), 500
+        
+        # Format output
+        if output_format == 'hex':
+            formatted = [hex(v) for v in values]
+        elif output_format == 'binary':
+            formatted = [bin(v) for v in values]
+        else:
+            formatted = values
+        
+        return jsonify({
+            "address": hex(address),
+            "address_int": address,
+            "size": size,
+            "values": values,
+            "formatted": formatted,
+            "format": output_format,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error reading memory: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/memory/<int:address>', methods=['POST'])
+def write_memory(address):
+    """
+    Write memory to the active emulator.
+    
+    Args:
+        address: Memory address to write (0x0000-0xFFFF)
+        
+    Body:
+        value: Byte value to write (0-255)
+        values: List of byte values to write (optional, for multi-byte writes)
+    """
+    try:
+        # Validate address range
+        if address < 0 or address > 0xFFFF:
+            return jsonify({"error": "Address must be between 0x0000 and 0xFFFF"}), 400
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        current_state = get_game_state()
+        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+            return jsonify({"error": "No ROM loaded"}), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        
+        # Get values to write
+        if 'values' in data:
+            values = data['values']
+            if not isinstance(values, list):
+                values = [values]
+        elif 'value' in data:
+            values = [data['value']]
+        else:
+            return jsonify({"error": "No 'value' or 'values' provided"}), 400
+        
+        # Validate values
+        for i, v in enumerate(values):
+            if not isinstance(v, int) or v < 0 or v > 255:
+                return jsonify({"error": f"Value at index {i} must be an integer 0-255"}), 400
+        
+        # Write memory using PyBoy API
+        written = []
+        for i, value in enumerate(values):
+            addr = (address + i) & 0xFFFF  # Wrap around
+            try:
+                if hasattr(emulator, 'pyboy') and emulator.pyboy:
+                    emulator.pyboy.memory[addr] = value
+                elif hasattr(emulator, 'memory'):
+                    emulator.memory[addr] = value
+                else:
+                    return jsonify({"error": "Emulator does not support memory access"}), 503
+                written.append({"address": hex(addr), "value": value})
+            except Exception as mem_error:
+                logger.error(f"Memory write error at {hex(addr)}: {mem_error}")
+                return jsonify({"error": f"Failed to write memory at {hex(addr)}"}), 500
+        
+        return jsonify({
+            "success": True,
+            "message": f"Wrote {len(written)} byte(s) to memory",
+            "writes": written,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error writing memory: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
+# POKEMON PARTY API ENDPOINT
+# ============================================================================
+
+# Pokemon Red/Blue memory addresses for party data
+POKEMON_PARTY_ADDRESSES = {
+    "party_count": 0xD163,        # Number of Pokemon in party
+    "party_species": 0xD16B,      # Species list (6 bytes)
+    "party_hp": 0xD16C,           # HP values (12 bytes, 2 per Pokemon)
+    "party_max_hp": 0xD177,       # Max HP values (12 bytes)
+    "party_level": 0xD182,        # Levels (6 bytes)
+    "party_status": 0xD18D,       # Status conditions (6 bytes)
+    "party_type1": 0xD198,        # Type 1 (6 bytes)
+    "party_type2": 0xD1A3,        # Type 2 (6 bytes)
+    "party_move1": 0xD1AE,        # Move 1 (6 bytes)
+    "party_move2": 0xD1B3,        # Move 2 (6 bytes)
+    "party_move3": 0xD1B8,        # Move 3 (6 bytes)
+    "party_move4": 0xD1BD,        # Move 4 (6 bytes)
+    "party_ot_id": 0xD1C2,        # Original Trainer ID (12 bytes)
+    "party_exp": 0xD1C8,          # Experience (18 bytes, 3 per Pokemon)
+    "party_nickname": 0xD1D0,     # Nicknames (66 bytes, 11 per Pokemon)
+}
+
+# Pokemon species names (Gen 1)
+POKEMON_SPECIES = {
+    0x00: None, 0x01: "Rhydon", 0x02: "Kangaskhan", 0x03: "Nidoran♂", 0x04: "Clefairy",
+    0x05: "Spearow", 0x06: "Voltorb", 0x07: "Nidoking", 0x08: "Slowbro", 0x09: "Ivysaur",
+    0x0A: "Exeggutor", 0x0B: "Lickitung", 0x0C: "Exeggcute", 0x0D: "Grimer", 0x0E: "Gengar",
+    0x0F: "Nidoran♀", 0x10: "Nidoqueen", 0x11: "Cubone", 0x12: "Rhyhorn", 0x13: "Lapras",
+    0x14: "Arcanine", 0x15: "Mew", 0x16: "Gyarados", 0x17: "Shellder", 0x18: "Tentacool",
+    0x19: "Gastly", 0x1A: "Scyther", 0x1B: "Staryu", 0x1C: "Blastoise", 0x1D: "Pinsir",
+    0x1E: "Tangela", 0x1F: "MissingNo", 0x20: "MissingNo", 0x21: "Growlithe", 0x22: "Onix",
+    0x23: "Fearow", 0x24: "Pidgey", 0x25: "Slowpoke", 0x26: "Kadabra", 0x27: "Graveler",
+    0x28: "Chansey", 0x29: "Machoke", 0x2A: "Mr. Mime", 0x2B: "Hitmonlee", 0x2C: "Hitmonchan",
+    0x2D: "Arbok", 0x2E: "Parasect", 0x2F: "Psyduck", 0x30: "Drowzee", 0x31: "Golem",
+    0x32: "MissingNo", 0x33: "Magmar", 0x34: "MissingNo", 0x35: "Electabuzz", 0x36: "Magneton",
+    0x37: "Koffing", 0x38: "MissingNo", 0x39: "Mankey", 0x3A: "Seel", 0x3B: "Diglett",
+    0x3C: "Tauros", 0x3D: "MissingNo", 0x3E: "MissingNo", 0x3F: "MissingNo", 0x40: "Farfetch'd",
+    0x41: "Venonat", 0x42: "Dragonite", 0x43: "MissingNo", 0x44: "MissingNo", 0x45: "MissingNo",
+    0x46: "Doduo", 0x47: "Poliwag", 0x48: "Jynx", 0x49: "Moltres", 0x4A: "Articuno",
+    0x4B: "Zapdos", 0x4C: "Ditto", 0x4D: "Meowth", 0x4E: "Krabby", 0x4F: "MissingNo",
+    0x50: "MissingNo", 0x51: "MissingNo", 0x52: "Vulpix", 0x53: "Ninetales", 0x54: "Pikachu",
+    0x55: "Raichu", 0x56: "MissingNo", 0x57: "Dratini", 0x58: "Dragonair", 0x59: "Kabuto",
+    0x5A: "Kabutops", 0x5B: "Horsea", 0x5C: "Seadra", 0x5D: "MissingNo", 0x5E: "MissingNo",
+    0x5F: "Sandshrew", 0x60: "Sandslash", 0x61: "Omanyte", 0x62: "Omastar", 0x63: "Jigglypuff",
+    0x64: "Wigglytuff", 0x65: "Eevee", 0x66: "Flareon", 0x67: "Jolteon", 0x68: "Vaporeon",
+    0x69: "Machop", 0x6A: "Zubat", 0x6B: "Ekans", 0x6C: "Paras", 0x6D: "Poliwhirl",
+    0x6E: "Poliwrath", 0x6F: "Weedle", 0x70: "Kakuna", 0x71: "Beedrill", 0x72: "MissingNo",
+    0x73: "Dodrio", 0x74: "Primeape", 0x75: "Dugtrio", 0x76: "Venomoth", 0x77: "Dewgong",
+    0x78: "MissingNo", 0x79: "MissingNo", 0x7A: "Caterpie", 0x7B: "Metapod", 0x7C: "Butterfree",
+    0x7D: "Machamp", 0x7E: "MissingNo", 0x7F: "Golduck", 0x80: "Hypno", 0x81: "Golbat",
+    0x82: "Mewtwo", 0x83: "Snorlax", 0x84: "Magikarp", 0x85: "MissingNo", 0x86: "MissingNo",
+    0x87: "Muk", 0x88: "MissingNo", 0x89: "Kingler", 0x8A: "Cloyster", 0x8B: "MissingNo",
+    0x8C: "Electrode", 0x8D: "Clefable", 0x8E: "Weezing", 0x8F: "Persian", 0x90: "Marowak",
+    0x91: "MissingNo", 0x92: "Haunter", 0x93: "Abra", 0x94: "Alakazam", 0x95: "Pidgeotto",
+    0x96: "Pidgeot", 0x97: "Starmie", 0x98: "Bulbasaur", 0x99: "Venusaur", 0x9A: "Tentacruel",
+    0x9B: "MissingNo", 0x9C: "Goldeen", 0x9D: "Seaking", 0x9E: "MissingNo", 0x9F: "MissingNo",
+    0xA0: "MissingNo", 0xA1: "MissingNo", 0xA2: "MissingNo", 0xA3: "MissingNo", 0xA4: "MissingNo",
+    0xA5: "MissingNo", 0xA6: "MissingNo", 0xA7: "MissingNo", 0xA8: "MissingNo", 0xA9: "MissingNo",
+    0xAA: "MissingNo", 0xAB: "MissingNo", 0xAC: "MissingNo", 0xAD: "MissingNo", 0xAE: "MissingNo",
+    0xAF: "MissingNo", 0xB0: "MissingNo", 0xB1: "MissingNo", 0xB2: "MissingNo", 0xB3: "MissingNo",
+    0xB4: "MissingNo", 0xB5: "MissingNo", 0xB6: "MissingNo", 0xB7: "MissingNo", 0xB8: "MissingNo",
+    0xB9: "MissingNo", 0xBA: "MissingNo", 0xBB: "MissingNo", 0xBC: "MissingNo", 0xBD: "MissingNo",
+    0xBE: "MissingNo", 0xBF: "MissingNo", 0xC0: "MissingNo", 0xC1: "MissingNo", 0xC2: "MissingNo",
+    0xC3: "MissingNo", 0xC4: "MissingNo", 0xC5: "MissingNo", 0xC6: "MissingNo", 0xC7: "MissingNo",
+    0xC8: "MissingNo", 0xC9: "MissingNo", 0xCA: "MissingNo", 0xCB: "MissingNo", 0xCC: "MissingNo",
+    0xCD: "MissingNo", 0xCE: "MissingNo", 0xCF: "MissingNo", 0xD0: "MissingNo", 0xD1: "MissingNo",
+    0xD2: "MissingNo", 0xD3: "MissingNo", 0xD4: "MissingNo", 0xD5: "MissingNo", 0xD6: "MissingNo",
+    0xD7: "MissingNo", 0xD8: "MissingNo", 0xD9: "MissingNo", 0xDA: "MissingNo", 0xDB: "MissingNo",
+    0xDC: "MissingNo", 0xDD: "MissingNo", 0xDE: "MissingNo", 0xDF: "MissingNo", 0xE0: "MissingNo",
+    0xE1: "MissingNo", 0xE2: "MissingNo", 0xE3: "MissingNo", 0xE4: "MissingNo", 0xE5: "MissingNo",
+    0xE6: "MissingNo", 0xE7: "MissingNo", 0xE8: "MissingNo", 0xE9: "MissingNo", 0xEA: "MissingNo",
+    0xEB: "MissingNo", 0xEC: "MissingNo", 0xED: "MissingNo", 0xEE: "MissingNo", 0xEF: "MissingNo",
+    0xF0: "MissingNo", 0xF1: "MissingNo", 0xF2: "MissingNo", 0xF3: "MissingNo", 0xF4: "MissingNo",
+    0xF5: "MissingNo", 0xF6: "MissingNo", 0xF7: "MissingNo", 0xF8: "MissingNo", 0xF9: "MissingNo",
+    0xFA: "MissingNo", 0xFB: "MissingNo", 0xFC: "MissingNo", 0xFD: "MissingNo", 0xFE: "MissingNo",
+    0xFF: "MissingNo"
+}
+
+# Move names (Gen 1)
+MOVE_NAMES = {
+    0x00: None, 0x01: "Pound", 0x02: "Karate Chop", 0x03: "Double Slap", 0x04: "Comet Punch",
+    0x05: "Mega Punch", 0x06: "Pay Day", 0x07: "Fire Punch", 0x08: "Ice Punch", 0x09: "Thunder Punch",
+    0x0A: "Scratch", 0x0B: "Vice Grip", 0x0C: "Guillotine", 0x0D: "Razor Wind", 0x0E: "Swords Dance",
+    0x0F: "Cut", 0x10: "Gust", 0x11: "Wing Attack", 0x12: "Fly", 0x13: "Bind",
+    # ... (truncated for brevity, add more as needed)
+}
+
+# Type names
+TYPE_NAMES = {
+    0x00: "Normal", 0x01: "Fighting", 0x02: "Flying", 0x03: "Poison", 0x04: "Ground",
+    0x05: "Rock", 0x06: "Bird", 0x07: "Bug", 0x08: "Ghost", 0x14: "Fire",
+    0x15: "Water", 0x16: "Grass", 0x17: "Electric", 0x18: "Psychic", 0x19: "Ice",
+    0x1A: "Dragon"
+}
+
+
+def read_pokemon_memory(emulator, address, size=1):
+    """Helper function to read Pokemon memory"""
+    try:
+        if hasattr(emulator, 'pyboy') and emulator.pyboy:
+            if size == 1:
+                return emulator.pyboy.memory[address]
+            else:
+                return [emulator.pyboy.memory[address + i] for i in range(size)]
+        elif hasattr(emulator, 'memory'):
+            if size == 1:
+                return emulator.memory[address]
+            else:
+                return [emulator.memory[address + i] for i in range(size)]
+        return None
+    except Exception as e:
+        logger.error(f"Error reading Pokemon memory at {hex(address)}: {e}")
+        return None
+
+
+@app.route('/api/party', methods=['GET'])
+def get_party():
+    """
+    Get party Pokemon information.
+    
+    Returns detailed information about all Pokemon in the party.
+    """
+    try:
+        current_state = get_game_state()
+        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+            return jsonify({"error": "No ROM loaded"}), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        
+        # Read party count
+        party_count = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_count"])
+        if party_count is None:
+            return jsonify({"error": "Failed to read party data"}), 500
+        
+        party = []
+        
+        for i in range(min(party_count, 6)):
+            pokemon = {
+                "slot": i + 1,
+                "species_id": None,
+                "species_name": None,
+                "level": None,
+                "hp": None,
+                "max_hp": None,
+                "status": None,
+                "type1": None,
+                "type2": None,
+                "moves": [],
+                "ot_id": None,
+            }
+            
+            # Read species
+            species_id = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_species"] + i)
+            if species_id is not None:
+                pokemon["species_id"] = species_id
+                pokemon["species_name"] = POKEMON_SPECIES.get(species_id, f"Unknown ({species_id})")
+            
+            # Read level
+            level = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_level"] + i)
+            if level is not None:
+                pokemon["level"] = level
+            
+            # Read HP (2 bytes, big-endian)
+            hp_high = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_hp"] + (i * 2))
+            hp_low = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_hp"] + (i * 2) + 1)
+            if hp_high is not None and hp_low is not None:
+                pokemon["hp"] = (hp_high << 8) | hp_low
+            
+            # Read Max HP
+            max_hp_high = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_max_hp"] + (i * 2))
+            max_hp_low = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_max_hp"] + (i * 2) + 1)
+            if max_hp_high is not None and max_hp_low is not None:
+                pokemon["max_hp"] = (max_hp_high << 8) | max_hp_low
+            
+            # Read status
+            status = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_status"] + i)
+            if status is not None:
+                pokemon["status"] = status
+                # Decode status conditions
+                status_conditions = []
+                if status == 0:
+                    status_conditions.append("Healthy")
+                if status & 0x01:
+                    status_conditions.append("Sleep")
+                if status & 0x02:
+                    status_conditions.append("Poison")
+                if status & 0x04:
+                    status_conditions.append("Burn")
+                if status & 0x08:
+                    status_conditions.append("Freeze")
+                if status & 0x10:
+                    status_conditions.append("Paralyze")
+                pokemon["status_text"] = ", ".join(status_conditions) if status_conditions else "Healthy"
+            
+            # Read types
+            type1 = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_type1"] + i)
+            type2 = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_type2"] + i)
+            if type1 is not None:
+                pokemon["type1"] = TYPE_NAMES.get(type1, f"Unknown ({type1})")
+            if type2 is not None:
+                pokemon["type2"] = TYPE_NAMES.get(type2, f"Unknown ({type2})")
+            
+            # Read moves
+            for j in range(4):
+                move_id = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES[f"party_move{j+1}"] + i)
+                if move_id is not None and move_id > 0:
+                    pokemon["moves"].append({
+                        "id": move_id,
+                        "name": MOVE_NAMES.get(move_id, f"Unknown ({move_id})")
+                    })
+            
+            # Read OT ID (2 bytes)
+            ot_high = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_ot_id"] + (i * 2))
+            ot_low = read_pokemon_memory(emulator, POKEMON_PARTY_ADDRESSES["party_ot_id"] + (i * 2) + 1)
+            if ot_high is not None and ot_low is not None:
+                pokemon["ot_id"] = (ot_high << 8) | ot_low
+            
+            # Calculate HP percentage
+            if pokemon["hp"] is not None and pokemon["max_hp"] is not None and pokemon["max_hp"] > 0:
+                pokemon["hp_percent"] = round((pokemon["hp"] / pokemon["max_hp"]) * 100, 1)
+            else:
+                pokemon["hp_percent"] = 0
+            
+            party.append(pokemon)
+        
+        return jsonify({
+            "party_count": party_count,
+            "party": party,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting party: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
+# INVENTORY API ENDPOINT
+# ============================================================================
+
+# Pokemon Red/Blue inventory addresses
+INVENTORY_ADDRESSES = {
+    "money": 0xD347,            # Money (3 bytes, BCD)
+    "item_count": 0xD31D,       # Number of items in bag
+    "items": 0xD31E,            # Item list (max 20 items, 2 bytes each)
+}
+
+# Item names (Gen 1)
+ITEM_NAMES = {
+    0x00: None, 0x01: "Master Ball", 0x02: "Ultra Ball", 0x03: "Great Ball", 0x04: "Poké Ball",
+    0x05: "Town Map", 0x06: "Bicycle", 0x07: "?????", 0x08: "Safari Ball", 0x09: "Pokédex",
+    0x0A: "Moon Stone", 0x0B: "Antidote", 0x0C: "Burn Heal", 0x0D: "Ice Heal", 0x0E: "Awakening",
+    0x0F: "Paralyze Heal", 0x10: "Full Restore", 0x11: "Max Potion", 0x12: "Hyper Potion",
+    0x13: "Super Potion", 0x14: "Potion", 0x15: "Boulder Badge", 0x16: "Safari Bait",
+    0x17: "Safari Rock", 0x18: "Secret Key", 0x19: "?????", 0x1A: "Helix Fossil",
+    0x1B: "Dome Fossil", 0x1C: "Silph Scope", 0x1D: "Bicycle", 0x1E: "Old Amber",
+    0x1F: "Lift Key", 0x20: "Card Key", 0x21: "Nugget", 0x22: "PP Up", 0x23: "Poké Flute",
+    0x24: "Exp. All", 0x25: "Old Rod", 0x26: "Good Rod", 0x27: "Super Rod", 0x28: "S.S. Ticket",
+    0x29: "Gold Teeth", 0x2A: "Coin Case", 0x2B: "Oak's Parcel", 0x2C: "Itemfinder",
+    0x2D: "Silph Scope", 0x2E: "Poké Doll", 0x2F: "Full Heal", 0x30: "Revive",
+    0x31: "Max Revive", 0x32: "Guard Spec.", 0x33: "Super Repel", 0x34: "Max Repel",
+    0x35: "Dire Hit", 0x36: "Coin", 0x37: "Fresh Water", 0x38: "Soda Pop", 0x39: "Lemonade",
+    0x3A: "S.S. Ticket", 0x3B: "Gold Teeth", 0x3C: "X Attack", 0x3D: "X Defend",
+    0x3E: "X Speed", 0x3F: "X Special", 0x40: "Coin Case", 0x41: "Oak's Parcel",
+    0x42: "Itemfinder", 0x43: "Silph Scope", 0x44: "Poké Flute", 0x45: "Lift Key",
+    0x46: "Exp. All", 0x47: "Old Rod", 0x48: "Good Rod", 0x49: "Super Rod",
+    0x4A: "PP Up", 0x4B: "Ether", 0x4C: "Max Ether", 0x4D: "Elixer", 0x4E: "Max Elixer",
+    0x4F: "Fire Stone", 0x50: "Thunder Stone", 0x51: "Water Stone", 0x52: "Leaf Stone",
+    0x53: "HP Up", 0x54: "Protein", 0x55: "Iron", 0x56: "Carbos", 0x57: "Calcium",
+    0x58: "Rare Candy", 0x59: "Dome Fossil", 0x5A: "Helix Fossil", 0x5B: "Secret Key",
+    0x5C: "Bicycle", 0x5D: "Town Map", 0x5E: "Voucher", 0x5F: "Coin Case",
+}
+
+
+@app.route('/api/inventory', methods=['GET'])
+def get_inventory():
+    """
+    Get player inventory information.
+    
+    Returns money, item count, and list of items in bag.
+    """
+    try:
+        current_state = get_game_state()
+        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+            return jsonify({"error": "No ROM loaded"}), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        
+        # Read money (3 bytes BCD)
+        money_bytes = read_pokemon_memory(emulator, INVENTORY_ADDRESSES["money"], 3)
+        if money_bytes is not None:
+            # BCD decoding: each byte represents 2 decimal digits
+            money = 0
+            for b in money_bytes:
+                money = money * 100 + ((b >> 4) * 10) + (b & 0x0F)
+        else:
+            money = 0
+        
+        # Read item count
+        item_count = read_pokemon_memory(emulator, INVENTORY_ADDRESSES["item_count"])
+        if item_count is None:
+            item_count = 0
+        
+        # Read items (each item is 2 bytes: ID and quantity)
+        items = []
+        for i in range(min(item_count, 20)):
+            item_id = read_pokemon_memory(emulator, INVENTORY_ADDRESSES["items"] + (i * 2))
+            quantity = read_pokemon_memory(emulator, INVENTORY_ADDRESSES["items"] + (i * 2) + 1)
+            
+            if item_id is not None and item_id > 0:
+                items.append({
+                    "slot": i + 1,
+                    "id": item_id,
+                    "name": ITEM_NAMES.get(item_id, f"Unknown ({item_id})"),
+                    "quantity": quantity if quantity is not None else 0
+                })
+        
+        return jsonify({
+            "money": money,
+            "money_formatted": f"¥{money:,}",
+            "item_count": item_count,
+            "items": items,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting inventory: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
+# ROM LOAD API ENDPOINT
+# ============================================================================
+
+@app.route('/api/rom/load', methods=['POST'])
+def load_rom_api():
+    """
+    Load a ROM file from the server filesystem.
+    
+    Body:
+        path: Absolute or relative path to ROM file
+        emulator_type: 'gb' or 'gba' (default: 'gb')
+        launch_ui: Whether to launch UI (default: false)
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        rom_path = data.get('path')
+        emulator_type = data.get('emulator_type', 'gb')
+        launch_ui = data.get('launch_ui', False)
+        
+        if not rom_path:
+            return jsonify({"error": "ROM path is required"}), 400
+        
+        # Validate path exists
+        if not os.path.exists(rom_path):
+            return jsonify({"error": f"ROM file not found: {rom_path}"}), 404
+        
+        # Validate file extension
+        _, ext = os.path.splitext(rom_path)
+        if ext.lower() not in ALLOWED_ROM_EXTENSIONS:
+            return jsonify({"error": f"Invalid ROM extension. Allowed: {ALLOWED_ROM_EXTENSIONS}"}), 400
+        
+        # Check file size
+        file_size = os.path.getsize(rom_path)
+        if file_size > MAX_ROM_SIZE:
+            return jsonify({"error": f"ROM file too large: {file_size} bytes (max: {MAX_ROM_SIZE})"}), 400
+        
+        # Validate emulator type
+        emulator_type_mapping = {
+            'gb': 'pyboy',
+            'gba': 'pygba',
+            'pyboy': 'pyboy',
+            'pygba': 'pygba'
+        }
+        
+        mapped_emulator = emulator_type_mapping.get(emulator_type.lower())
+        if not mapped_emulator or mapped_emulator not in emulators:
+            return jsonify({"error": f"Invalid emulator type. Available: {list(emulator_type_mapping.keys())}"}), 400
+        
+        emulator_type = mapped_emulator
+        
+        # Load ROM
+        logger.info(f"Loading ROM: {rom_path} with emulator: {emulator_type}")
+        success = emulators[emulator_type].load_rom(rom_path)
+        
+        if success:
+            # Update game state
+            update_game_state({
+                "rom_loaded": True,
+                "active_emulator": emulator_type,
+                "rom_path": rom_path,
+                "rom_name": os.path.basename(rom_path)
+            })
+            
+            # Get emulator info
+            emulator = emulators[emulator_type]
+            ui_status = emulator.get_ui_status() if hasattr(emulator, 'get_ui_status') else {"running": False}
+            
+            return jsonify({
+                "success": True,
+                "message": "ROM loaded successfully",
+                "rom_name": os.path.basename(rom_path),
+                "rom_path": rom_path,
+                "rom_size": file_size,
+                "emulator_type": emulator_type,
+                "ui_launched": ui_status.get("running", False),
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        else:
+            return jsonify({"error": "Failed to load ROM"}), 500
+        
+    except Exception as e:
+        logger.error(f"Error loading ROM: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
+# SCREEN STREAM API ENDPOINT (SSE)
+# ============================================================================
+
+@app.route('/api/screen/stream', methods=['GET'])
+def screen_stream():
+    """
+    SSE endpoint for real-time screen updates.
+    
+    This is an alias for the existing /api/stream endpoint for compatibility.
+    
+    Query params:
+        fps: Target frames per second (default: 30, max: 60)
+    """
+    # Delegate to existing stream endpoint
+    return stream_screen()
+
+
+# ============================================================================
+# AGENT MODE API ENDPOINT
+# ============================================================================
+
+# Valid agent modes
+VALID_AGENT_MODES = [
+    "idle",           # No automatic actions
+    "auto_explore",   # Automatically explore the map
+    "auto_battle",    # Automatically battle wild Pokemon
+    "auto_train",     # Train Pokemon automatically
+    "auto_fish",      # Automatic fishing
+    "auto_walk",      # Walk in a direction continuously
+    "auto_center",    # Walk to Pokemon center
+    "auto_shop",      # Walk to Pokemart
+    "speedrun",       # Speedrun mode (aggressive automation)
+    "manual"          # Manual control only
+]
+
+
+@app.route('/api/agent/mode', methods=['POST'])
+def set_agent_mode():
+    """
+    Set the agent's automation mode.
+    
+    Body:
+        mode: One of 'idle', 'auto_explore', 'auto_battle', 'auto_train', 
+              'auto_fish', 'auto_walk', 'auto_center', 'auto_shop', 'speedrun', 'manual'
+        enabled: Enable/disable agent (default: true)
+        autonomous_level: 'passive', 'moderate', or 'aggressive' (default: 'moderate')
+        direction: Direction for auto_walk mode (optional)
+        target: Target location for auto_center/auto_shop (optional)
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        mode = data.get('mode', 'idle').lower()
+        enabled = data.get('enabled', True)
+        autonomous_level = data.get('autonomous_level', 'moderate').lower()
+        direction = data.get('direction', '').upper()
+        target = data.get('target', '')
+        
+        # Validate mode
+        if mode not in VALID_AGENT_MODES:
+            return jsonify({
+                "error": f"Invalid mode. Valid modes: {VALID_AGENT_MODES}"
+            }), 400
+        
+        # Validate autonomous level
+        valid_levels = ['passive', 'moderate', 'aggressive']
+        if autonomous_level not in valid_levels:
+            return jsonify({
+                "error": f"Invalid autonomous level. Valid levels: {valid_levels}"
+            }), 400
+        
+        # Validate direction for auto_walk
+        valid_directions = ['UP', 'DOWN', 'LEFT', 'RIGHT']
+        if mode == 'auto_walk' and direction and direction not in valid_directions:
+            return jsonify({
+                "error": f"Invalid direction for auto_walk. Valid directions: {valid_directions}"
+            }), 400
+        
+        # Update agent state
+        agent_mode_state["mode"] = mode
+        agent_mode_state["enabled"] = enabled
+        agent_mode_state["autonomous_level"] = autonomous_level
+        agent_mode_state["current_action"] = f"Mode set to {mode}"
+        agent_mode_state["last_decision"] = f"Agent mode changed to {mode} (level: {autonomous_level})"
+        
+        # Store additional parameters
+        if direction:
+            agent_mode_state["direction"] = direction
+        if target:
+            agent_mode_state["target"] = target
+        
+        logger.info(f"Agent mode set: {mode}, enabled: {enabled}, level: {autonomous_level}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Agent mode set to {mode}",
+            "mode": mode,
+            "enabled": enabled,
+            "autonomous_level": autonomous_level,
+            "direction": direction if mode == 'auto_walk' else None,
+            "target": target if mode in ['auto_center', 'auto_shop'] else None,
+            "valid_modes": VALID_AGENT_MODES,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error setting agent mode: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/agent/mode', methods=['GET'])
+def get_agent_mode():
+    """
+    Get the current agent mode and settings.
+    """
+    try:
+        return jsonify({
+            "mode": agent_mode_state["mode"],
+            "enabled": agent_mode_state["enabled"],
+            "autonomous_level": agent_mode_state["autonomous_level"],
+            "current_action": agent_mode_state["current_action"],
+            "last_decision": agent_mode_state["last_decision"],
+            "valid_modes": VALID_AGENT_MODES,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Error getting agent mode: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 def signal_handler(sig, frame):
     """Handle shutdown signals gracefully"""
     logger.info(f"Received signal {sig}, shutting down gracefully...")
