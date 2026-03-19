@@ -91,30 +91,79 @@ Add this to your `~/.lmstudio/mcp.json`:
 {
   "mcpServers": {
     "gameboy": {
-      "command": "python3",
+      "command": "/opt/homebrew/opt/python@3.14/bin/python3.14",
       "args": ["/path/to/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"]
     }
   }
 }
 ```
 
-### MCP Tools Available (13 Tools - Work with ANY Game!)
+### MCP Tools Available (42 Tools - Work with ANY Game!)
 
+#### Button Controls
 | Tool | Description |
 |------|-------------|
-| `load_rom` | Load a ROM file (.gb, .gbc, .gba) - **ANY game works!** |
-| `press_button` | Press button (A/B/START/SELECT/UP/DOWN/LEFT/RIGHT) |
-| `press_buttons` | Press multiple buttons in sequence |
-| `get_screen` | Get current screen as image |
-| `tick` | Advance N frames |
-| `get_memory` | Read memory at address |
-| `set_memory` | Write to memory address |
-| `get_state` | Get emulator state |
-| `save_state` | Save game state |
-| `load_state` | Load game state |
-| `list_saves` | List all save states |
-| `reset` | Reset emulator |
-| `get_game_info` | Get loaded game info |
+| `press_a` | Press A button |
+| `press_b` | Press B button |
+| `press_up` | Press UP |
+| `press_down` | Press DOWN |
+| `press_left` | Press LEFT |
+| `press_right` | Press RIGHT |
+| `press_start` | Press START |
+| `press_select` | Press SELECT |
+| `press_button_combo` | Combo (UP+A) |
+| `hold_button` | Hold button N frames |
+
+#### Screen & Visuals
+| Tool | Description |
+|------|-------------|
+| `get_screen` | Get current screen |
+| `screenshot` | Take screenshot |
+| `tick` | Advance frames |
+| `compare_screens` | Detect screen changes |
+| `get_tile_data` | VRAM tile data |
+
+#### Game State
+| Tool | Description |
+|------|-------------|
+| `get_state` | Emulator state |
+| `get_game_info` | Game info |
+| `get_system_info` | ROM header, system |
+| `save_state` | Save state |
+| `load_state` | Load state |
+| `quick_save` | Quick save |
+| `quick_load` | Quick load |
+| `list_save_slots` | List saves |
+
+#### Pokemon-Specific
+| Tool | Description |
+|------|-------------|
+| `get_party` | Party Pokemon |
+| `get_inventory` | Inventory |
+| `get_position` | X,Y position |
+| `get_map` | Current map |
+| `get_money` | Money |
+| `get_badges` | Badges |
+| `get_wild_pokemon` | Wild Pokemon |
+| `get_enemy_info` | Enemy info |
+
+#### Generic (ANY game)
+| Tool | Description |
+|------|-------------|
+| `get_health` | HP/Health |
+| `get_score` | Score (Tetris, etc.) |
+| `get_level` | Level/Area |
+| `get_lives` | Lives |
+| `get_game_time` | Timer |
+
+#### Memory Access
+| Tool | Description |
+|------|-------------|
+| `get_memory` | Read address |
+| `read_ram` | Read RAM range |
+| `write_ram` | Write RAM |
+| `search_ram` | Search RAM |
+| `load_rom` | Load ROM |
 
 ### Supported Games
 
