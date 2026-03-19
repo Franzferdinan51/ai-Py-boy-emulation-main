@@ -1646,6 +1646,24 @@ def api_game_state():
     state = get_game_state()
     return jsonify(state), 200
 
+@app.route('/api/party', methods=['GET'])
+def api_party():
+    state = get_game_state()
+    active = state.get('active_emulator')
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify({'party_count': 0, 'party_pokemon': [], 'timestamp': datetime.now().isoformat()}), 200
+    try:
+        emulator = emulators[active]
+        party = []
+        if hasattr(emulator, 'get_party_info'):
+            try:
+                party = emulator.get_party_info() or []
+            except Exception:
+                party = []
+        return jsonify({'party_count': len(party), 'party_pokemon': party, 'timestamp': datetime.now().isoformat()}), 200
+    except Exception as e:
+        return jsonify({'party_count': 0, 'party_pokemon': [], 'timestamp': datetime.now().isoformat(), 'error': str(e)}), 200
+
 @app.route('/api/memory/watch', methods=['GET'])
 def api_memory_watch():
     state = get_game_state()
