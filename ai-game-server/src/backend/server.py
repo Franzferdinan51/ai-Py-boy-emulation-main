@@ -426,27 +426,21 @@ def sync_loaded_rom_state(emulator_type: str, rom_path: str, rom_name: Optional[
 
 
 def _live_emulation_loop():
-    """Continuously advance the active emulator so the WebUI shows a true live view."""
+    """Background loop that only updates frame count metadata.
+    
+    The SSE stream handles actual emulation ticking and rendering.
+    This loop only updates game state metadata for non-streaming clients.
+    """
     global emulation_loop_running
-    logger.info("Starting background live emulation loop")
+    logger.info("Starting background metadata update loop (SSE handles emulation)")
     while emulation_loop_running:
         try:
             current_state = get_game_state()
             active = current_state.get("active_emulator")
             if current_state.get("rom_loaded") and active in emulators:
                 emulator = emulators[active]
-                # Directly tick PyBoy with rendering enabled to update screen buffer
-                # This is critical - step() doesn't render by default!
-                if hasattr(emulator, 'pyboy') and emulator.pyboy:
-                    try:
-                        emulator.pyboy.tick(1, True)  # Render every frame for live view
-                    except Exception:
-                        pass
-                elif hasattr(emulator, 'step'):
-                    try:
-                        emulator.step('NOOP', 1)
-                    except Exception:
-                        pass
+                # Only update frame count metadata - DO NOT tick the emulator here
+                # The SSE stream is responsible for ticking and rendering
                 if hasattr(emulator, 'get_info'):
                     try:
                         info = emulator.get_info()
@@ -459,12 +453,12 @@ def _live_emulation_loop():
                         update_game_state({"frame_count": emulator.get_frame_count()})
                     except Exception:
                         pass
-            time.sleep(1/15)  # ~15 FPS target - reduces CPU while keeping view live
+            time.sleep(1/10)  # Update metadata at 10 Hz - low CPU usage
 
         except Exception as exc:
-            logger.debug(f"Live emulation loop iteration failed: {exc}")
-            time.sleep(0.1)
-    logger.info("Background live emulation loop stopped")
+            logger.debug(f"Metadata update loop iteration failed: {exc}")
+            time.sleep(0.5)
+    logger.info("Background metadata update loop stopped")
 
 
 def ensure_emulation_loop_running():
@@ -1010,7 +1004,13 @@ performance_monitor = {
     'current_fps': 0,
     'adaptive_fps_target': 60,
     'min_fps': 15,
-    'max_fps': 120
+    'max_fps': 120,
+    # ccboy-inspired: decouple screen capture from emulator ticking
+    # Screen is captured every N ticks (1 = every frame, 2 = every other frame, etc.)
+    # This reduces CPU load while keeping emulator responsive
+    'screen_capture_divider': 2,  # Capture at half the tick rate
+    'last_screen_capture_frame': 0,
+    'cached_screen_base64': None,  # Cache for when we skip capture
 }
 
 def update_performance_metrics(encoding_time: float, frame_time: float):
@@ -3162,45 +3162,71 @@ def stream_screen():
                                 yield f"data: {json.dumps(error_data)}\n\n"
                                 break
 
-                            try:
-                                screen_array = emulator.get_screen()
-                            except Exception as e:
-                                pyboy_timeout_count += 1
-                                logger.warning(f"PyBoy get_screen timeout (count: {pyboy_timeout_count})")
+                            # ccboy-inspired: decouple screen capture from emulator ticking
+                            # Only capture screen every Nth frame to reduce CPU load
+                            capture_divider = performance_monitor.get('screen_capture_divider', 1)
+                            should_capture = (frame_count - performance_monitor.get('last_screen_capture_frame', 0)) >= capture_divider
 
-                                # Instead of using placeholder, send error heartbeat
-                                if pyboy_timeout_count >= max_pyboy_timeouts:
-                                    error_data = {
-                                        'heartbeat': True,
-                                        'frame': frame_count,
+                            if should_capture:
+                                try:
+                                    screen_array = emulator.get_screen()
+                                    performance_monitor['last_screen_capture_frame'] = frame_count
+                                except Exception as e:
+                                    pyboy_timeout_count += 1
+                                    logger.warning(f"PyBoy get_screen timeout (count: {pyboy_timeout_count})")
+
+                                    # Instead of using placeholder, send error heartbeat
+                                    if pyboy_timeout_count >= max_pyboy_timeouts:
+                                        error_data = {
+                                            'heartbeat': True,
+                                            'frame': frame_count,
+                                            'timestamp': current_time,
+                                            'fps': target_fps,
+                                            'status': 'pyboy_timeout',
+                                            'message': 'PyBoy timeout threshold reached',
+                                            'error': 'PyBoy API timeout',
+                                            'timeout_count': pyboy_timeout_count
+                                        }
+                                        yield f"data: {json.dumps(error_data)}\n\n"
+                                        break
+                                    else:
+                                        # Send timeout error but continue streaming
+                                        error_data = {
+                                            'heartbeat': True,
+                                            'frame': frame_count,
+                                            'timestamp': current_time,
+                                            'fps': target_fps,
+                                            'status': 'timeout_error',
+                                            'message': 'PyBoy get_screen timeout',
+                                            'error': 'Screen capture timeout',
+                                            'timeout_count': pyboy_timeout_count
+                                        }
+                                        yield f"data: {json.dumps(error_data)}\n\n"
+                                        frame_count += 1
+                                        last_frame_time = current_time
+                                        continue
+                            else:
+                                # Use cached screen to reduce CPU load (ccboy-inspired optimization)
+                                screen_array = None
+                                img_base64 = performance_monitor.get('cached_screen_base64')
+                                if img_base64:
+                                    # Send cached frame with indicator
+                                    data = {
+                                        'image': img_base64,
+                                        'cached': True,
                                         'timestamp': current_time,
-                                        'fps': target_fps,
-                                        'status': 'pyboy_timeout',
-                                        'message': 'PyBoy timeout threshold reached',
-                                        'error': 'PyBoy API timeout',
-                                        'timeout_count': pyboy_timeout_count
-                                    }
-                                    yield f"data: {json.dumps(error_data)}\n\n"
-                                    break
-                                else:
-                                    # Send timeout error but continue streaming
-                                    error_data = {
-                                        'heartbeat': True,
                                         'frame': frame_count,
-                                        'timestamp': current_time,
                                         'fps': target_fps,
-                                        'status': 'timeout_error',
-                                        'message': 'PyBoy get_screen timeout',
-                                        'error': 'Screen capture timeout',
-                                        'timeout_count': pyboy_timeout_count
+                                        'status': 'streaming_cached'
                                     }
-                                    yield f"data: {json.dumps(error_data)}\n\n"
+                                    yield f"data: {json.dumps(data)}\n\n"
                                     frame_count += 1
                                     last_frame_time = current_time
                                     continue
 
                             # Validate screen data - if invalid, send error instead of placeholder
-                            if screen_array is None or screen_array.size == 0:
+                            # Note: When using cached frames, screen_array can be None and img_base64 comes from cache
+                            if screen_array is None and not img_base64:
                                 logger.warning(f"Stream frame {frame_count}: PyBoy API returned empty screen")
                                 error_data = {
                                     'heartbeat': True,
@@ -3261,6 +3287,9 @@ def stream_screen():
                                     'elapsed_ms': round((time.time() - current_time) * 1000, 2)
                                 }
                             else:
+                                # Cache the base64 image for use when we skip capture (ccboy-inspired)
+                                performance_monitor['cached_screen_base64'] = img_base64
+                                
                                 # Send normal frame with PyBoy metadata and timing info
                                 frame_process_time = (time.time() - current_time) * 1000
                                 data = {
