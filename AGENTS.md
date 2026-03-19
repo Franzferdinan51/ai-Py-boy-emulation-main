@@ -1,12 +1,12 @@
-# 🤖 AGENTS.md - Agent-First Guide
+# 🤖 AGENTS.md - Agent-First Guide for OpenClaw
 
-**For AI Agents: This is YOUR guide to controlling Game Boy games autonomously.**
+**For AI Agents: This is YOUR guide to controlling Game Boy games autonomously via OpenClaw.**
 
 ---
 
 ## 🎯 Your Mission
 
-You are an autonomous AI agent controlling a Game Boy emulator (PyBoy) to play games like any Game Boy game. Your goal is to beat the game while making strategic decisions, managing resources, and learning from experience.
+You are an autonomous AI agent controlling a Game Boy emulator (PyBoy) via OpenClaw to play games like Pokemon Red. Your goal is to beat the game while making strategic decisions, managing resources, and learning from experience.
 
 **Priority:** 
 1. **OpenClaw Agent** (YOU) - Autonomous control
@@ -14,9 +14,16 @@ You are an autonomous AI agent controlling a Game Boy emulator (PyBoy) to play g
 
 ---
 
-## 🚀 Quick Start (Agent Workflow)
+## 🚀 Quick Start (OpenClaw Agent Workflow)
 
-### Step 1: Load ROM
+### Step 1: Register MCP Server (If Not Already)
+
+```bash
+mcporter add duckbot-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/mcp_server.py"
+```
+
+### Step 2: Load ROM
+
 ```json
 {
   "tool": "duckbot-emulator.emulator_load_rom",
@@ -24,24 +31,25 @@ You are an autonomous AI agent controlling a Game Boy emulator (PyBoy) to play g
 }
 ```
 
-### Step 2: Start Session
-```json
-{
-  "tool": "duckbot-emulator.session_start",
-  "args": {"goal": "Beat any Game Boy game and become Champion"}
-}
+### Step 3: Start Session (Optional - Use Sub-Agents!)
+
+```bash
+# Spawn a sub-agent for a specific gaming task
+sessions_spawn --task "Beat the Elite 4 in Pokemon Red" --model bailian/MiniMax-M2.5
 ```
 
-### Step 3: Get Screen & Analyze
+### Step 4: Get Screen & Analyze
+
 ```json
 {
   "tool": "duckbot-emulator.get_screen_base64",
   "args": {"include_base64": true}
 }
 ```
-→ Use **bailian/[SELECT_VISION_MODEL]** (FREE) to analyze the screen
+→ Use **bailian/kimi-k2.5** (FREE vision) to analyze the screen
 
-### Step 4: Act
+### Step 5: Act
+
 ```json
 {
   "tool": "duckbot-emulator.emulator_press_sequence",
@@ -49,7 +57,8 @@ You are an autonomous AI agent controlling a Game Boy emulator (PyBoy) to play g
 }
 ```
 
-### Step 5: Save Progress
+### Step 6: Save Progress
+
 ```json
 {
   "tool": "duckbot-emulator.save_game_state",
@@ -57,17 +66,71 @@ You are an autonomous AI agent controlling a Game Boy emulator (PyBoy) to play g
 }
 ```
 
-### Step 6: Update Session
-```json
-{
-  "tool": "duckbot-emulator.session_set",
-  "args": {
-    "session_id": "session_123",
-    "key": "visited_locations",
-    "value": ["Pallet Town", "Viridian City"]
-  }
-}
+---
+
+## 🎮 OpenClaw Agent Patterns
+
+### Sub-Agent Spawning (sessions_spawn)
+
+The power of OpenClaw is spawning specialized sub-agents:
+
+```bash
+# Spawn vision-focused gaming agent
+sessions_spawn \
+  --task "Explore Viridian City in Pokemon Red, find the Pokemart and buy Potions" \
+  --model bailian/kimi-k2.5 \
+  --label "exploration-agent" \
+  --runTimeoutSeconds 300
+
+# Spawn battle specialist
+sessions_spawn \
+  --task "Battle Brock at Pewter City Gym. Use type advantage (Water/Grass) to win." \
+  --model bailian/qwen3.5-plus \
+  --label "battle-agent"
+
+# Spawn with cleanup (delete session after)
+sessions_spawn \
+  --task "Quick: grind Route 1 for 10 minutes" \
+  --model bailian/MiniMax-M2.5 \
+  --cleanup delete
 ```
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `task` | Task description | "Battle Brock" |
+| `model` | Override default model | `bailian/kimi-k2.5` |
+| `label` | Session label | "gym-battle" |
+| `runTimeoutSeconds` | Max runtime (0=unlimited) | 300 |
+| `cleanup` | Delete/keep after | `delete` or `keep` |
+
+### Session Tools
+
+```bash
+# List active gaming sessions
+sessions_list
+
+# Get session details with messages
+sessions_list activeMinutes=30 messageLimit=5
+
+# Get transcript history
+sessions_history sessionKey="agent:xxx:subagent:yyy"
+
+# Send message to gaming session
+sessions_send sessionKey="agent:xxx:subagent:yyy" message="Continue grinding!"
+```
+
+### Multi-Agent Routing
+
+Route gaming tasks to specialized models:
+
+| Task Type | Model | Why |
+|-----------|-------|-----|
+| **Screen Analysis** | `bailian/kimi-k2.5` | FREE vision + image understanding |
+| **Battle Strategy** | `bailian/qwen3.5-plus` | Best reasoning (83.2% MMLU) |
+| **Exploration** | `bailian/MiniMax-M2.5` | FREE unlimited, fast |
+| **Complex Puzzles** | `bailian/qwen3.5-plus` | Complex reasoning |
+| **Quick Tasks** | `bailian/MiniMax-M2.5` | Fastest, FREE |
 
 ---
 
@@ -111,24 +174,6 @@ You are an autonomous AI agent controlling a Game Boy emulator (PyBoy) to play g
 | `load_game_state` | Load progress | `{"save_name": "my-save"}` |
 | `emulator_list_saves` | List all saves | `{}` |
 
-### Session Management (IMPORTANT!)
-
-| Tool | Description | Example |
-|------|-------------|---------|
-| `session_start` | Start new session | `{"goal": "Beat Elite 4"}` |
-| `session_get` | Get session data | `{"session_id": "xyz", "key": "goal"}` |
-| `session_set` | Store data | `{"session_id": "xyz", "key": "notes", "value": ["note1"]}` |
-| `session_list` | List sessions | `{}` |
-| `session_delete` | Delete session | `{"session_id": "xyz"}` |
-
-### Auto-Play Modes
-
-| Tool | Description | Example |
-|------|-------------|---------|
-| `auto_battle` | Auto-fight Pokemon | `{"max_moves": 10}` |
-| `auto_explore` | Auto-walk around | `{"steps": 20}` |
-| `auto_grind` | Grind for XP | `{"target_level": 20, "max_battles": 50}` |
-
 ---
 
 ## 🎮 Button Notation
@@ -164,30 +209,35 @@ Combined:    "R2 A U3 W START"
 
 ## 👁️ Vision Workflows
 
-### Standard Vision Loop
+### Standard Vision Loop (OpenClaw-Native)
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                  VISION GAMEPLAY                     │
+│           OPENCLAW VISION GAMEPLAY                  │
 ├─────────────────────────────────────────────────────┤
 │                                                     │
-│  1. GET FRAME                                       │
+│  1. SPAWN AGENT (optional)                          │
+│     sessions_spawn --task "Explore..." --model     │
+│                                                     │
+│  2. GET FRAME                                       │
 │     └─ emulator_get_frame(include_base64=true)     │
 │                                                     │
-│  2. ANALYZE (bailian/[SELECT_VISION_MODEL])                    │
-│     └─ "What should I do in any Game Boy game?"         │
+│  3. ANALYZE WITH VISION                            │
+│     └─ Use bailian/kimi-k2.5 (FREE)                │
 │                                                     │
-│  3. DECIDE                                          │
+│  4. DECIDE                                          │
 │     └─ Choose button sequence                       │
 │                                                     │
-│  4. ACT                                             │
-│     └─ emulator_press_sequence(sequence="...")     │
+│  5. ACT                                             │
+│     └─ emulator_press_sequence(sequence="...")      │
 │                                                     │
-│  5. SAVE (if needed)                                │
-│     └─ emulator_save_state(save_name="...")        │
+│  6. SAVE (if needed)                                │
+│     └─ emulator_save_state(save_name="...")         │
 │                                                     │
-│  6. LOOP                                            │
-│     └─ Repeat from step 1                          │
+│  7. ANNOUNCE (auto via sessions_spawn)            │
+│     └─ Results delivered to main chat              │
+│                                                     │
+│  8. REPEAT                                          │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -235,17 +285,6 @@ Looking at this screen:
 4. What buttons get me there?
 ```
 
-#### Menu Navigation Prompt
-
-```
-I need to [open bag / use item / check party / save game].
-Looking at this menu:
-1. What menu is open?
-2. What's selected?
-3. How do I navigate to [goal]?
-4. Button sequence?
-```
-
 ---
 
 ## 🌲 Decision Trees
@@ -287,218 +326,93 @@ START
   ├─► SAVE (if needed)
   │     emulator_save_state(save_name="...")
   │
-  └─► REPEAT
-```
-
-### Battle Decision Tree
-
-```
-IN BATTLE
-  │
-  ├─► CHECK HP
-  │     │
-  │     ├─► Player HP < 20%?
-  │     │     ├─► Have Potions? → Use Potion
-  │     │     └─► No Potions? → Run/Switch
-  │     │
-  │     └─► Enemy HP < 20%?
-  │           └─→ Can finish! → Attack!
-  │
-  ├─► CHECK TYPE MATCHUP
-  │     │
-  │     ├─► Super effective (2x+) → Attack!
-  │     │
-  │     ├─► Not very effective (<0.5x) → Consider switching
-  │     │
-  │     └─► Neutral → Use best move
-  │
-  ├─► CHECK LEVEL DIFF
-  │     │
-  │     ├─► Player much higher → Safe to attack
-  │     │
-  │     └─► Enemy much higher → Be careful!
-  │
-  ├─► DECIDE
-  │     │
-  │     ├─► FIGHT → Select move, consider types
-  │     ├─► BAG → Use item (Potion, Pokeball)
-  │     ├─► POKEMON → Switch to better match
-  │     └─► RUN → Attempt escape
-  │
-  └─► EXECUTE → Button sequence
-```
-
-### Exploration Decision Tree
-
-```
-OVERWORLD
-  │
-  ├─► CHECK VISIBLE ITEMS
-  │     │
-  │     └─► Items visible? → Navigate and pick up
-  │
-  ├─► CHECK NPCs
-  │     │
-  │     └─► NPCs nearby? → Talk to them (might have items!)
-  │
-  ├─► CHECK BUILDINGS
-  │     │
-  │     └─► Unvisited building? → Enter and explore
-  │
-  ├─► DETERMINE DIRECTION
-  │     │
-  │     ├─► Know destination? → Navigate toward it
-  │     │
-  │     └─► Exploring? → Pick direction, look around
-  │
-  ├─► MOVE
-  │     └─► UP/DOWN/LEFT/RIGHT (hold for multiple tiles)
-  │
-  └─► REPEAT
-```
-
-### Healing Decision Tree
-
-```
-NEED HEALING?
-  │
-  ├─► Near Pokemon Center?
-  │     └─► YES → Walk there, enter, talk to nurse
-  │
-  ├─► Have Potions?
-  │     ├─► YES → Use in battle or overworld
-  │     │
-  │     └─► NO → Need to find Pokemon Center
-  │
-  └─► Pokemon Center far?
-        ├─► YES → Consider grinding, then return
-        │
-        └─► NO → Find one!
+  └─► ANNOUNCE (if spawned)
+        └─► Results sent to main chat
 ```
 
 ---
 
 ## 💡 Strategic Guidelines
 
-### Decision Making
+### Decision Making (OpenClaw Agent)
 1. **Always check state** before acting - know where you are and what you have
 2. **Plan 3-5 moves ahead** - think about consequences
 3. **Keep party healthy** - retreat if HP is low
 4. **Save before risky areas** - tall grass, gyms, elite 4
+5. **Use sub-agents** for complex tasks - let specialized agents handle them
+
+### Using Sub-Agents Effectively
+- Spawn for distinct tasks (exploration, grinding, battles)
+- Label sessions for debugging
+- Set appropriate timeouts
+- Use vision model for screen-heavy tasks
+- Use reasoning model for strategy-heavy tasks
 
 ### Resource Management
 - Track money and spend wisely
 - Use items in battle strategically
 - Visit Pokemon Centers when HP is low
-- Collect items but don't hoarding
-
-### Exploration
-- Check all locations for items
-- Find hidden items in the world
-- Explore side paths, not just main route
-- Remember where you've been
-
-### Battles
-- Type advantage matters!
-- Use status moves (sleep, paralysis) strategically
-- Switch Pokemon if at type disadvantage
-- Don't be afraid to run from bad matchups
+- Collect items but don't hoard
 
 ---
 
-## 🔧 Example Agent Prompts
+## 🔧 Example Agent Prompts (OpenClaw Format)
 
-### Starting a New Game
-
-```
-You are playing any Game Boy game. Start a new game:
-1. Navigate to title screen
-2. Press START to begin
-3. Select "NEW GAME"
-4. Name your character "BOT"
-5. Confirm name and begin adventure
-6. Walk to Oak's lab and choose Charmander
-```
-
-### Exploring Route 1
+### Starting a New Game via Sub-Agent
 
 ```
-Navigate to Viridian City via Route 1:
-1. Walk DOWN out of Pallet Town
-2. Battle wild Pokemon to gain XP
-3. Catch a Pidgey if possible
-4. Collect visible items along the route
-5. Navigate north to Viridian City
-6. Save your progress before entering the city
+Spawn a sub-agent:
+sessions_spawn --task "Start a new Pokemon Red game: 1) Navigate to title screen 2) Press START 3) Select NEW GAME 4) Name character BOT 5) Choose Charmander 6) Walk to Oak's lab" --model bailian/kimi-k2.5 --label "new-game"
 ```
 
-### Fighting a Gym
+### Exploring via Sub-Agent
 
 ```
-Battle Brock in Pewter City Gym:
-1. His Geodude is Rock/Ground type
-2. Use Water or Grass Pokemon if available
-3. If only Charmander, use Ember (it's not very effective but still works)
-4. Keep an eye on HP - use Potions if needed
-5. Save before the battle!
+sessions_spawn --task "Navigate to Viridian City via Route 1: 1) Walk DOWN out of Pallet Town 2) Battle wild Pokemon to gain XP 3) Navigate north to Viridian City 4) Save progress before entering city" --model bailian/MiniMax-M2.5 --label "exploration"
 ```
 
-### Managing Items
+### Battle via Sub-Agent
 
 ```
-I have $500 and need supplies:
-1. Go to Viridian City Pokemart
-2. Buy 5 Potions (~$100 each)
-3. Buy 1 Antidote and 1 Paralyze Heal
-4. Save remaining money for more supplies
-5. Return to Pokemon Center to heal
-```
-
-### Catching Pokemon
-
-```
-A wild Rattata appeared:
-- My Charmander is at Level 5 with good HP
-- I want to catch it!
-1. Weaken it with Tackle (don't let it faint)
-2. Open Bag and select Pokeball
-3. Throw ball
-4. If it breaks out, try again
-5. Save after catching
+sessions_spawn --task "Battle Brock in Pewter City Gym: 1) His Geodude is Rock/Ground type 2) Use Water or Grass Pokemon 3) If only Charmander, use Ember 4) Keep an eye on HP 5) Save before battle!" --model bailian/qwen3.5-plus --label "gym-battle"
 ```
 
 ---
 
 ## 🆘 Troubleshooting
 
-### Emulator Not Initialized
-```
-Error: "Emulator not initialized"
-Fix: Call emulator_load_rom first
+### MCP Server Not Registered
+
+```bash
+mcporter add duckbot-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/mcp_server.py"
+mcporter list | grep duckbot
 ```
 
-### Memory Read Failed
-```
-Error: "Failed to read memory"
-Fix: Emulator must be loaded. Valid addresses: 0x0000-0xFFFF
-```
+### Sub-Agent Not Spawning
 
-### Session Not Found
-```
-Error: "Session not found: xyz"
-Fix: Use session_start to create a session first
+```bash
+# Check session tools enabled
+sessions_list
+
+# Verify model is valid
+# Valid: bailian/kimi-k2.5, bailian/qwen3.5-plus, bailian/MiniMax-M2.5
 ```
 
 ### Vision Not Working
-```
-Problem: Can't get base64 image
-Fix: Ensure include_base64=true in emulator_get_frame
+
+```bash
+# Ensure include_base64=true
+emulator_get_frame(include_base64=true)
+
+# Use correct model
+# bailian/kimi-k2.5 is recommended for vision
 ```
 
-### Buttons Not Responding
-```
-Problem: Button presses don't work
-Fix: Add wait frames (W) between inputs. Try: "W A W A W A"
+### Emulator Not Initialized
+
+```bash
+# Load ROM first
+emulator_load_rom(rom_path="/path/to/rom.gb")
 ```
 
 ---
@@ -507,47 +421,64 @@ Fix: Add wait frames (W) between inputs. Try: "W A W A W A"
 
 ```
 ai-Py-boy-emulation-main/
+├── skills/
+│   ├── openclaw/
+│   │   └── SKILL.md              # ← OpenClaw integration patterns
+│   ├── duckbot/
+│   │   └── SKILL.md             # ← DuckBot persona
+│   └── pyboy/
+│       └── SKILL.md             # ← PyBoy reference
 ├── ai-game-server/
-│   ├── mcp_server.py              # ← Your MCP server
-│   ├── openclaw_agent.py           # Python agent
+│   ├── mcp_server.py            # ← Your MCP server
 │   └── requirements.txt
-├── skills/duckbot/
-│   └── SKILL.md                   # ← Agent skill guide
 ├── tools/
-│   ├── AGENT_QUICKSTART.md        # ← 5-minute setup!
-│   ├── spawn-gaming-agent.sh       # Spawn agents
-│   ├── memory_scan.py             # Find memory values
-│   ├── auto_navigate.py           # Pathfinding
-│   └── battle_ai.py               # Smart combat
-└── AGENTS.md                      # ← This file
+│   └── AGENT_QUICKSTART.md
+└── AGENTS.md                    # ← This file
 ```
 
 ---
 
-## 🎯 Your Checklist
+## 🎯 Your Checklist (OpenClaw)
 
 Before playing:
 - [ ] Register MCP: `mcporter add duckbot-emulator --stdio "python3 mcp_server.py"`
+- [ ] Verify registration: `mcporter list | grep duckbot`
 - [ ] Load ROM: `emulator_load_rom`
-- [ ] Start Session: `session_start` with your goal
-- [ ] Save early: `save_game_state`
+- [ ] Use sub-agents for complex tasks
 
 During play:
 - [ ] Check game state before each decision
-- [ ] Use vision for complex situations
-- [ ] Update session with progress
+- [ ] Use vision model (bailian/kimi-k2.5) for complex situations
+- [ ] Spawn sub-agents for specialized tasks
 - [ ] Save before risky areas
+- [ ] Use sessions_spawn for complex multi-step tasks
 
 ---
 
 ## 🔗 Related Documentation
 
-- [skills/duckbot/SKILL.md](skills/duckbot/SKILL.md) - Agent persona & tips
-- [skills/pyboy/SKILL.md](skills/pyboy/SKILL.md) - PyBoy skill reference
-- [tools/AGENT_QUICKSTART.md](tools/AGENT_QUICKSTART.md) - 5-minute setup
+- [OpenClaw Skills](https://docs.openclaw.ai/tools/skills) - Skill format
+- [Session Tools](https://docs.openclaw.ai/concepts/session-tool) - sessions_spawn
+- [Skills/openclaw/SKILL.md](skills/openclaw/SKILL.md) - OpenClaw integration skill
+- [Skills/duckbot/SKILL.md](skills/duckbot/SKILL.md) - DuckBot persona
 
 ---
 
-**You are an autonomous agent. Make decisions, learn, and win!**
+## 🏆 Best Practices Summary
+
+| Practice | Why |
+|----------|-----|
+| Use `sessions_spawn` for complex tasks | Isolated session, auto-announce results |
+| Use vision model for screen analysis | bailian/kimi-k2.5 is FREE |
+| Label your sub-agents | Easier debugging |
+| Set appropriate timeouts | Prevents runaway agents |
+| Save before risky content | Game state protection |
+| Use right model for task | Vision vs reasoning vs fast |
+
+---
+
+**You are an autonomous OpenClaw agent. Spawn sub-agents, make decisions, and win!**
+
+*This guide follows OpenClaw patterns. See skills/openclaw/SKILL.md for detailed integration patterns.*
 
 *This guide is for AI agents. Humans, see README.md.*
