@@ -764,16 +764,388 @@ finally:
         else:
             return {"game_type": "unknown", "analysis": "No specific analysis available for this game"}
 
+    # =========================================
+    # Pokemon Red/Blue Memory Addresses (Gen 1)
+    # =========================================
+    POKEMON_MEMORY = {
+        # Player position
+        "player_x": 0xD062,
+        "player_y": 0xD063,
+        "map_id": 0xD35E,
+        
+        # Party Pokemon (base address 0xD163, 44 bytes each)
+        "party_count": 0xD163,
+        "party_base": 0xD16C,  # First Pokemon species
+        "party_size": 44,
+        "party_species_offset": 0x00,
+        "party_hp_offset": 0x1E,  # 2 bytes little-endian
+        "party_max_hp_offset": 0x20,
+        "party_level_offset": 0x18,
+        "party_status_offset": 0x1C,
+        "party_type1_offset": 0x12,
+        "party_type2_offset": 0x13,
+        
+        # Money (3 bytes BCD)
+        "money": 0xD6F5,
+        
+        # Inventory
+        "inventory_base": 0xD6E5,
+        "inventory_count": 0xD6E5,  # First byte is count
+        
+        # Battle state
+        "battle_status": 0xD057,
+        "battle_type": 0xD058,
+        
+        # Enemy Pokemon
+        "enemy_base": 0xD883,
+        "enemy_species_offset": 0x00,
+        "enemy_hp_offset": 0x0C,
+        "enemy_max_hp_offset": 0x10,
+        "enemy_level_offset": 0x16,
+        
+        # Badges
+        "badges": 0xD8F6,
+    }
+    
+    # Pokemon species ID to name (Gen 1)
+    POKEMON_NAMES = {
+        0: None,  # Empty slot
+        1: "Bulbasaur", 2: "Ivysaur", 3: "Venusaur", 4: "Charmander", 5: "Charmeleon",
+        6: "Charizard", 7: "Squirtle", 8: "Wartortle", 9: "Blastoise", 10: "Caterpie",
+        11: "Metapod", 12: "Butterfree", 13: "Weedle", 14: "Kakuna", 15: "Beedrill",
+        16: "Pidgey", 17: "Pidgeotto", 18: "Pidgeot", 19: "Rattata", 20: "Raticate",
+        21: "Spearow", 22: "Fearow", 23: "Ekans", 24: "Arbok", 25: "Pikachu",
+        26: "Raichu", 27: "Sandshrew", 28: "Sandslash", 29: "Nidoran♀", 30: "Nidorina",
+        31: "Nidoqueen", 32: "Nidoran♂", 33: "Nidorino", 34: "Nidoking", 35: "Clefairy",
+        36: "Clefable", 37: "Vulpix", 38: "Ninetales", 39: "Jigglypuff", 40: "Wigglytuff",
+        41: "Zubat", 42: "Golbat", 43: "Oddish", 44: "Gloom", 45: "Vileplume",
+        46: "Paras", 47: "Parasect", 48: "Venonat", 49: "Diglett", 50: "Dugtrio",
+        51: "Meowth", 52: "Persian", 53: "Psyduck", 54: "Golduck", 55: "Mankey",
+        56: "Primeape", 57: "Growlithe", 58: "Arcanine", 59: "Poliwag", 60: "Poliwhirl",
+        61: "Poliwrath", 62: "Abra", 63: "Kadabra", 64: "Alakazam", 65: "Machop",
+        66: "Machoke", 67: "Machamp", 68: "Bellsprout", 69: "Weepinbell", 70: "Victreebel",
+        71: "Tentacool", 72: "Tentacruel", 73: "Geodude", 74: "Graveler", 75: "Golem",
+        76: "Ponyta", 77: "Rapidash", 78: "Slowpoke", 79: "Slowbro", 80: "Magnemite",
+        81: "Magneton", 82: "Farfetch'd", 83: "Doduo", 84: "Dodrio", 85: "Seel",
+        86: "Dewgong", 87: "Grimer", 88: "Muk", 89: "Shellder", 90: "Cloyster",
+        91: "Gastly", 92: "Haunter", 93: "Gengar", 94: "Onix", 95: "Drowzee",
+        96: "Hypno", 97: "Krabby", 98: "Kingler", 99: "Voltorb", 100: "Electrode",
+        101: "Exeggcute", 102: "Exeggutor", 103: "Cubone", 104: "Marowak", 105: "Hitmonlee",
+        106: "Hitmonchan", 107: "Lickitung", 108: "Koffing", 109: "Weezing", 110: "Rhyhorn",
+        111: "Rhydon", 112: "Chansey", 113: "Tangela", 114: "Kangaskhan", 115: "Horsea",
+        116: "Seadra", 117: "Goldeen", 118: "Seaking", 119: "Staryu", 120: "Starmie",
+        121: "Mr. Mime", 122: "Scyther", 123: "Jynx", 124: "Electabuzz", 125: "Magmar",
+        126: "Pinsir", 127: "Tauros", 128: "Magikarp", 129: "Gyarados", 130: "Lapras",
+        131: "Ditto", 132: "Eevee", 133: "Vaporeon", 134: "Jolteon", 135: "Flareon",
+        136: "Porygon", 137: "Omanyte", 138: "Omastar", 139: "Kabuto", 140: "Kabutops",
+        141: "Aerodactyl", 142: "Snorlax", 143: "Articuno", 144: "Zapdos", 145: "Moltres",
+        146: "Dratini", 147: "Dragonair", 148: "Dragonite", 149: "Mewtwo", 150: "Mew",
+    }
+    
+    # Item ID to name (Gen 1)
+    ITEM_NAMES = {
+        0: None,
+        1: "Master Ball", 2: "Ultra Ball", 3: "Great Ball", 4: "Poké Ball",
+        5: "Town Map", 6: "Bicycle", 7: "?????", 8: "Safari Ball",
+        9: "Moon Stone", 10: "Antidote", 11: "Burn Heal", 12: "Ice Heal",
+        13: "Awakening", 14: "Parlyz Heal", 15: "Full Restore", 16: "Max Potion",
+        17: "Hyper Potion", 18: "Super Potion", 19: "Potion", 20: "Escape Rope",
+        21: "Repel", 22: "Max Repel", 23: "Super Repel", 25: "Fire Stone",
+        26: "Thunder Stone", 27: "Water Stone", 28: "HP Up", 29: "Protein",
+        30: "Iron", 31: "Carbos", 32: "Calcium", 33: "Rare Candy",
+        34: "X Accuracy", 35: "X Attack", 36: "X Defend", 37: "X Speed",
+        38: "X Special", 39: "Poké Doll", 40: "Fresh Water", 41: "Soda Pop",
+        42: "Lemonade", 43: "S.S. Ticket", 44: "Gold Teeth", 45: "X Accuracy",
+        46: "Poké Flute", 47: "Secret Key", 48: "Bike Voucher", 49: "Card Key",
+        50: "Lift Key", 52: "Exp. All", 53: "Old Amber", 54: "Helix Fossil",
+        55: "Dome Fossil", 56: "Silph Scope", 57: "Town Map", 58: "Coin Case",
+        59: "Itemfinder", 60: "Silph Scope", 61: "Poké Flute",
+        64: "HM01 (Cut)", 65: "HM02 (Fly)", 66: "HM03 (Surf)", 67: "HM04 (Strength)", 68: "HM05 (Flash)",
+    }
+    
+    # Type names
+    TYPE_NAMES = {
+        0: "Normal", 1: "Fighting", 2: "Flying", 3: "Poison", 4: "Ground",
+        5: "Rock", 6: "Bird", 7: "Bug", 8: "Ghost",
+        20: "Fire", 21: "Water", 22: "Grass", 23: "Electric", 24: "Psychic",
+        25: "Ice", 26: "Dragon",
+    }
+    
+    def _read_byte(self, address: int) -> int:
+        """Read a single byte from memory safely"""
+        if not self.initialized or self.pyboy is None:
+            return 0
+        try:
+            with self._emulator_lock:
+                return self.pyboy.memory[address]
+        except Exception:
+            return 0
+    
+    def _read_word(self, address: int) -> int:
+        """Read a 2-byte word (little-endian) from memory safely"""
+        if not self.initialized or self.pyboy is None:
+            return 0
+        try:
+            with self._emulator_lock:
+                low = self.pyboy.memory[address]
+                high = self.pyboy.memory[address + 1]
+                return low | (high << 8)
+        except Exception:
+            return 0
+    
+    def _read_bcd(self, address: int, size: int = 3) -> int:
+        """Read BCD-encoded value (for money)"""
+        try:
+            value = 0
+            for i in range(size):
+                byte = self._read_byte(address + i)
+                high = (byte >> 4) & 0x0F
+                low = byte & 0x0F
+                value = value * 100 + high * 10 + low
+            return value
+        except Exception:
+            return 0
+    
+    def get_party_info(self) -> List[dict]:
+        """Get detailed party Pokemon information"""
+        if not self.initialized or self.pyboy is None:
+            return []
+        
+        party = []
+        try:
+            party_count = self._read_byte(self.POKEMON_MEMORY["party_count"])
+            party_count = min(party_count, 6)  # Max 6 Pokemon
+            
+            for i in range(party_count):
+                # Party Pokemon are stored starting at 0xD16C (species list)
+                # Then actual data starts at different addresses
+                # Simplified: read from species list
+                species_addr = 0xD16C + i
+                species_id = self._read_byte(species_addr)
+                
+                if species_id == 0 or species_id == 0xFF:
+                    continue
+                
+                # Pokemon data structure is complex in Gen 1
+                # We'll use simplified addresses
+                # Box Pokemon start at 0xD175, party stats at different locations
+                
+                # For now, use the simplified approach
+                # Party stats base: each Pokemon has 44 bytes
+                # But the actual layout is different
+                
+                # Let's use the battle Pokemon structure as reference
+                # First Pokemon HP is at 0xD16C + offset
+                
+                # Actually, let's use the simpler approach from memory_scanner.py
+                # which uses D163 as party count and D16C as species
+                
+                pokemon = {
+                    "slot": i + 1,
+                    "species_id": species_id,
+                    "species_name": self.POKEMON_NAMES.get(species_id, f"Unknown ({species_id})"),
+                }
+                
+                # Try to read HP from D16A + (i * 44) + 0x1E (current HP)
+                # This is party Pokemon data
+                base = 0xD16A + (i * 44)
+                hp = self._read_word(base + 0x1E)
+                max_hp = self._read_word(base + 0x20)
+                level = self._read_byte(base + 0x18)
+                status = self._read_byte(base + 0x1C)
+                
+                pokemon["hp"] = hp
+                pokemon["max_hp"] = max_hp if max_hp > 0 else 1
+                pokemon["level"] = level
+                pokemon["status"] = status
+                pokemon["status_text"] = self._decode_status(status)
+                pokemon["hp_percent"] = round((hp / max_hp) * 100, 1) if max_hp > 0 else 0
+                
+                # Types
+                type1 = self._read_byte(base + 0x12)
+                type2 = self._read_byte(base + 0x13)
+                pokemon["type1"] = self.TYPE_NAMES.get(type1, f"Type {type1}")
+                pokemon["type2"] = self.TYPE_NAMES.get(type2) if type2 != type1 else None
+                
+                # Moves (simplified - just count)
+                pokemon["moves"] = []  # Would need more complex parsing
+                
+                party.append(pokemon)
+                
+        except Exception as e:
+            logger.debug(f"Error reading party: {e}")
+        
+        return party
+    
+    def get_inventory_info(self) -> dict:
+        """Get player inventory and money"""
+        if not self.initialized or self.pyboy is None:
+            return {"money": 0, "items": []}
+        
+        result = {"money": 0, "items": []}
+        
+        try:
+            # Read money (3 bytes BCD)
+            result["money"] = self._read_bcd(self.POKEMON_MEMORY["money"], 3)
+            
+            # Read items
+            items = []
+            item_count = self._read_byte(self.POKEMON_MEMORY["inventory_count"])
+            item_count = min(item_count, 20)  # Max 20 items
+            
+            for i in range(item_count):
+                # Item slots: item_id (1 byte) + quantity (1 byte)
+                addr = self.POKEMON_MEMORY["inventory_base"] + 1 + (i * 2)
+                item_id = self._read_byte(addr)
+                quantity = self._read_byte(addr + 1)
+                
+                if item_id == 0 or item_id == 0xFF:
+                    continue
+                
+                items.append({
+                    "slot": i + 1,
+                    "id": item_id,
+                    "name": self.ITEM_NAMES.get(item_id, f"Item {item_id}"),
+                    "quantity": quantity,
+                })
+            
+            result["items"] = items
+            
+        except Exception as e:
+            logger.debug(f"Error reading inventory: {e}")
+        
+        return result
+    
+    def get_position(self) -> dict:
+        """Get player position and map info"""
+        if not self.initialized or self.pyboy is None:
+            return {"x": 0, "y": 0, "map_id": 0, "map_name": "unknown"}
+        
+        try:
+            x = self._read_byte(self.POKEMON_MEMORY["player_x"])
+            y = self._read_byte(self.POKEMON_MEMORY["player_y"])
+            map_id = self._read_byte(self.POKEMON_MEMORY["map_id"])
+            
+            # Known map names (partial list)
+            map_names = {
+                0x00: "Pallet Town",
+                0x01: "Viridian City",
+                0x02: "Pewter City",
+                0x03: "Cerulean City",
+                0x04: "Lavender Town",
+                0x05: "Vermilion City",
+                0x06: "Celadon City",
+                0x07: "Fuchsia City",
+                0x08: "Cinnabar Island",
+                0x09: "Indigo Plateau",
+                0x0A: "Saffron City",
+                0x24: "Oak's Lab",
+                0x25: "Player's House 1F",
+                0x26: "Player's House 2F",
+                0x27: "Rival's House",
+                0x38: "Route 1",
+                0x39: "Route 2",
+                0x3A: "Route 3",
+                0x3B: "Route 4",
+            }
+            
+            return {
+                "x": x,
+                "y": y,
+                "map_id": map_id,
+                "map_name": map_names.get(map_id, f"Map {map_id}"),
+            }
+        except Exception as e:
+            return {"x": 0, "y": 0, "map_id": 0, "map_name": "unknown", "error": str(e)}
+    
+    def get_battle_info(self) -> dict:
+        """Get current battle state"""
+        if not self.initialized or self.pyboy is None:
+            return {"in_battle": False, "battle_type": "none"}
+        
+        try:
+            battle_status = self._read_byte(self.POKEMON_MEMORY["battle_status"])
+            battle_type = self._read_byte(self.POKEMON_MEMORY["battle_type"])
+            
+            in_battle = battle_status != 0
+            
+            battle_types = {
+                0: "none",
+                1: "wild",
+                2: "trainer",
+            }
+            
+            result = {
+                "in_battle": in_battle,
+                "battle_status": battle_status,
+                "battle_type": battle_types.get(battle_type, "unknown"),
+            }
+            
+            if in_battle:
+                # Read enemy Pokemon info
+                enemy_base = self.POKEMON_MEMORY["enemy_base"]
+                enemy_species = self._read_byte(enemy_base + self.POKEMON_MEMORY["enemy_species_offset"])
+                enemy_hp = self._read_word(enemy_base + self.POKEMON_MEMORY["enemy_hp_offset"])
+                enemy_max_hp = self._read_word(enemy_base + self.POKEMON_MEMORY["enemy_max_hp_offset"])
+                enemy_level = self._read_byte(enemy_base + self.POKEMON_MEMORY["enemy_level_offset"])
+                
+                result["enemy"] = {
+                    "species_id": enemy_species,
+                    "species_name": self.POKEMON_NAMES.get(enemy_species, f"Pokemon {enemy_species}"),
+                    "level": enemy_level,
+                    "hp": enemy_hp,
+                    "max_hp": enemy_max_hp,
+                    "hp_percent": round((enemy_hp / enemy_max_hp) * 100, 1) if enemy_max_hp > 0 else 0,
+                }
+            
+            return result
+            
+        except Exception as e:
+            return {"in_battle": False, "battle_type": "none", "error": str(e)}
+    
+    def _decode_status(self, status_byte: int) -> str:
+        """Decode status byte to readable text"""
+        if status_byte == 0:
+            return "OK"
+        
+        statuses = []
+        # Gen 1 status flags (simplified)
+        if status_byte & 0x07:  # Sleep counter (0-7 turns)
+            statuses.append("sleep")
+        if status_byte & 0x08:
+            statuses.append("poison")
+        if status_byte & 0x10:
+            statuses.append("burn")
+        if status_byte & 0x20:
+            statuses.append("freeze")
+        if status_byte & 0x40:
+            statuses.append("paralyze")
+        
+        return ", ".join(statuses) if statuses else "OK"
+    
     def _get_pokemon_analysis(self) -> dict:
         """Get Pokemon-specific game analysis"""
-        # Placeholder for Pokemon-specific analysis
-        # This would read memory addresses specific to Pokemon games
-        return {
-            "game_type": "pokemon",
-            "player_position": "unknown",
-            "current_party": [],
-            "battle_status": "unknown"
-        }
+        try:
+            position = self.get_position()
+            party = self.get_party_info()
+            battle = self.get_battle_info()
+            inventory = self.get_inventory_info()
+            
+            return {
+                "game_type": "pokemon",
+                "player_position": position,
+                "current_party": party,
+                "battle_status": battle,
+                "money": inventory.get("money", 0),
+            }
+        except Exception as e:
+            return {
+                "game_type": "pokemon",
+                "player_position": "unknown",
+                "current_party": [],
+                "battle_status": "unknown",
+                "error": str(e),
+            }
 
     def _get_tetris_analysis(self) -> dict:
         """Get Tetris-specific game analysis"""

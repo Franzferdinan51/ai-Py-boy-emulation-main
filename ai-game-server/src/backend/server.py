@@ -1733,6 +1733,354 @@ def api_memory_watch():
     except Exception as e:
         return jsonify({'addresses': [], 'values': [], 'timestamp': datetime.now().isoformat(), 'error': str(e)}), 200
 
+# =========================================
+# Spatial Endpoints (MCP/UI Contract)
+# =========================================
+
+@app.route('/api/spatial/position', methods=['GET'])
+def api_spatial_position():
+    """
+    Get player position and map information.
+    
+    Response shape:
+    {
+        "x": number,          // Player X coordinate (0-255)
+        "y": number,          // Player Y coordinate (0-255)
+        "map_id": number,     // Current map ID (0-255)
+        "map_name": string,   // Human-readable map name
+        "timestamp": string,  // ISO timestamp
+        "loaded": boolean     // True if ROM is loaded
+    }
+    
+    Empty/loading response (no ROM):
+    {
+        "x": 0, "y": 0, "map_id": 0, "map_name": "none",
+        "timestamp": "...", "loaded": false
+    }
+    """
+    state = get_game_state()
+    active = state.get('active_emulator')
+    
+    empty_response = {
+        'x': 0, 'y': 0, 'map_id': 0, 'map_name': 'none',
+        'timestamp': datetime.now().isoformat(),
+        'loaded': False
+    }
+    
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify(empty_response), 200
+    
+    try:
+        emulator = emulators[active]
+        
+        if hasattr(emulator, 'get_position'):
+            pos = emulator.get_position()
+            pos['timestamp'] = datetime.now().isoformat()
+            pos['loaded'] = True
+            return jsonify(pos), 200
+        
+        # Fallback: try to read memory directly for Pokemon
+        if hasattr(emulator, '_read_byte'):
+            x = emulator._read_byte(0xD062)
+            y = emulator._read_byte(0xD063)
+            map_id = emulator._read_byte(0xD35E)
+            return jsonify({
+                'x': x, 'y': y, 'map_id': map_id, 'map_name': f'Map {map_id}',
+                'timestamp': datetime.now().isoformat(),
+                'loaded': True
+            }), 200
+        
+        return jsonify(empty_response), 200
+        
+    except Exception as e:
+        logger.debug(f"Error getting position: {e}")
+        empty_response['error'] = str(e)
+        return jsonify(empty_response), 200
+
+
+@app.route('/api/spatial/minimap', methods=['GET'])
+def api_spatial_minimap():
+    """
+    Get minimap data for the current area.
+    
+    Response shape:
+    {
+        "width": number,      // Map width in tiles
+        "height": number,     // Map height in tiles
+        "tiles": number[][],  // 2D array of tile IDs (sparse)
+        "player": {           // Player position on minimap
+            "x": number,
+            "y": number
+        },
+        "timestamp": string,
+        "loaded": boolean
+    }
+    
+    Empty/loading response:
+    {
+        "width": 0, "height": 0, "tiles": [],
+        "player": {"x": 0, "y": 0},
+        "timestamp": "...", "loaded": false
+    }
+    """
+    state = get_game_state()
+    active = state.get('active_emulator')
+    
+    empty_response = {
+        'width': 0, 'height': 0, 'tiles': [],
+        'player': {'x': 0, 'y': 0},
+        'timestamp': datetime.now().isoformat(),
+        'loaded': False
+    }
+    
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify(empty_response), 200
+    
+    try:
+        emulator = emulators[active]
+        
+        # Get player position
+        player_pos = {'x': 0, 'y': 0}
+        if hasattr(emulator, 'get_position'):
+            pos = emulator.get_position()
+            player_pos = {'x': pos.get('x', 0), 'y': pos.get('y', 0)}
+        
+        # For now, return sparse minimap data
+        # Full tilemap reading would require more complex memory parsing
+        # This provides a stable contract for the UI
+        
+        return jsonify({
+            'width': 20,   # Default Game Boy screen width in tiles
+            'height': 18,  # Default Game Boy screen height in tiles
+            'tiles': [],   # Sparse - would need tilemap memory reading
+            'player': player_pos,
+            'timestamp': datetime.now().isoformat(),
+            'loaded': True,
+            'note': 'Sparse minimap - tile data not implemented'
+        }), 200
+        
+    except Exception as e:
+        logger.debug(f"Error getting minimap: {e}")
+        empty_response['error'] = str(e)
+        return jsonify(empty_response), 200
+
+
+@app.route('/api/spatial/npcs', methods=['GET'])
+def api_spatial_npcs():
+    """
+    Get nearby NPC information.
+    
+    Response shape:
+    {
+        "npcs": [
+            {
+                "id": number,         // NPC sprite ID
+                "name": string,       // NPC type name (if known)
+                "x": number,          // X position
+                "y": number,          // Y position
+                "type": string,       // "npc", "trainer", "pokemon", etc.
+            }
+        ],
+        "count": number,
+        "timestamp": string,
+        "loaded": boolean
+    }
+    
+    Empty/loading response:
+    {
+        "npcs": [], "count": 0,
+        "timestamp": "...", "loaded": false
+    }
+    """
+    state = get_game_state()
+    active = state.get('active_emulator')
+    
+    empty_response = {
+        'npcs': [], 'count': 0,
+        'timestamp': datetime.now().isoformat(),
+        'loaded': False
+    }
+    
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify(empty_response), 200
+    
+    try:
+        emulator = emulators[active]
+        npcs = []
+        
+        # Check for enemy Pokemon in battle
+        if hasattr(emulator, 'get_battle_info'):
+            battle = emulator.get_battle_info()
+            if battle.get('in_battle') and battle.get('enemy'):
+                enemy = battle['enemy']
+                npcs.append({
+                    'id': enemy.get('species_id', 0),
+                    'name': enemy.get('species_name', 'Unknown'),
+                    'x': -1,  # Battle position not applicable
+                    'y': -1,
+                    'type': 'enemy_pokemon',
+                    'level': enemy.get('level', 0),
+                    'hp_percent': enemy.get('hp_percent', 0),
+                })
+        
+        # Note: Full NPC reading would require parsing sprite data
+        # from memory addresses 0xC000-0xCFFF (OAM/sprite memory)
+        
+        return jsonify({
+            'npcs': npcs,
+            'count': len(npcs),
+            'timestamp': datetime.now().isoformat(),
+            'loaded': True,
+            'note': 'Battle NPCs only - sprite memory reading not implemented'
+        }), 200
+        
+    except Exception as e:
+        logger.debug(f"Error getting NPCs: {e}")
+        empty_response['error'] = str(e)
+        return jsonify(empty_response), 200
+
+
+@app.route('/api/spatial/strategy', methods=['GET'])
+def api_spatial_strategy():
+    """
+    Get strategic analysis and recommendations.
+    
+    Response shape:
+    {
+        "status": string,         // Current game status summary
+        "health": {
+            "party_healthy": boolean,
+            "lowest_hp_percent": number,
+            "needs_healing": boolean
+        },
+        "battle": {
+            "in_battle": boolean,
+            "recommendation": string  // "attack", "run", "catch", "heal"
+        },
+        "recommendations": string[],  // List of recommended actions
+        "timestamp": string,
+        "loaded": boolean
+    }
+    
+    Empty/loading response:
+    {
+        "status": "no_rom", "health": {...}, "battle": {...},
+        "recommendations": [], "timestamp": "...", "loaded": false
+    }
+    """
+    state = get_game_state()
+    active = state.get('active_emulator')
+    
+    empty_response = {
+        'status': 'no_rom',
+        'health': {
+            'party_healthy': True,
+            'lowest_hp_percent': 100,
+            'needs_healing': False
+        },
+        'battle': {
+            'in_battle': False,
+            'recommendation': 'none'
+        },
+        'recommendations': [],
+        'timestamp': datetime.now().isoformat(),
+        'loaded': False
+    }
+    
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify(empty_response), 200
+    
+    try:
+        emulator = emulators[active]
+        
+        # Get party info
+        party = []
+        if hasattr(emulator, 'get_party_info'):
+            party = emulator.get_party_info() or []
+        
+        # Calculate health metrics
+        lowest_hp = 100
+        needs_healing = False
+        for mon in party:
+            hp_pct = mon.get('hp_percent', 100)
+            if hp_pct < lowest_hp:
+                lowest_hp = hp_pct
+            if hp_pct < 30:
+                needs_healing = True
+        
+        party_healthy = not needs_healing
+        
+        # Get battle info
+        battle_info = {'in_battle': False, 'recommendation': 'none'}
+        battle_rec = 'none'
+        
+        if hasattr(emulator, 'get_battle_info'):
+            battle = emulator.get_battle_info()
+            battle_info['in_battle'] = battle.get('in_battle', False)
+            
+            if battle.get('in_battle'):
+                enemy = battle.get('enemy', {})
+                enemy_hp_pct = enemy.get('hp_percent', 100)
+                
+                # Simple strategy logic
+                if lowest_hp < 20:
+                    battle_rec = 'run'
+                elif enemy_hp_pct < 30 and lowest_hp > 50:
+                    battle_rec = 'catch'
+                else:
+                    battle_rec = 'attack'
+                
+                battle_info['recommendation'] = battle_rec
+                battle_info['enemy'] = enemy
+        
+        # Build recommendations list
+        recommendations = []
+        
+        if needs_healing:
+            recommendations.append('Heal party at Pokemon Center')
+        if battle_info['in_battle']:
+            recommendations.append(f'Battle: {battle_rec}')
+        if not party:
+            recommendations.append('Get first Pokemon')
+        
+        # Get inventory for ball count
+        inv = {}
+        if hasattr(emulator, 'get_inventory_info'):
+            inv = emulator.get_inventory_info() or {}
+        
+        money = inv.get('money', 0)
+        if money > 0:
+            recommendations.insert(0, f'Money: ¥{money:,}')
+        
+        # Build status summary
+        if battle_info['in_battle']:
+            status = f"In battle vs {battle_info.get('enemy', {}).get('species_name', 'unknown')}"
+        elif needs_healing:
+            status = f"Party needs healing ({lowest_hp:.0f}% HP)"
+        elif party:
+            status = f"Exploring with {len(party)} Pokemon"
+        else:
+            status = "Ready"
+        
+        return jsonify({
+            'status': status,
+            'health': {
+                'party_healthy': party_healthy,
+                'lowest_hp_percent': round(lowest_hp, 1),
+                'needs_healing': needs_healing
+            },
+            'battle': battle_info,
+            'recommendations': recommendations,
+            'timestamp': datetime.now().isoformat(),
+            'loaded': True
+        }), 200
+        
+    except Exception as e:
+        logger.debug(f"Error getting strategy: {e}")
+        empty_response['error'] = str(e)
+        return jsonify(empty_response), 200
+
+
 @app.route('/api/agent/mode', methods=['POST'])
 def api_agent_mode_set():
     data = request.get_json(silent=True) or {}
