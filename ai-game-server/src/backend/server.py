@@ -3103,7 +3103,7 @@ def stream_screen():
 
         # Performance monitoring
         pyboy_timeout_count = 0
-        max_pyboy_timeouts = 3
+        max_pyboy_timeouts = 10
         consecutive_errors = 0
         max_consecutive_errors = 5
         last_pyboy_error = None
@@ -3140,7 +3140,7 @@ def stream_screen():
                                 return emulator.get_screen()
 
                             # Timeout-protected PyBoy calls with adaptive timeouts
-                            step_timeout = 0.2 if pyboy_timeout_count == 0 else 0.5
+                            step_timeout = 1.0 if pyboy_timeout_count == 0 else 0.5
                             try:
                                 success = executor.submit(step_emulator).result(timeout=step_timeout)
                                 pyboy_timeout_count = 0  # Reset timeout counter on success
@@ -3167,7 +3167,7 @@ def stream_screen():
                                 yield f"data: {json.dumps(error_data)}\n\n"
                                 break
 
-                            screen_timeout = 0.2 if pyboy_timeout_count == 0 else 0.5
+                            screen_timeout = 1.0 if pyboy_timeout_count == 0 else 0.5
                             try:
                                 screen_array = executor.submit(get_screen).result(timeout=screen_timeout)
                             except FutureTimeoutError:
