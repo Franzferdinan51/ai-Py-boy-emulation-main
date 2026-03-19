@@ -29,7 +29,7 @@ This document describes how autonomous AI agents analyze game state and make dec
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ 2. GET VISION                                               │
-│    └─► get_screen_base64() → kimi-k2.5 vision analysis     │
+│    └─► get_screen_base64() → [SELECT_VISION_MODEL] vision analysis     │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼

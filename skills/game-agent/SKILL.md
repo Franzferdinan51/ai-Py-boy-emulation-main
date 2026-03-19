@@ -100,7 +100,7 @@ A, B, UP, DOWN, LEFT, RIGHT, START, SELECT
 
 ## 👁️ Vision-Based Gameplay Workflow
 
-DuckBot uses **kimi-k2.5** (Bailian) for vision - it's FREE and unlimited!
+DuckBot uses **[SELECT_VISION_MODEL]** (Bailian) for vision - it's FREE and unlimited!
 
 ### Standard Loop
 
@@ -108,7 +108,7 @@ DuckBot uses **kimi-k2.5** (Bailian) for vision - it's FREE and unlimited!
 1. GET SCREEN
    → emulator_get_frame(include_base64=true)
 
-2. ANALYZE (with bailian/kimi-k2.5)
+2. ANALYZE (with bailian/[SELECT_VISION_MODEL])
    → "What should I do? I'm at [location]. Goals: [objectives]"
 
 3. DECIDE
@@ -317,7 +317,7 @@ emulator_press_sequence(sequence="R R R R R R")
 
 # Step 7: Get screenshot and analyze
 emulator_get_frame(include_base64=true)
-# → Analyze with kimi-k2.5
+# → Analyze with [SELECT_VISION_MODEL]
 ```
 
 ### Example 2: Battle Flow
@@ -440,7 +440,7 @@ Fix:
 ```
 Problem: Can't get base64 image
 Fix:
-- Use bailian/kimi-k2.5 (FREE, recommended)
+- Use bailian/[SELECT_VISION_MODEL] (FREE, recommended)
 - Ensure include_base64=true in emulator_get_frame
 - Check that ROM is loaded
 ```
@@ -531,11 +531,11 @@ For DuckBot, use **Bailian models** (free unlimited):
 
 | Model | Vision | Cost | Best For |
 |-------|--------|------|----------|
-| `bailian/kimi-k2.5` | ✅ Yes | **FREE** | Primary vision agent |
-| `bailian/MiniMax-M2.5` | ❌ No | **FREE** | Planning/reasoning |
-| `bailian/qwen3.5-plus` | ✅ Yes | 18K/mo quota | Complex reasoning |
+| `bailian/[SELECT_VISION_MODEL]` | ✅ Yes | **FREE** | Primary vision agent |
+| `bailian/[SELECT_TEXT_MODEL]` | ❌ No | **FREE** | Planning/reasoning |
+| `bailian/[SELECT_REASONING_MODEL]` | ✅ Yes | 18K/mo quota | Complex reasoning |
 
-**Recommended:** `bailian/kimi-k2.5` for all gameplay - it's FREE and vision-capable!
+**Recommended:** `bailian/[SELECT_VISION_MODEL]` for all gameplay - it's FREE and vision-capable!
 
 ---
 

@@ -39,7 +39,7 @@ You are an autonomous AI agent controlling a Game Boy emulator (PyBoy) to play g
   "args": {"include_base64": true}
 }
 ```
-→ Use **bailian/kimi-k2.5** (FREE) to analyze the screen
+→ Use **bailian/[SELECT_VISION_MODEL]** (FREE) to analyze the screen
 
 ### Step 4: Act
 ```json
@@ -174,7 +174,7 @@ Combined:    "R2 A U3 W START"
 │  1. GET FRAME                                       │
 │     └─ emulator_get_frame(include_base64=true)     │
 │                                                     │
-│  2. ANALYZE (bailian/kimi-k2.5)                    │
+│  2. ANALYZE (bailian/[SELECT_VISION_MODEL])                    │
 │     └─ "What should I do in any Game Boy game?"         │
 │                                                     │
 │  3. DECIDE                                          │

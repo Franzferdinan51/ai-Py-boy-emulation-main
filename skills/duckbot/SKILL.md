@@ -11,7 +11,7 @@
 
 DuckBot skill enables autonomous Game Boy gameplay through OpenClaw using:
 - **PyBoy Emulator** - Game Boy emulation via MCP tools
-- **Vision AI** - Screen analysis with Bailian kimi-k2.5 (FREE!)
+- **Vision AI** - Screen analysis with Bailian [SELECT_VISION_MODEL] (FREE!)
 - **Memory Reading** - Direct game state access (position, inventory, money)
 - **Save States** - Save/restore progress anytime
 
@@ -157,7 +157,7 @@ A, B, UP, DOWN, LEFT, RIGHT, START, SELECT
 
 ## 👁️ Vision-Based Gameplay Workflow
 
-DuckBot uses **kimi-k2.5** (Bailian) for vision - it's FREE and unlimited!
+DuckBot uses **[SELECT_VISION_MODEL]** (Bailian) for vision - it's FREE and unlimited!
 
 ### Standard Loop
 
@@ -165,7 +165,7 @@ DuckBot uses **kimi-k2.5** (Bailian) for vision - it's FREE and unlimited!
 1. GET SCREEN
    → emulator_get_frame(include_base64=true)
    
-2. ANALYZE (with bailian/kimi-k2.5)
+2. ANALYZE (with bailian/[SELECT_VISION_MODEL])
    → DuckBot prompt: "What should I do? I'm at [location]. Goals: [objectives]"
    
 3. DECIDE
@@ -506,7 +506,7 @@ Examples:
 | **Starter** | Charmander 🔥 |
 | **Save Location** | saves/duckbot_*.state |
 | **Current Status** | Exploring Kanto! |
-| **Model** | bailian/kimi-k2.5 |
+| **Model** | bailian/[SELECT_VISION_MODEL] |
 | **Goal** | Beat the Elite 4! 🏆 |
 
 ### Adventure Log
@@ -571,7 +571,7 @@ pip install pyboy pillow mcp
 
 ### Vision Model Issues
 
-- Use `bailian/kimi-k2.5` (recommended, FREE)
+- Use `bailian/[SELECT_VISION_MODEL]` (recommended, FREE)
 - Ensure `include_base64=true` when getting frames
 - For text analysis, extract from base64 with vision model
 

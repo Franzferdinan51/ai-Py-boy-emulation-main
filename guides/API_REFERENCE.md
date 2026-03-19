@@ -229,7 +229,7 @@ Get the current game screen as a base64-encoded image.
 
 **Usage with Vision AI:**
 ```bash
-# Get screen and send to kimi-k2.5 for analysis
+# Get screen and send to [SELECT_VISION_MODEL] for analysis
 screen_data=$(get_screen_base64)
 echo "$screen_data" | base64 -d > /tmp/screen.png
 # Send to vision model for analysis

@@ -170,7 +170,7 @@ Why:
 Just change the `MODEL` field:
 ```json
 "MODEL_DEFAULTS": {
-  "MODEL": "bailian/qwen3.5-plus"  // Switch to Qwen
+  "MODEL": "bailian/[SELECT_REASONING_MODEL]"  // Switch to Qwen
 }
 ```
 

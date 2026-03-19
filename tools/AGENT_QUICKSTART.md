@@ -60,7 +60,7 @@ mcporter list | grep duckbot
 }
 ```
 
-→ Analyze with `bailian/kimi-k2.5` → Press buttons → Repeat!
+→ Analyze with `bailian/[SELECT_VISION_MODEL]` → Press buttons → Repeat!
 
 ---
 
@@ -101,7 +101,7 @@ response = {
 # response.image_base64 contains the screen
 
 # 2. ANALYZE WITH VISION
-# Use model: bailian/kimi-k2.5 (FREE!)
+# Use model: bailian/[SELECT_VISION_MODEL] (FREE!)
 # Prompt: "What button should I press to play Pokemon Red?"
 
 # 3. EXECUTE
@@ -274,7 +274,7 @@ Your goal: Become the Champion!
 
 Start with:
 1. Get screen
-2. Analyze with kimi-k2.5
+2. Analyze with [SELECT_VISION_MODEL]
 3. Press buttons
 4. Repeat!
 

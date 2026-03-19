@@ -32,7 +32,7 @@ Helper script to spawn sub-agents for automated gameplay.
 ```
 [ OpenClaw Main Agent ]
          |
-         |-- [ Sub-Agent: Gamer Strategy ] (Bailian kimi-k2.5)
+         |-- [ Sub-Agent: Gamer Strategy ] (Bailian [SELECT_VISION_MODEL])
          |         |
          |         |-- [MCP Tools] ←→ [ PyBoy Emulator ]
          |         |-- [Vision Analysis] ←→ [ Screenshots ]

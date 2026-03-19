@@ -330,9 +330,9 @@ lsof -i :5002
 
 | Model | Use Case | Provider |
 |-------|----------|----------|
-| `kimi-k2.5` | Vision/screen analysis | Bailian (FREE) |
+| `[SELECT_VISION_MODEL]` | Vision/screen analysis | Bailian (FREE) |
 | `MiniMax-M2.7` | Agent decisions | Bailian (FREE) |
-| `qwen3.5-plus` | Complex reasoning | Bailian |
+| `[SELECT_REASONING_MODEL]` | Complex reasoning | Bailian |
 
 ---
 

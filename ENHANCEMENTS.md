@@ -153,7 +153,7 @@ class SavestateManager:
 Based on **poke.AI**'s CNN approach, but using LLM vision instead.
 
 **What it does:**
-- Uses kimi-k2.5 to analyze screen
+- Uses [SELECT_VISION_MODEL] to analyze screen
 - Detects NPCs, buildings, items on ground
 - Provides natural language context for decision making
 
@@ -317,7 +317,7 @@ Explain your reasoning."""
 def decide(prompt_data, model):
     prompt = SYSTEM_PROMPT.format(**prompt_data)
     response = model.chat.completions.create(
-        model="bailian/kimi-k2.5",
+        model="bailian/[SELECT_VISION_MODEL]",
         messages=[{"role": "user", "content": prompt}]
     )
     return parse_action(response.choices[0].message.content)

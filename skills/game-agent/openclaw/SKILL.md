@@ -144,7 +144,7 @@ The MCP server provides 13 tools:
 # Spawn agent to play Pokemon
 sessions_spawn \
   --task "Load pokemon-red.gb and start a new game. Choose Charmander as your starter." \
-  --model bailian/kimi-k2.5
+  --model bailian/[SELECT_VISION_MODEL]
 ```
 
 ### With Specific Tool Access
@@ -153,7 +153,7 @@ sessions_spawn \
 # Spawn with explicit MCP tool access
 sessions_spawn \
   --task "Play Pokemon Red: load the ROM, check player info, explore Pallet Town" \
-  --model bailian/kimi-k2.5 \
+  --model bailian/[SELECT_VISION_MODEL] \
   --mcp-servers pyboy
 ```
 
@@ -207,20 +207,20 @@ mcporter call pyboy.save_game_state save_path="/Users/duckets/.openclaw/workspac
 
 | Model | Use Case | Recommendation |
 |-------|----------|----------------|
-| `bailian/kimi-k2.5` | Vision + text analysis | ✅ Recommended |
-| `bailian/MiniMax-M2.5` | General tasks | Good backup |
+| `bailian/[SELECT_VISION_MODEL]` | Vision + text analysis | ✅ Recommended |
+| `bailian/[SELECT_TEXT_MODEL]` | General tasks | Good backup |
 | `bailian/glm-5` | Fast coding | For automation scripts |
 
 ### Spawning via sessions_spawn
 
 ```bash
 # Minimal spawn
-sessions_spawn --task "Play Pokemon Red" --model bailian/kimi-k2.5
+sessions_spawn --task "Play Pokemon Red" --model bailian/[SELECT_VISION_MODEL]
 
 # Full spawn with options
 sessions_spawn \
   --task "Complete Pokemon Red: beat the Elite 4" \
-  --model bailian/kimi-k2.5 \
+  --model bailian/[SELECT_VISION_MODEL] \
   --max-steps 1000 \
   --timeout 3600
 ```
@@ -258,7 +258,7 @@ sessions_spawn \
 │     → pyboy.get_screen() → base64 PNG                      │
 │                                                             │
 │  2. ANALYZE (Vision Model)                                  │
-│     → kimi-k2.5: "What should I do?"                       │
+│     → [SELECT_VISION_MODEL]: "What should I do?"                       │
 │                                                             │
 │  3. DECIDE                                                  │
 │     → Based on game state + vision                         │
