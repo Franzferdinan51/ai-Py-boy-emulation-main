@@ -165,13 +165,14 @@ class DualModelProvider:
         prompt = self._build_vision_prompt(context)
         
         try:
-            # Call OpenClaw vision endpoint
+            # Call vision endpoint
             payload = {
                 "prompt": prompt,
                 "image": image_base64,
                 "model": self._get_model_id(self.vision_model, is_vision=True),
             }
             
+            self.logger.debug(f"Calling vision API at {self.openclaw_endpoint}/api/vision/analyze")
             response = requests.post(
                 f"{self.openclaw_endpoint}/api/vision/analyze",
                 json=payload,
@@ -182,14 +183,19 @@ class DualModelProvider:
                 data = response.json()
                 vision_text = data.get('response') or data.get('text') or data.get('result', '')
                 
-                # Parse vision response into structured analysis
-                analysis = self._parse_vision_response(vision_text, context)
-                self.last_vision_response = vision_text
-                self.logger.debug(f"Vision analysis: {analysis.game_state[:100]}...")
-                return analysis
+                if vision_text:
+                    # Parse vision response into structured analysis
+                    analysis = self._parse_vision_response(vision_text, context)
+                    self.last_vision_response = vision_text
+                    self.logger.debug(f"Vision analysis: {analysis.game_state[:100]}...")
+                    return analysis
+                else:
+                    self.logger.warning("Vision API returned empty response")
             else:
-                self.logger.warning(f"Vision API returned {response.status_code}")
+                self.logger.warning(f"Vision API returned {response.status_code}: {response.text[:200]}")
                 
+        except requests.exceptions.ConnectionError as e:
+            self.logger.error(f"Vision analysis connection failed: {e}")
         except Exception as e:
             self.logger.error(f"Vision analysis failed: {e}")
         

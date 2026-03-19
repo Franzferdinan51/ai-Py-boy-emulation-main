@@ -5,6 +5,7 @@ import os
 import signal
 import threading
 import io
+import multiprocessing  # FIX: Added missing import for cpu_count()
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 import json
@@ -242,7 +243,7 @@ else:
 # Get allowed origins from environment or use development defaults
 frontend_port = os.environ.get('FRONTEND_PORT', '5173')
 glm_ui_port = os.environ.get('GLM_UI_PORT', '3000')
-backend_port = os.environ.get('BACKEND_PORT', '5000')
+backend_port = os.environ.get('BACKEND_PORT', '5002')  # Fixed: Must match PORT default (line 132)
 flask_env = os.environ.get('FLASK_ENV', 'development')
 
 if flask_env == 'production':
@@ -3004,42 +3005,54 @@ def get_screen_debug():
     """Debug endpoint to test screen capture functionality"""
     try:
         current_state = get_game_state()
-        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
-            return jsonify({"error": "No ROM loaded"}), 400
-
-        emulator = emulators[current_state["active_emulator"]]
-
-        # Get emulator info
-        info = emulator.get_info() if hasattr(emulator, 'get_info') else {}
-
-        # Get screen array
-        screen_array = emulator.get_screen()
-
+        
+        # Always return debug info, even without ROM
         debug_info = {
-            "emulator_info": info,
-            "screen_shape": screen_array.shape if screen_array is not None else None,
-            "screen_dtype": str(screen_array.dtype) if screen_array is not None else None,
-            "screen_min": int(screen_array.min()) if screen_array is not None else None,
-            "screen_max": int(screen_array.max()) if screen_array is not None else None,
-            "screen_size": screen_array.size if screen_array is not None else None,
-            "timestamp": time.time(),
-            "emulator_type": current_state["active_emulator"],
             "rom_loaded": current_state["rom_loaded"],
-            "rom_path": current_state["rom_path"]
+            "active_emulator": current_state.get("active_emulator"),
+            "rom_path": current_state.get("rom_path"),
+            "timestamp": time.time(),
         }
+        
+        # If ROM is loaded, get detailed debug info
+        if current_state["rom_loaded"] and current_state["active_emulator"]:
+            emulator = emulators[current_state["active_emulator"]]
 
-        # Try base64 conversion
-        if screen_array is not None and screen_array.size > 0:
-            img_base64 = numpy_to_base64_image(screen_array)
-            debug_info["base64_success"] = img_base64 is not None and len(img_base64) > 0
-            debug_info["base64_length"] = len(img_base64) if img_base64 else 0
-            debug_info["base64_preview"] = img_base64[:100] + "..." if img_base64 and len(img_base64) > 100 else img_base64
+            # Get emulator info
+            info = emulator.get_info() if hasattr(emulator, 'get_info') else {}
+            debug_info["emulator_info"] = info
+
+            # Get screen array
+            screen_array = emulator.get_screen()
+
+            debug_info.update({
+                "screen_shape": screen_array.shape if screen_array is not None else None,
+                "screen_dtype": str(screen_array.dtype) if screen_array is not None else None,
+                "screen_min": int(screen_array.min()) if screen_array is not None else None,
+                "screen_max": int(screen_array.max()) if screen_array is not None else None,
+                "screen_size": screen_array.size if screen_array is not None else None,
+            })
+
+            # Try base64 conversion
+            if screen_array is not None and screen_array.size > 0:
+                img_base64 = numpy_to_base64_image(screen_array)
+                debug_info["base64_success"] = img_base64 is not None and len(img_base64) > 0
+                debug_info["base64_length"] = len(img_base64) if img_base64 else 0
+                debug_info["base64_preview"] = img_base64[:100] + "..." if img_base64 and len(img_base64) > 100 else img_base64
+            else:
+                debug_info["base64_success"] = False
+                debug_info["base64_length"] = 0
+                debug_info["base64_preview"] = None
         else:
+            # No ROM loaded - return partial debug info
+            debug_info["error"] = "No ROM loaded"
+            debug_info["screen_shape"] = None
+            debug_info["screen_dtype"] = None
             debug_info["base64_success"] = False
             debug_info["base64_length"] = 0
             debug_info["base64_preview"] = None
 
-        return jsonify(debug_info), 200
+        return jsonify(debug_info), 200 if current_state["rom_loaded"] else 503
 
     except Exception as e:
         logger.error(f"Error in debug screen endpoint: {e}", exc_info=True)
@@ -3052,15 +3065,17 @@ def stream_screen():
         # Generate unique connection ID
         connection_id = f"sse_stream_{int(time.time() * 1000)}"
 
-        # Register connection with resource manager
-        resource_manager.register_sse_connection(connection_id, lambda: logger.info(f"SSE connection {connection_id} cleanup"))
+        # Register connection with resource manager (if available)
+        if ENHANCED_RESOURCE_MANAGER_AVAILABLE:
+            resource_manager.register_sse_connection(connection_id, lambda: logger.info(f"SSE connection {connection_id} cleanup"))
 
         logger.info(f"SSE stream requested (ID: {connection_id}). Checking game state...")
         current_state = get_game_state()
         if not current_state["rom_loaded"] or not current_state["active_emulator"]:
             logger.warning(f"SSE stream aborted (ID: {connection_id}): No ROM loaded.")
             yield f"data: {json.dumps({'error': 'No ROM loaded'})}\n\n"
-            resource_manager.unregister_sse_connection(connection_id)
+            if ENHANCED_RESOURCE_MANAGER_AVAILABLE:
+                resource_manager.unregister_sse_connection(connection_id)
             return
 
         emulator = emulators[current_state["active_emulator"]]
@@ -3091,9 +3106,13 @@ def stream_screen():
         max_consecutive_errors = 5
         last_pyboy_error = None
 
-        # Use enhanced resource manager for thread pool
+        # Use enhanced resource manager for thread pool (if available)
         pool_id = f"sse_pool_{connection_id}"
-        executor = resource_manager.create_thread_pool(pool_id, max_workers=1)
+        if ENHANCED_RESOURCE_MANAGER_AVAILABLE:
+            executor = resource_manager.create_thread_pool(pool_id, max_workers=1)
+        else:
+            # Fallback to direct ThreadPoolExecutor
+            executor = ThreadPoolExecutor(max_workers=1)
         last_client_activity = time.time()
         connection_timeout = 60  # 60 seconds without client response
 
@@ -3487,13 +3506,19 @@ def stream_screen():
             # Cleanup resources - this is guaranteed to run
             logger.info(f"SSE stream cleanup (ID: {connection_id}). Total frames: {frame_count}, Final FPS: {target_fps}")
 
-            # Unregister SSE connection
-            resource_manager.unregister_sse_connection(connection_id)
+            # Unregister SSE connection (if resource manager available)
+            if ENHANCED_RESOURCE_MANAGER_AVAILABLE:
+                resource_manager.unregister_sse_connection(connection_id)
 
-            # Clean up thread pool using resource manager
+            # Clean up thread pool using resource manager (if available)
             try:
                 if 'pool_id' in locals():
-                    resource_manager.cleanup_thread_pool(pool_id, wait=False)
+                    if ENHANCED_RESOURCE_MANAGER_AVAILABLE:
+                        resource_manager.cleanup_thread_pool(pool_id, wait=False)
+                    else:
+                        # Fallback: shutdown executor directly
+                        if hasattr(executor, 'shutdown'):
+                            executor.shutdown(wait=False)
                     logger.info(f"Thread pool {pool_id} shutdown successfully")
             except Exception as cleanup_error:
                 logger.error(f"Error during thread pool cleanup: {cleanup_error}")
@@ -4596,22 +4621,31 @@ def get_memory_watch():
 # MEMORY API ENDPOINTS
 # ============================================================================
 
-@app.route('/api/memory/<int:address>', methods=['GET'])
+@app.route('/api/memory/<path:address>', methods=['GET'])
 def read_memory(address):
     """
     Read memory from the active emulator.
     
     Args:
-        address: Memory address to read (0x0000-0xFFFF)
+        address: Memory address to read (0x0000-0xFFFF or hex like 0xD058)
         
     Query params:
         size: Number of bytes to read (default: 1, max: 256)
         format: Output format - 'int', 'hex', 'binary' (default: 'int')
     """
     try:
-        # Validate address range
-        if address < 0 or address > 0xFFFF:
-            return jsonify({"error": "Address must be between 0x0000 and 0xFFFF"}), 400
+        # Parse address (support both int and hex string)
+        try:
+            if isinstance(address, str):
+                if address.lower().startswith('0x'):
+                    address = int(address, 16)
+                else:
+                    address = int(address)
+            # Validate address range
+            if address < 0 or address > 0xFFFF:
+                return jsonify({"error": "Address must be between 0x0000 and 0xFFFF"}), 400
+        except ValueError:
+            return jsonify({"error": f"Invalid address format: {address}. Use decimal or hex (0x prefix)"}), 400
         
         # Get size parameter
         size = request.args.get('size', 1, type=int)
@@ -4664,22 +4698,31 @@ def read_memory(address):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/memory/<int:address>', methods=['POST'])
+@app.route('/api/memory/<path:address>', methods=['POST'])
 def write_memory(address):
     """
     Write memory to the active emulator.
     
     Args:
-        address: Memory address to write (0x0000-0xFFFF)
+        address: Memory address to write (0x0000-0xFFFF or hex like 0xD058)
         
     Body:
         value: Byte value to write (0-255)
         values: List of byte values to write (optional, for multi-byte writes)
     """
     try:
-        # Validate address range
-        if address < 0 or address > 0xFFFF:
-            return jsonify({"error": "Address must be between 0x0000 and 0xFFFF"}), 400
+        # Parse address (support both int and hex string)
+        try:
+            if isinstance(address, str):
+                if address.lower().startswith('0x'):
+                    address = int(address, 16)
+                else:
+                    address = int(address)
+            # Validate address range
+            if address < 0 or address > 0xFFFF:
+                return jsonify({"error": "Address must be between 0x0000 and 0xFFFF"}), 400
+        except ValueError:
+            return jsonify({"error": f"Invalid address format: {address}. Use decimal or hex (0x prefix)"}), 400
         
         data = request.get_json()
         if not data:
@@ -5433,6 +5476,102 @@ def get_dual_model_status():
             }), 503
     except Exception as e:
         logger.error(f"Error getting dual-model status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/vision/analyze', methods=['POST'])
+def analyze_vision():
+    """
+    Analyze an image using AI vision capabilities.
+    
+    This endpoint is called by OpenClawAIProvider and DualModelProvider
+    for screen analysis during gameplay.
+    
+    Body:
+        prompt: Text prompt for the vision model
+        image: Base64-encoded image data
+        model: Optional model identifier (default: auto-detect)
+    
+    Returns:
+        response: Vision analysis text
+        model: Model used for analysis
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        
+        prompt = data.get('prompt', 'Analyze this image')
+        image_base64 = data.get('image', '')
+        model = data.get('model')
+        
+        if not image_base64:
+            return jsonify({"error": "No image provided"}), 400
+        
+        # Decode base64 image
+        try:
+            image_bytes = base64.b64decode(image_base64)
+        except Exception as e:
+            return jsonify({"error": f"Invalid base64 image: {str(e)}"}), 400
+        
+        # Use AI provider manager to get vision response
+        # First try dual-model provider if available
+        if hasattr(ai_provider_manager, 'dual_model_provider') and ai_provider_manager.dual_model_provider:
+            try:
+                vision_model = openclaw_runtime_state.get('vision_model', 'kimi-k2.5')
+                analysis = ai_provider_manager.dual_model_provider.analyze_screen(
+                    image_bytes, 
+                    context={"prompt": prompt}
+                )
+                return jsonify({
+                    "response": analysis.raw_description,
+                    "text": analysis.game_state,
+                    "result": analysis.raw_description,
+                    "model": f"vision:{vision_model}",
+                    "timestamp": datetime.now().isoformat()
+                }), 200
+            except Exception as e:
+                logger.warning(f"Dual-model vision failed: {e}, falling back to provider chain")
+        
+        # Fallback: Use regular AI provider with image
+        # Convert to bytes and use the action API
+        try:
+            # Get provider
+            provider_name = model if model else None
+            connector = ai_provider_manager.get_provider(provider_name)
+            
+            if connector:
+                # Use the connector's vision capability
+                if hasattr(connector, 'get_next_action'):
+                    # For game screens, use action API
+                    action, used_provider = ai_provider_manager.get_next_action(
+                        image_bytes,
+                        prompt,
+                        [],
+                        provider_name
+                    )
+                    return jsonify({
+                        "response": action,
+                        "text": action,
+                        "result": action,
+                        "model": used_provider or "unknown",
+                        "timestamp": datetime.now().isoformat()
+                    }), 200
+                else:
+                    return jsonify({
+                        "response": "Vision analysis not supported by this provider",
+                        "text": "Vision analysis not supported",
+                        "result": "Provider does not support vision",
+                        "model": provider_name or "unknown",
+                        "timestamp": datetime.now().isoformat()
+                    }), 200
+            else:
+                return jsonify({"error": "No AI provider available"}), 503
+                
+        except Exception as e:
+            logger.error(f"Vision analysis failed: {e}")
+            return jsonify({"error": f"Vision analysis failed: {str(e)}"}), 500
+            
+    except Exception as e:
+        logger.error(f"Error in vision analysis endpoint: {e}")
         return jsonify({"error": str(e)}), 500
 
 

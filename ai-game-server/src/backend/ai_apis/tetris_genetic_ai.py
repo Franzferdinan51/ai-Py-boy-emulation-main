@@ -448,3 +448,37 @@ class TetrisGeneticAI(AIAPIConnector):
         except Exception as e:
             logger.error(f"Error loading training state: {e}")
             return False
+
+    # ========================================================================
+    # ABSTRACT METHOD IMPLEMENTATIONS (required by AIAPIConnector)
+    # ========================================================================
+    
+    def get_next_action(self, image_data: bytes, goal: str, history: List[str], **kwargs) -> str:
+        """
+        Get the next action from the AI based on the current game state.
+        
+        Note: TetrisGeneticAI is designed for genetic algorithm training,
+        not direct action selection. This method returns NOOP for compatibility.
+        
+        Args:
+            image_data: Screen image bytes
+            goal: Current goal/objective
+            history: Action history
+            **kwargs: Additional parameters
+            
+        Returns:
+            str: "NOOP" (not applicable for genetic AI)
+        """
+        self.logger.warning("get_next_action() called on TetrisGeneticAI - returning NOOP (use train_generation() instead)")
+        return "NOOP"
+    
+    def get_models(self) -> List[str]:
+        """
+        Get a list of available models from the provider.
+        
+        Note: TetrisGeneticAI uses a genetic algorithm, not pre-trained models.
+        
+        Returns:
+            List[str]: List containing "genetic-algorithm"
+        """
+        return ["genetic-algorithm"]

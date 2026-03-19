@@ -158,10 +158,11 @@ Provide a helpful, concise response about the game."""
         # For now, use a simple HTTP call to the gateway
         try:
             payload = {
-                "task": prompt,
+                "prompt": prompt,
                 "image": image_base64,
                 "model": self.model
             }
+            self.logger.debug(f"Calling OpenClaw vision API at {self.base_url}/api/vision/analyze")
             response = requests.post(
                 f"{self.base_url}/api/vision/analyze",
                 json=payload,
@@ -169,9 +170,15 @@ Provide a helpful, concise response about the game."""
             )
             if response.ok:
                 data = response.json()
-                return data.get('response') or data.get('text') or data.get('result')
+                result = data.get('response') or data.get('text') or data.get('result')
+                self.logger.info(f"OpenClaw vision API returned: {result[:100] if result else 'empty'}...")
+                return result
+            else:
+                self.logger.warning(f"OpenClaw vision API returned status {response.status_code}: {response.text[:200]}")
+        except requests.exceptions.ConnectionError as e:
+            self.logger.error(f"OpenClaw vision API connection failed: {e}")
         except Exception as e:
-            self.logger.debug(f"OpenClaw vision API call failed: {e}")
+            self.logger.error(f"OpenClaw vision API call failed: {e}")
         return None
 
     def _call_openclaw_text(self, prompt: str) -> Optional[str]:
@@ -181,6 +188,7 @@ Provide a helpful, concise response about the game."""
                 "prompt": prompt,
                 "model": self.model
             }
+            self.logger.debug(f"Calling OpenClaw text API at {self.base_url}/api/chat")
             response = requests.post(
                 f"{self.base_url}/api/chat",
                 json=payload,
@@ -188,9 +196,15 @@ Provide a helpful, concise response about the game."""
             )
             if response.ok:
                 data = response.json()
-                return data.get('response') or data.get('text') or data.get('result')
+                result = data.get('response') or data.get('text') or data.get('result')
+                self.logger.info(f"OpenClaw text API returned: {result[:100] if result else 'empty'}...")
+                return result
+            else:
+                self.logger.warning(f"OpenClaw text API returned status {response.status_code}: {response.text[:200]}")
+        except requests.exceptions.ConnectionError as e:
+            self.logger.error(f"OpenClaw text API connection failed: {e}")
         except Exception as e:
-            self.logger.debug(f"OpenClaw text API call failed: {e}")
+            self.logger.error(f"OpenClaw text API call failed: {e}")
         return None
 
     def _parse_action(self, response: str) -> str:
