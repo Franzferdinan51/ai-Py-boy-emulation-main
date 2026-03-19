@@ -376,28 +376,26 @@ finally:
             'SELECT': 'select'
         }
 
+        action = str(action or 'NOOP').upper()
+
+        try:
+            frame_count = max(int(frames), 1)
+        except (TypeError, ValueError):
+            frame_count = 1
+
         try:
             if action in action_map:
-                # Use the official PyBoy button API - pyboy.button()
+                # Hold the button for the requested frames and advance one extra tick
+                # so PyBoy processes the release before the next action arrives.
                 button = action_map[action]
-
-                # Process frames with button input
-                for i in range(frames):
-                    # Press button on even frames, release on odd frames for natural input
-                    if i % 2 == 0:
-                        self.pyboy.button(button)
-
-                    # Render only on last frame for performance
-                    render_this_frame = (i == frames - 1)
-                    self.pyboy.tick(1, render_this_frame)
-
-                # Ensure button is released
-                self.pyboy.button(button)
+                total_frames = frame_count + 1
+                self.pyboy.button(button, frame_count)
             else:
-                # For NOOP actions, just tick the emulator
-                for i in range(frames):
-                    render_this_frame = (i == frames - 1)
-                    self.pyboy.tick(1, render_this_frame)
+                total_frames = frame_count
+
+            for i in range(total_frames):
+                render_this_frame = (i == total_frames - 1)
+                self.pyboy.tick(1, render_this_frame)
 
             return True
         except Exception as e:
@@ -1178,17 +1176,23 @@ class PyBoyEmulatorMP(EmulatorInterface):
             'A': 'a', 'B': 'b', 'START': 'start', 'SELECT': 'select'
         }
 
+        action = str(action or 'NOOP').upper()
+
+        try:
+            frame_count = max(int(frames), 1)
+        except (TypeError, ValueError):
+            frame_count = 1
+
         try:
             if action in action_map:
                 button = action_map[action]
-                for i in range(frames):
-                    if i % 2 == 0:
-                        pyboy.button(button)
-                    pyboy.tick(1, i == frames - 1)
-                pyboy.button(button)
+                total_frames = frame_count + 1
+                pyboy.button(button, frame_count)
             else:
-                for i in range(frames):
-                    pyboy.tick(1, i == frames - 1)
+                total_frames = frame_count
+
+            for i in range(total_frames):
+                pyboy.tick(1, i == total_frames - 1)
             return True
         except Exception:
             return False

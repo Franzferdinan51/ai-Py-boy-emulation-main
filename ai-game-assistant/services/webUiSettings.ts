@@ -1,9 +1,9 @@
-import type { AppSettings } from './apiService';
+import { resolveDefaultBackendUrl, type AppSettings } from './apiService';
 
 export const SETTINGS_STORAGE_KEY = 'openclaw_webui_settings';
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  backendUrl: 'http://localhost:5002',
+  backendUrl: resolveDefaultBackendUrl(),
   openclawMcpEndpoint: 'http://localhost:18789',
   emulatorType: 'gb',
   launchUiOnRomLoad: true,

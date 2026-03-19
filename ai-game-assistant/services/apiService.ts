@@ -1,4 +1,32 @@
-const DEFAULT_BASE_URL = 'http://localhost:5002';
+/// <reference types="vite/client" />
+
+const DEFAULT_BACKEND_PORT = '5002';
+
+const normalizeBaseUrl = (url: string) => url.trim().replace(/\/+$/, '');
+
+export const resolveDefaultBackendUrl = () => {
+  const envUrl =
+    typeof import.meta !== 'undefined' && typeof import.meta.env?.VITE_BACKEND_URL === 'string'
+      ? import.meta.env.VITE_BACKEND_URL
+      : '';
+
+  if (envUrl.trim()) {
+    return normalizeBaseUrl(envUrl);
+  }
+
+  if (typeof window === 'undefined') {
+    return `http://localhost:${DEFAULT_BACKEND_PORT}`;
+  }
+
+  const { hostname, origin, protocol } = window.location;
+  if (!hostname || protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1') {
+    return `${protocol === 'file:' ? 'http:' : protocol}//${hostname || 'localhost'}:${DEFAULT_BACKEND_PORT}`;
+  }
+
+  return origin;
+};
+
+const DEFAULT_BASE_URL = resolveDefaultBackendUrl();
 
 export type GameButton = 'A' | 'B' | 'START' | 'SELECT' | 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
 export type GameAction = GameButton | 'NOOP';
@@ -170,7 +198,7 @@ class ApiService {
   private baseUrl = DEFAULT_BASE_URL;
 
   setBaseUrl(url: string) {
-    const normalized = url.trim().replace(/\/+$/, '');
+    const normalized = normalizeBaseUrl(url);
     this.baseUrl = normalized || DEFAULT_BASE_URL;
   }
 

@@ -1209,18 +1209,14 @@ def upload_rom():
         # Sanitize filename and create secure temporary file
         safe_filename = sanitize_filename(file_info['filename'])
 
-        # Use secure temporary file creation
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=file_info['extension'],
-            mode='wb'
-        ) as temp_file:
-            # Save file content securely
-            file.save(temp_file.name)
-            temp_rom_path = temp_file.name
-
-            # Set secure file permissions (read/write for owner only)
-            os.chmod(temp_rom_path, 0o600)
+        # Use secure temporary file creation.
+        # Important: create the temp path, close the handle, then save into it.
+        # Saving into a still-open NamedTemporaryFile can result in empty files on some setups.
+        fd, temp_rom_path = tempfile.mkstemp(suffix=file_info['extension'])
+        os.close(fd)
+        file.stream.seek(0)
+        file.save(temp_rom_path)
+        os.chmod(temp_rom_path, 0o600)
 
         logger.info(f"ROM saved to temporary path: {temp_rom_path}")
 
@@ -1400,11 +1396,16 @@ def load_rom():
 
     try:
         # Check for ROM file in both possible field names
-        if 'rom' not in request.files and 'rom_file' not in request.files:
-            return jsonify({"error": "No ROM file provided"}), 400
+        if 'rom' in request.files or 'rom_file' in request.files:
+            # Forward multipart uploads to the main upload endpoint.
+            return upload_rom()
 
-        # Forward the request to the main upload-rom endpoint
-        return upload_rom()
+        data = request.get_json(silent=True) or {}
+        if data:
+            # Forward JSON path-based loads to the filesystem loader.
+            return load_rom_api()
+
+        return jsonify({"error": "No ROM file provided"}), 400
 
     except Exception as e:
         logger.error(f"Error in legacy load_rom endpoint: {e}", exc_info=True)
@@ -4048,6 +4049,13 @@ def get_game_state_api():
     """Get current game state - screen, running status, etc."""
     try:
         current_state = get_game_state()
+        frame_count = current_state.get("frame_count", 0)
+
+        if current_state["rom_loaded"] and current_state["active_emulator"]:
+            emulator = emulators[current_state["active_emulator"]]
+            if hasattr(emulator, 'get_frame_count'):
+                frame_count = emulator.get_frame_count()
+                update_game_state({"frame_count": frame_count})
         
         # Build game state response
         game_state = {
@@ -4055,7 +4063,7 @@ def get_game_state_api():
             "rom_loaded": current_state["rom_loaded"],
             "rom_name": current_state.get("rom_name", ""),
             "screen_available": current_state["rom_loaded"],
-            "frame_count": current_state.get("frame_count", 0),
+            "frame_count": frame_count,
             "fps": current_state.get("fps", 0),
             "emulator": current_state.get("active_emulator") or "gb",
             "timestamp": datetime.now().isoformat()
@@ -4682,7 +4690,7 @@ def load_rom_api():
         if not data:
             return jsonify({"error": "No data provided"}), 400
         
-        rom_path = data.get('path')
+        rom_path = data.get('path') or data.get('rom_path')
         emulator_type = data.get('emulator_type', 'gb')
         launch_ui = data.get('launch_ui', False)
         

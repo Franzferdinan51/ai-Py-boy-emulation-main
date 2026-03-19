@@ -108,6 +108,10 @@ const summarizeProbeError = (message: string | null | undefined, fallback = 'Una
 };
 
 const getBackendTone = (autoConnect: boolean, status: ConnectionStatus): StatusTone => {
+  if (status === 'connected') {
+    return 'connected';
+  }
+
   if (!autoConnect) {
     return 'standby';
   }
@@ -116,15 +120,19 @@ const getBackendTone = (autoConnect: boolean, status: ConnectionStatus): StatusT
 };
 
 const getOpenClawTone = (autoConnect: boolean, health: OpenClawHealthResponse | null): StatusTone => {
+  if (health?.ok) {
+    return 'connected';
+  }
+
+  if (health && !health.ok) {
+    return 'disconnected';
+  }
+
   if (!autoConnect) {
     return 'standby';
   }
 
-  if (!health) {
-    return 'checking';
-  }
-
-  return health.ok ? 'connected' : 'disconnected';
+  return 'checking';
 };
 
 const App: React.FC = () => {
