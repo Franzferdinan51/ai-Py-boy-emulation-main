@@ -1,4 +1,4 @@
-/* AI Game Assistant - Main Stylesheet */
+/* AI Game Assistant - Dark Gaming Theme */
 
 /* Base styles and resets */
 * {
@@ -15,10 +15,22 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Dark gaming theme */
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-tertiary: #1a1a25;
+  --accent-primary: #00d4ff;  /* Cyan */
+  --accent-secondary: #00ff88; /* Green */
+  --text-primary: #ffffff;
+  --text-secondary: #888899;
+  --border-color: #2a2a3a;
+}
+
 body {
-  font-family: 'Inter', sans-serif;
-  background-color: #101014;
-  color: #f3f4f6;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
   touch-action: manipulation;
 }
 
@@ -41,27 +53,54 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #1a1a1e;
+  background: var(--bg-secondary);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #4a5568;
+  background: var(--border-color);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #718096;
+  background: var(--text-secondary);
+}
+
+/* Game canvas container */
+.game-container {
+  background: var(--bg-secondary);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Controller buttons */
+.btn-controller {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  transition: all 0.1s;
+}
+
+.btn-controller:active {
+  background: var(--accent-primary);
+  box-shadow: 0 0 10px var(--accent-primary);
+}
+
+/* Agent status */
+.agent-active {
+  border-color: var(--accent-secondary);
+  box-shadow: 0 0 10px var(--accent-secondary);
 }
 
 /* Utility classes */
 .text-cyan-glow {
-  color: #00f6ff;
-  text-shadow: 0 0 10px rgba(0, 246, 255, 0.5);
+  color: var(--accent-primary);
+  text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
 }
 
 .text-green-glow {
-  color: #00ff87;
-  text-shadow: 0 0 10px rgba(0, 255, 135, 0.5);
+  color: var(--accent-secondary);
+  text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
 }
 
 /* Animation utilities */
@@ -80,7 +119,7 @@ body {
 
 /* Focus styles */
 *:focus {
-  outline: 2px solid #00f6ff;
+  outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
 }
 
@@ -91,7 +130,7 @@ button {
 
 /* Input focus styles */
 input:focus, textarea:focus, select:focus {
-  box-shadow: 0 0 0 3px rgba(0, 246, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
 }
 
 /* Loading spinner animation */
@@ -185,9 +224,9 @@ input:focus, textarea:focus, select:focus {
 .skeleton {
   background: linear-gradient(
     90deg,
-    #1a1a1e 25%,
-    #2a2a2e 50%,
-    #1a1a1e 75%
+    var(--bg-secondary) 25%,
+    var(--bg-tertiary) 50%,
+    var(--bg-secondary) 75%
   );
   background-size: 200px 100%;
   animation: skeleton-loading 1.5s ease-in-out infinite;
@@ -200,9 +239,9 @@ input:focus, textarea:focus, select:focus {
 
 /* Improved focus styles for accessibility */
 :focus-visible {
-  outline: 2px solid #00f6ff;
+  outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px rgba(0, 246, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
 }
 
 /* High contrast mode support */
