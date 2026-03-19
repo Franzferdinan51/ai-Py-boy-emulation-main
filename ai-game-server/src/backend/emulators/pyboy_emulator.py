@@ -116,8 +116,9 @@ class PyBoyEmulator(EmulatorInterface):
             logger.info(f"Window type: null")
             logger.info(f"Emulation speed: unlimited (0)")
 
-            # Tick once to start the emulator
-            self.pyboy.tick(1, False)
+            # Warm up the emulator long enough to populate a meaningful framebuffer.
+            # A single frame often stays blank/white during Game Boy boot.
+            self.pyboy.tick(180, True)
 
             # Launch UI in separate process if requested
             if self.auto_launch_ui:

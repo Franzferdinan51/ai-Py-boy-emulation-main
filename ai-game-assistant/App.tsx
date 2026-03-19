@@ -225,7 +225,7 @@ const App: React.FC = () => {
 
     try {
       const screen = await apiService.getScreen();
-      setGameScreenUrl(`data:image/png;base64,${screen.image}`);
+      setGameScreenUrl(`data:image/jpeg;base64,${screen.image}`);
     } catch (error) {
       appendSystemLog('error', error instanceof Error ? error.message : 'Failed to refresh emulator screen');
     }

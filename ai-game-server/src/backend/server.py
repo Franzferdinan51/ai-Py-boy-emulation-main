@@ -1250,6 +1250,7 @@ def upload_rom():
         try:
             temp_file_size = os.path.getsize(temp_rom_path)
             if temp_file_size < 0x150:
+                logger.error(f"Uploaded ROM temp file is too small: {temp_file_size} bytes")
                 return jsonify({"error": f"File too small to be a valid ROM ({temp_file_size} bytes)"}), 400
 
             with open(temp_rom_path, 'rb') as rom_check:
@@ -1257,6 +1258,7 @@ def upload_rom():
 
             # Basic ROM validation - check for Game Boy header pattern
             if len(file_header) < 0x150:  # Minimum ROM size
+                logger.error(f"Uploaded ROM header read was too short: {len(file_header)} bytes")
                 return jsonify({"error": f"Could not read enough ROM header bytes ({len(file_header)})"}), 400
 
             # Check for Nintendo logo pattern (bytes 0x104-0x133)
