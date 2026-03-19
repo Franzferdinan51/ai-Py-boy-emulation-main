@@ -6,6 +6,7 @@ import signal
 import threading
 import io
 import multiprocessing  # FIX: Added missing import for cpu_count()
+import zlib
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 import json
@@ -15,7 +16,7 @@ import tempfile
 import shutil
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from urllib import error as urllib_error, request as urllib_request
 from urllib.parse import urljoin, urlparse
 from flask import Flask, request, jsonify, send_file, Response, stream_with_context
@@ -23,6 +24,9 @@ import time
 from flask_cors import CORS
 import numpy as np
 from PIL import Image
+import asyncio
+import websockets
+from websockets.server import serve
 
 # Enhanced resource management
 try:
@@ -5567,9 +5571,294 @@ def analyze_vision():
         return jsonify({"error": str(e)}), 500
 
 
+# ============================================================================
+# WEBSOCKET STREAMING ENDPOINT
+# ============================================================================
+
+# WebSocket configuration
+WS_PORT = int(os.environ.get('WS_PORT', 5003))
+ws_clients: Set = set()
+ws_server_running = False
+ws_server_thread = None
+
+async def websocket_stream_handler(websocket, path=None):
+    """
+    Async WebSocket handler for streaming PyBoy screen frames.
+    
+    Protocol:
+    - Server sends: {"type": "frame", "image": "base64...", "shape": [144, 160, 3]}
+    - Client sends: {"type": "button", "button": "A"} or {"type": "ping"}
+    """
+    client_id = f"ws_{id(websocket)}"
+    ws_clients.add(websocket)
+    logger.info(f"[WS] Client connected: {client_id}. Total clients: {len(ws_clients)}")
+    
+    try:
+        # Send initial status
+        await websocket.send(json.dumps({
+            "type": "connected",
+            "client_id": client_id,
+            "message": "WebSocket stream ready",
+            "timestamp": time.time()
+        }))
+        
+        frame_count = 0
+        target_fps = 30  # WebSocket target FPS (lower than SSE for stability)
+        frame_interval = 1.0 / target_fps
+        last_frame_time = time.time()
+        
+        # Create async task for receiving messages
+        async def receive_messages():
+            """Handle incoming messages from client."""
+            try:
+                async for message in websocket:
+                    try:
+                        data = json.loads(message)
+                        msg_type = data.get("type", "unknown")
+                        
+                        if msg_type == "button":
+                            # Handle button press
+                            button = data.get("button", "").upper()
+                            valid_buttons = ['A', 'B', 'START', 'SELECT', 'UP', 'DOWN', 'LEFT', 'RIGHT']
+                            
+                            if button in valid_buttons:
+                                current_state = get_game_state()
+                                if current_state["rom_loaded"] and current_state["active_emulator"]:
+                                    emulator = emulators[current_state["active_emulator"]]
+                                    emulator.step(button, 1)
+                                    add_to_action_history(button)
+                                    logger.debug(f"[WS] Button pressed: {button}")
+                            else:
+                                logger.warning(f"[WS] Invalid button: {button}")
+                                
+                        elif msg_type == "ping":
+                            # Respond to ping
+                            await websocket.send(json.dumps({
+                                "type": "pong",
+                                "timestamp": time.time()
+                            }))
+                            
+                        elif msg_type == "config":
+                            # Update streaming config
+                            new_fps = data.get("fps", target_fps)
+                            if 1 <= new_fps <= 60:
+                                target_fps = new_fps
+                                frame_interval = 1.0 / target_fps
+                                logger.info(f"[WS] FPS updated to {target_fps}")
+                                
+                    except json.JSONDecodeError:
+                        logger.warning(f"[WS] Invalid JSON message: {message[:100]}")
+                    except Exception as e:
+                        logger.error(f"[WS] Error processing message: {e}")
+            except websockets.exceptions.ConnectionClosed:
+                pass
+            except Exception as e:
+                logger.error(f"[WS] Receive loop error: {e}")
+        
+        # Start receive task
+        receive_task = asyncio.create_task(receive_messages())
+        
+        try:
+            # Main streaming loop
+            while True:
+                current_time = time.time()
+                elapsed = current_time - last_frame_time
+                
+                if elapsed >= frame_interval:
+                    try:
+                        current_state = get_game_state()
+                        
+                        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+                            # Send status update
+                            await websocket.send(json.dumps({
+                                "type": "status",
+                                "status": "no_rom",
+                                "message": "No ROM loaded",
+                                "timestamp": current_time
+                            }))
+                            await asyncio.sleep(1.0)
+                            continue
+                        
+                        emulator = emulators[current_state["active_emulator"]]
+                        
+                        # Tick the emulator
+                        if hasattr(emulator, 'pyboy') and emulator.pyboy:
+                            try:
+                                emulator.pyboy.tick(1, True)
+                            except Exception as e:
+                                logger.debug(f"[WS] PyBoy tick error: {e}")
+                        
+                        # Get screen
+                        screen_array = emulator.get_screen()
+                        
+                        if screen_array is not None and screen_array.size > 0:
+                            # Convert to base64
+                            img_base64 = numpy_to_base64_image(screen_array)
+                            
+                            if img_base64:
+                                # Send frame
+                                frame_data = {
+                                    "type": "frame",
+                                    "image": img_base64,
+                                    "shape": list(screen_array.shape),
+                                    "frame": frame_count,
+                                    "timestamp": current_time,
+                                    "fps": target_fps
+                                }
+                                
+                                await websocket.send(json.dumps(frame_data))
+                                frame_count += 1
+                                last_frame_time = current_time
+                                
+                                # Log every 100 frames
+                                if frame_count % 100 == 0:
+                                    logger.info(f"[WS] Streamed {frame_count} frames to {client_id}")
+                            else:
+                                logger.debug(f"[WS] Frame conversion failed")
+                        else:
+                            # Send error status
+                            await websocket.send(json.dumps({
+                                "type": "error",
+                                "error": "screen_capture_failed",
+                                "message": "Failed to capture screen",
+                                "timestamp": current_time
+                            }))
+                        
+                        # Small sleep to prevent CPU spin
+                        await asyncio.sleep(0.001)
+                        
+                    except websockets.exceptions.ConnectionClosed:
+                        break
+                    except Exception as e:
+                        logger.error(f"[WS] Frame error: {e}")
+                        await asyncio.sleep(0.1)
+                else:
+                    # Sleep until next frame
+                    await asyncio.sleep(frame_interval - elapsed)
+                    
+        finally:
+            receive_task.cancel()
+            try:
+                await receive_task
+            except asyncio.CancelledError:
+                pass
+                
+    except websockets.exceptions.ConnectionClosed:
+        logger.info(f"[WS] Client disconnected: {client_id}")
+    except Exception as e:
+        logger.error(f"[WS] Handler error: {e}")
+    finally:
+        ws_clients.discard(websocket)
+        logger.info(f"[WS] Client cleanup: {client_id}. Remaining clients: {len(ws_clients)}")
+
+
+async def run_websocket_server():
+    """Run the WebSocket server."""
+    global ws_server_running
+    
+    logger.info(f"[WS] Starting WebSocket server on port {WS_PORT}")
+    
+    try:
+        async with serve(
+            websocket_stream_handler,
+            "0.0.0.0",
+            WS_PORT,
+            ping_interval=20,
+            ping_timeout=10,
+            close_timeout=5
+        ):
+            ws_server_running = True
+            logger.info(f"[WS] WebSocket server running on ws://localhost:{WS_PORT}/api/ws/stream")
+            
+            # Keep the server running
+            while ws_server_running:
+                await asyncio.sleep(1)
+                
+    except Exception as e:
+        logger.error(f"[WS] WebSocket server error: {e}")
+        ws_server_running = False
+
+
+def start_websocket_server():
+    """Start the WebSocket server in a background thread."""
+    global ws_server_thread, ws_server_running
+    
+    if ws_server_thread and ws_server_thread.is_alive():
+        logger.info("[WS] WebSocket server already running")
+        return
+    
+    def run_async_server():
+        try:
+            asyncio.run(run_websocket_server())
+        except Exception as e:
+            logger.error(f"[WS] Async server error: {e}")
+    
+    ws_server_thread = threading.Thread(target=run_async_server, daemon=True)
+    ws_server_thread.start()
+    logger.info("[WS] WebSocket server thread started")
+
+
+def stop_websocket_server():
+    """Stop the WebSocket server."""
+    global ws_server_running
+    
+    ws_server_running = False
+    logger.info("[WS] WebSocket server stopped")
+
+
+# WebSocket status endpoint
+@app.route('/api/ws/status', methods=['GET'])
+def get_websocket_status():
+    """Get WebSocket server status."""
+    return jsonify({
+        "running": ws_server_running,
+        "port": WS_PORT,
+        "url": f"ws://localhost:{WS_PORT}/api/ws/stream",
+        "clients": len(ws_clients),
+        "timestamp": datetime.now().isoformat()
+    }), 200
+
+
+# WebSocket control endpoint
+@app.route('/api/ws/start', methods=['POST'])
+def start_websocket_endpoint():
+    """Start the WebSocket server."""
+    try:
+        start_websocket_server()
+        return jsonify({
+            "success": True,
+            "message": "WebSocket server started",
+            "url": f"ws://localhost:{WS_PORT}/api/ws/stream",
+            "port": WS_PORT,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Failed to start WebSocket server: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/ws/stop', methods=['POST'])
+def stop_websocket_endpoint():
+    """Stop the WebSocket server."""
+    try:
+        stop_websocket_server()
+        return jsonify({
+            "success": True,
+            "message": "WebSocket server stopped",
+            "timestamp": datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Failed to stop WebSocket server: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 def signal_handler(sig, frame):
     """Handle shutdown signals gracefully"""
     logger.info(f"Received signal {sig}, shutting down gracefully...")
+    
+    # Stop WebSocket server
+    stop_websocket_server()
+    
     cleanup_server_resources()
     logger.info("Server shutdown complete")
     exit(0)
@@ -5648,11 +5937,18 @@ def main():
         for provider_name in ai_provider_manager.get_available_providers():
             logger.info(f"  - {provider_name}")
 
+    # Start WebSocket server for streaming
+    logger.info("[WS] Starting WebSocket streaming server...")
+    start_websocket_server()
+    logger.info(f"[WS] WebSocket server started on ws://localhost:{WS_PORT}/api/ws/stream")
+
     try:
         app.run(host=HOST, port=PORT, debug=DEBUG, threaded=True, use_reloader=False)
     except Exception as e:
         logger.error(f"Server failed to start: {e}", exc_info=True)
     finally:
+        # Stop WebSocket server on exit
+        stop_websocket_server()
         cleanup_server_resources()
 
 if __name__ == "__main__":

@@ -5,7 +5,8 @@
 ## What This Is
 
 An MCP server + web interface for AI agents to control Game Boy emulation. Features:
-- **Live Streaming** - Real-time 60fps via SSE
+- **Live Streaming** - Real-time 60fps via SSE or WebSocket
+- **WebSocket Support** - Primary streaming method with bidirectional communication
 - **42 MCP Tools** - Comprehensive controls for any game
 - **Mobile Support** - Single URL works on desktop + mobile
 - **Memory Access** - Read/write game RAM
@@ -24,6 +25,66 @@ python3 proxy-server.py
 
 # 3. Open http://localhost:5173
 ```
+
+## 📡 Streaming Endpoints
+
+### WebSocket (Primary) - `ws://localhost:5003`
+
+WebSocket provides the best streaming experience with bidirectional communication.
+
+**Connect to:** `ws://localhost:5003/` (runs on port 5003 by default)
+
+**Protocol:**
+
+| Direction | Message Type | Example |
+|-----------|--------------|---------|
+| Server → Client | `frame` | `{"type": "frame", "image": "base64...", "shape": [144, 160, 3]}` |
+| Server → Client | `status` | `{"type": "status", "status": "no_rom"}` |
+| Server → Client | `connected` | `{"type": "connected", "client_id": "ws_xxx"}` |
+| Client → Server | `button` | `{"type": "button", "button": "A"}` |
+| Client → Server | `ping` | `{"type": "ping"}` |
+| Client → Server | `config` | `{"type": "config", "fps": 30}` |
+
+**WebSocket Control Endpoints:**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/ws/status` | GET | Get WebSocket server status |
+| `/api/ws/start` | POST | Start WebSocket server |
+| `/api/ws/stop` | POST | Stop WebSocket server |
+
+**Example WebSocket Client (JavaScript):**
+
+```javascript
+const ws = new WebSocket('ws://localhost:5003/');
+
+ws.onopen = () => {
+    console.log('Connected to PyBoy stream');
+    // Press a button
+    ws.send(JSON.stringify({type: 'button', button: 'A'}));
+};
+
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === 'frame') {
+        // Display frame: data.image is base64 JPEG
+        img.src = 'data:image/jpeg;base64,' + data.image;
+    }
+};
+
+// Change FPS
+ws.send(JSON.stringify({type: 'config', fps: 60}));
+```
+
+### SSE (Fallback) - `/api/stream`
+
+Server-Sent Events endpoint for backward compatibility. Uses HTTP long-polling.
+
+**Environment Variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WS_PORT` | 5003 | WebSocket server port |
 
 ## 🔧 LM Studio Setup
 
@@ -150,6 +211,15 @@ Proxy server handles routing automatically.
               │ ┌────────────┐ │
               │ │Tile Renderer│ │
               │ │SSE Stream  │ │
+              │ └────────────┘ │
+              └───────┬────────┘
+                      │
+                      ▼
+              ┌────────────────┐
+              │ WebSocket :5003│
+              │ ┌────────────┐ │
+              │ │Frame Stream│ │
+              │ │Button Input│ │
               │ └────────────┘ │
               └────────────────┘
 ```
