@@ -136,3 +136,25 @@ cd ai-game-server/src && BACKEND_PORT=5003 python3 main.py
 **DuckBot** 🦆 - *Quack! Let's play!*
 
 *Autonomous Game Boy gameplay powered by OpenClaw + Bailian AI*
+---
+
+## 🤖 Model Configuration
+
+**Primary Provider:** Alibaba Bailian
+
+| Model | Use Case | Context | Benchmark |
+|-------|----------|---------|-----------|
+| **qwen3.5-plus** | Main chat, reasoning | 1M | 83.2% MMLU |
+| **MiniMax-M2.7** | Agents, sub-tasks | 196k | FREE unlimited |
+| **kimi-k2.5** | Vision, screen analysis | 196k | 78.9% MMLU |
+| **glm-5** | Fast tasks | 128k | 81.5% MMLU |
+
+### Setup
+```bash
+# Get API key from:
+# https://bailian.console.alibaba.com/
+
+# Set in environment or .env file:
+export BAILIAN_API_KEY=your_key_here
+```
+
