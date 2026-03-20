@@ -138,3 +138,50 @@ Good extension targets:
 - better strategy recommendations
 - cleaner backend contract normalization
 - stronger gameplay-state save/load proofs
+
+
+## OpenClaw compatibility upgrades completed
+
+This repo now has a much stronger OpenClaw-native shape:
+
+### Runtime / model compatibility
+- richer provider + model metadata
+- provider-aware settings UX
+- manual model entry support
+- role/category semantics for models (`primary`, `vision`, `planning`, `fallback`, `general`)
+
+### Agent / health compatibility
+- health endpoints for runtime, emulator, and stream
+- agent state, goal, mode, actions, and errors endpoints
+- structured status data for future operator panels
+
+### MCP agent tools
+High-impact AI gameplay tools are now available/documented:
+- `get_agent_context`
+- `get_game_mode`
+- `act_and_observe`
+- `get_dialogue_state`
+- `get_menu_state`
+
+### Audio support
+Sound support has been added in a safe, optional form:
+- sound status
+- sound enable/disable
+- volume control
+- output toggle
+- raw audio buffer access
+
+### Repo-local agent guidance
+Agent-first repo files now include:
+- `AGENTS.md`
+- `TOOLS.md`
+- `skills/pyboy-platform/SKILL.md`
+- `OPENCLAW-COMPATIBILITY.md`
+- `ai-game-server/API-CONTRACT.md`
+
+## Recommended next cleanup
+The platform is now much more capable, but the next ideal pass would be:
+1. consolidate compatibility routes that are now duplicated
+2. standardize final response schemas across all backend endpoints
+3. unify web UI + MCP tool docs into one concise contract section
+4. create a stable release tag for this checkpoint
