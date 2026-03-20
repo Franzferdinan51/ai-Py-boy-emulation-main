@@ -1,3 +1,4 @@
+export { default as FloatingChat } from './FloatingChat';
 export { default as InventoryPanel } from './InventoryPanel';
 export { default as MemoryInspector } from './MemoryInspector';
 export { default as Minimap } from './Minimap';

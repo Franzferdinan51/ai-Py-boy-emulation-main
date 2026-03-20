@@ -41,6 +41,7 @@ import apiService, {
   type ScreenResponse,
   type UiStatusResponse,
 } from '../services/apiService';
+import { FloatingChat } from './components';
 
 type ConnectionState = 'checking' | 'online' | 'offline';
 type ActivityLevel = 'info' | 'success' | 'warning' | 'error';
@@ -1605,6 +1606,17 @@ const WebUiApp: React.FC = () => {
           </div>
         </div>
       ) : null}
+
+      {/* Floating Chat Panel */}
+      <FloatingChat
+        backendUrl={settings.backendUrl}
+        isRomLoaded={gameState?.rom_loaded ?? false}
+        provider={settings.provider}
+        model={settings.model}
+        apiKey={settings.apiKey}
+        apiEndpoint={settings.apiEndpoint}
+        goal={settings.goal}
+      />
     </div>
   );
 };
