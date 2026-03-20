@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import type { AppSettings, ModelInfo } from '../../services/apiService';
 import apiService from '../../services/apiService';
 
@@ -18,8 +18,15 @@ interface ModelOption {
   value: string;
   label: string;
   note: string;
+  provider: string;
   isFree?: boolean;
   isVisionCapable?: boolean;
+}
+
+interface ModelGroup {
+  provider: string;
+  label: string;
+  models: ModelOption[];
 }
 
 const AI_PROVIDERS: Array<{ value: NonNullable<AppSettings['aiProvider']>; label: string; note: string }> = [
@@ -44,6 +51,19 @@ const AUTONOMY_LEVELS: Array<{ value: AppSettings['autonomousLevel']; label: str
   { value: 'aggressive', label: 'Aggressive' },
 ];
 
+const PROVIDER_LABELS: Record<string, string> = {
+  'bailian': 'Alibaba Bailian',
+  'openai': 'OpenAI',
+  'google': 'Google',
+  'anthropic': 'Anthropic',
+  'meta': 'Meta',
+  'nvidia': 'NVIDIA',
+  'mistral': 'Mistral',
+  'cohere': 'Cohere',
+  'lmstudio': 'LM Studio',
+  'local': 'Local',
+};
+
 const normalizeProbeMessage = (error: unknown, fallback404: string) => {
   const message = error instanceof Error ? error.message : 'Connection failed';
 
@@ -56,6 +76,17 @@ const normalizeProbeMessage = (error: unknown, fallback404: string) => {
   }
 
   return message;
+};
+
+// Null-safe helper functions
+const safeString = (value: unknown, fallback = ''): string => {
+  if (value === null || value === undefined) return fallback;
+  return String(value);
+};
+
+const safeBoolean = (value: unknown, fallback = false): boolean => {
+  if (value === null || value === undefined) return fallback;
+  return Boolean(value);
 };
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -73,10 +104,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [testingLmStudio, setTestingLmStudio] = useState(false);
   
   // Dynamic model lists from OpenClaw
-  const [visionModels, setVisionModels] = useState<ModelOption[]>([]);
-  const [planningModels, setPlanningModels] = useState<ModelOption[]>([]);
+  const [allModels, setAllModels] = useState<ModelInfo[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
+  
+  // Model input mode (select from list vs manual input)
+  const [visionInputMode, setVisionInputMode] = useState<'select' | 'manual'>('select');
+  const [planningInputMode, setPlanningInputMode] = useState<'select' | 'manual'>('select');
+  
+  // Search filter for models
+  const [visionSearch, setVisionSearch] = useState('');
+  const [planningSearch, setPlanningSearch] = useState('');
 
   // Load models from OpenClaw when modal opens
   useEffect(() => {
@@ -85,74 +123,135 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, [isOpen]);
 
+  // Reset input mode based on current model value
+  useEffect(() => {
+    if (draft.visionModel && !allModels.find(m => m.id === draft.visionModel)) {
+      setVisionInputMode('manual');
+    }
+    if (draft.planningModel && !allModels.find(m => m.id === draft.planningModel)) {
+      setPlanningInputMode('manual');
+    }
+  }, [draft.visionModel, draft.planningModel, allModels]);
+
   const loadModelsFromOpenClaw = async () => {
     setLoadingModels(true);
     try {
-      // Fetch vision and planning models in parallel
-      const [visionResponse, planningResponse] = await Promise.all([
-        apiService.getVisionModels().catch(() => ({ models: [] })),
-        apiService.getPlanningModels().catch(() => ({ models: [] })),
-      ]);
-
-      // Convert to ModelOption format
-      const visionOpts: ModelOption[] = visionResponse.models.map(m => ({
-        value: m.id,
-        label: `${m.name} (${m.provider})`,
-        note: m.description || (m.is_free ? 'FREE' : 'API credits'),
-        isFree: m.is_free,
-        isVisionCapable: m.is_vision_capable,
-      }));
-
-      const planningOpts: ModelOption[] = planningResponse.models.map(m => ({
-        value: m.id,
-        label: `${m.name} (${m.provider})`,
-        note: m.description || (m.is_free ? 'FREE' : 'API credits'),
-        isFree: m.is_free,
-      }));
-
-      // Add fallback models if none discovered
-      if (visionOpts.length === 0) {
-        visionOpts.push(
-          { value: 'bailian/kimi-k2.5', label: 'Kimi K2.5 (Fallback)', note: 'Default vision model (FREE)', isFree: true },
-          { value: 'bailian/qwen-vl-plus', label: 'Qwen VL Plus (Fallback)', note: 'Alternative vision model', isFree: false },
-        );
-      }
-
-      if (planningOpts.length === 0) {
-        planningOpts.push(
-          { value: 'bailian/glm-5', label: 'GLM-5 (Fallback)', note: 'Fast decisions (API credits)', isFree: false },
-          { value: 'bailian/MiniMax-M2.5', label: 'MiniMax M2.5 (Fallback)', note: 'Unlimited FREE model', isFree: true },
-        );
-      }
-
-      setVisionModels(visionOpts);
-      setPlanningModels(planningOpts);
+      // Fetch all models
+      const response = await apiService.getOpenClawModels().catch(() => ({ models: [] }));
+      const models = response.models || [];
+      setAllModels(models);
       setModelsLoaded(true);
 
-      // Update draft with recommended models if not set
-      if (!draft.visionModel && visionOpts.length > 0) {
-        setDraft(prev => ({ ...prev, visionModel: visionOpts[0].value }));
+      // Auto-select recommended models if not set
+      if (models.length > 0) {
+        const visionModels = models.filter(m => m.is_vision_capable);
+        const planningModels = models.filter(m => !m.is_vision_capable || m.capabilities?.includes('reasoning'));
+        
+        if (!draft.visionModel && visionModels.length > 0) {
+          const recommended = visionModels.find(m => m.is_free) || visionModels[0];
+          setDraft(prev => ({ ...prev, visionModel: recommended.id }));
+        }
+        if (!draft.planningModel && planningModels.length > 0) {
+          const recommended = planningModels.find(m => m.is_free) || planningModels[0];
+          setDraft(prev => ({ ...prev, planningModel: recommended.id }));
+        }
       }
-      if (!draft.planningModel && planningOpts.length > 0) {
-        setDraft(prev => ({ ...prev, planningModel: planningOpts[0].value }));
-      }
-
     } catch (error) {
       console.error('Failed to load models from OpenClaw:', error);
-      // Use fallback models
-      setVisionModels([
-        { value: 'bailian/kimi-k2.5', label: 'Kimi K2.5', note: 'Best for game screen analysis (FREE)', isFree: true },
-        { value: 'bailian/qwen-vl-plus', label: 'Qwen VL Plus', note: 'High quality vision (quota)', isFree: false },
-      ]);
-      setPlanningModels([
-        { value: 'bailian/glm-5', label: 'GLM-5', note: 'Fast decisions, great for games', isFree: false },
-        { value: 'bailian/MiniMax-M2.5', label: 'MiniMax M2.5', note: 'Unlimited, reliable (FREE)', isFree: true },
-      ]);
+      setAllModels([]);
       setModelsLoaded(true);
     } finally {
       setLoadingModels(false);
     }
   };
+
+  // Group models by provider for cleaner display
+  const modelGroups = useMemo(() => {
+    const groups: Record<string, ModelGroup> = {};
+    
+    allModels.forEach(model => {
+      const provider = safeString(model.provider, 'other');
+      const providerLabel = PROVIDER_LABELS[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
+      
+      if (!groups[provider]) {
+        groups[provider] = {
+          provider,
+          label: providerLabel,
+          models: []
+        };
+      }
+      
+      groups[provider].models.push({
+        value: model.id,
+        label: safeString(model.name, model.id),
+        note: model.description || (model.is_free ? 'FREE' : 'API credits'),
+        provider,
+        isFree: model.is_free,
+        isVisionCapable: model.is_vision_capable
+      });
+    });
+    
+    // Sort groups: free providers first, then alphabetically
+    return Object.values(groups).sort((a, b) => {
+      const aHasFree = a.models.some(m => m.isFree);
+      const bHasFree = b.models.some(m => m.isFree);
+      if (aHasFree && !bHasFree) return -1;
+      if (!aHasFree && bHasFree) return 1;
+      return a.label.localeCompare(b.label);
+    });
+  }, [allModels]);
+
+  // Filter vision models
+  const visionGroups = useMemo(() => {
+    const groups: Record<string, ModelGroup> = {};
+    const searchLower = visionSearch.toLowerCase();
+    
+    modelGroups.forEach(group => {
+      const filteredModels = group.models.filter(m => 
+        m.isVisionCapable && 
+        (m.label.toLowerCase().includes(searchLower) || 
+         m.value.toLowerCase().includes(searchLower))
+      );
+      
+      if (filteredModels.length > 0) {
+        groups[group.provider] = { ...group, models: filteredModels };
+      }
+    });
+    
+    return Object.values(groups);
+  }, [modelGroups, visionSearch]);
+
+  // Filter planning models
+  const planningGroups = useMemo(() => {
+    const groups: Record<string, ModelGroup> = {};
+    const searchLower = planningSearch.toLowerCase();
+    
+    modelGroups.forEach(group => {
+      const filteredModels = group.models.filter(m => 
+        (m.isVisionCapable === false || m.provider === 'bailian') &&
+        (m.label.toLowerCase().includes(searchLower) || 
+         m.value.toLowerCase().includes(searchLower))
+      );
+      
+      if (filteredModels.length > 0) {
+        groups[group.provider] = { ...group, models: filteredModels };
+      }
+    });
+    
+    return Object.values(groups);
+  }, [modelGroups, planningSearch]);
+
+  // Fallback models if none discovered
+  const fallbackVisionModels: ModelOption[] = [
+    { value: 'bailian/kimi-k2.5', label: 'Kimi K2.5', note: 'Best for game screen analysis (FREE)', provider: 'bailian', isFree: true, isVisionCapable: true },
+    { value: 'bailian/qwen-vl-plus', label: 'Qwen VL Plus', note: 'High quality vision (quota)', provider: 'bailian', isFree: false, isVisionCapable: true },
+  ];
+
+  const fallbackPlanningModels: ModelOption[] = [
+    { value: 'bailian/glm-5', label: 'GLM-5', note: 'Fast decisions, great for games', provider: 'bailian', isFree: false },
+    { value: 'bailian/MiniMax-M2.5', label: 'MiniMax M2.5', note: 'Unlimited, reliable (FREE)', provider: 'bailian', isFree: true },
+    { value: 'bailian/qwen3.5-plus', label: 'Qwen 3.5 Plus', note: 'Best reasoning (quota)', provider: 'bailian', isFree: false },
+  ];
 
   useEffect(() => {
     if (isOpen) {
@@ -186,8 +285,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     setDraft((current) => ({ ...current, [key]: value }));
   };
 
-  const activeVisionModel = visionModels.find((model) => model.value === draft.visionModel);
-  const activePlanningModel = planningModels.find((model) => model.value === draft.planningModel);
+  const activeVisionModel = [...visionGroups.flatMap(g => g.models), ...fallbackVisionModels].find((model) => model.value === draft.visionModel);
+  const activePlanningModel = [...planningGroups.flatMap(g => g.models), ...fallbackPlanningModels].find((model) => model.value === draft.planningModel);
 
   const testBackend = async () => {
     setTestingBackend(true);
@@ -248,7 +347,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
     try {
       const lmUrl = (draft.lmStudioUrl || 'http://localhost:1234/v1').replace(/\/+$/, '');
-      // Test by fetching models list
       const response = await fetch(`${lmUrl}/models`);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -276,6 +374,58 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     onClose();
   };
 
+  // Render model select dropdown with grouped options
+  const renderModelSelect = (
+    groups: ModelGroup[],
+    fallbackModels: ModelOption[],
+    value: string,
+    onChange: (value: string) => void,
+    search: string,
+    onSearchChange: (value: string) => void,
+    placeholder: string,
+    isLoading: boolean
+  ) => {
+    const hasGroups = groups.length > 0;
+    const displayGroups = hasGroups ? groups : [{ provider: 'fallback', label: 'Fallback Models', models: fallbackModels }];
+    const totalModels = displayGroups.reduce((sum, g) => sum + g.models.length, 0);
+
+    return (
+      <div className="model-select-container">
+        {/* Search input for filtering models */}
+        {totalModels > 5 && (
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="text-input model-search"
+            placeholder={`Search ${totalModels} models...`}
+          />
+        )}
+        
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="select-input"
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <option>Loading models from OpenClaw...</option>
+          ) : (
+            displayGroups.map(group => (
+              <optgroup key={group.provider} label={group.label}>
+                {group.models.map(model => (
+                  <option key={model.value} value={model.value}>
+                    {model.label} {model.isFree ? '★' : ''} — {model.note}
+                  </option>
+                ))}
+              </optgroup>
+            ))
+          )}
+        </select>
+      </div>
+    );
+  };
+
   return (
     <div className="modal-backdrop" role="presentation">
       <div className="modal-scrim" onClick={onClose} />
@@ -286,7 +436,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             <span className="modal__eyebrow">Session Setup</span>
             <h2 id="settings-title">Connection and OpenClaw defaults</h2>
             <p className="modal__subtitle">
-              Keep setup here focused on endpoints and orchestration defaults. Gameplay chrome stays on the handheld.
+              Configure endpoints and model preferences. Models are discovered from OpenClaw automatically.
             </p>
           </div>
           <button type="button" onClick={onClose} className="action-button action-button--ghost">
@@ -307,7 +457,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="field-row">
                   <input
                     type="text"
-                    value={draft.backendUrl}
+                    value={safeString(draft.backendUrl)}
                     onChange={(event) => update('backendUrl', event.target.value)}
                     className="text-input"
                     placeholder="http://localhost:5002"
@@ -334,7 +484,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="field-row">
                   <input
                     type="text"
-                    value={draft.openclawMcpEndpoint}
+                    value={safeString(draft.openclawMcpEndpoint)}
                     onChange={(event) => update('openclawMcpEndpoint', event.target.value)}
                     className="text-input"
                     placeholder="http://localhost:18789"
@@ -348,7 +498,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     {testingOpenClaw ? 'Testing...' : 'Test'}
                   </button>
                 </div>
-                <span className="form-field__help">This is the MCP endpoint the backend uses to reach OpenClaw.</span>
+                <span className="form-field__help">MCP endpoint for OpenClaw gateway (default: http://localhost:18789).</span>
                 {openClawStatus && (
                   <span className={openClawStatus.ok ? 'probe-badge probe-badge--ok' : 'probe-badge probe-badge--error'}>
                     {openClawStatus.message}
@@ -361,7 +511,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           <section className="modal-section">
             <div className="modal-section__header">
               <span className="modal-section__eyebrow">AI Provider</span>
-              <h3>Local models and LM Studio</h3>
+              <h3>Model orchestration</h3>
             </div>
 
             <div className="settings-grid">
@@ -379,11 +529,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   ))}
                 </select>
                 <span className="form-field__help">
-                  {AI_PROVIDERS.find(p => p.value === (draft.aiProvider || 'openclaw'))?.note}
+                  {AI_PROVIDERS.find(p => p.value === (draft.aiProvider || 'openclaw'))?.note || 'Select an AI provider'}
                 </span>
               </label>
             </div>
 
+            {/* LM Studio / OpenAI-Compatible Settings */}
             {(draft.aiProvider === 'lmstudio' || draft.aiProvider === 'openai-compatible') && (
               <>
                 <div className="modal-section__divider" />
@@ -394,7 +545,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="field-row">
                       <input
                         type="text"
-                        value={draft.lmStudioUrl || ''}
+                        value={safeString(draft.lmStudioUrl)}
                         onChange={(event) => update('lmStudioUrl', event.target.value)}
                         className="text-input"
                         placeholder="http://localhost:1234/v1"
@@ -424,13 +575,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     <span className="form-field__label">Thinking Model</span>
                     <input
                       type="text"
-                      value={draft.lmStudioThinkingModel || ''}
+                      value={safeString(draft.lmStudioThinkingModel)}
                       onChange={(event) => update('lmStudioThinkingModel', event.target.value)}
                       className="text-input"
                       placeholder="qwen3.5-35b-a3b"
                     />
                     <span className="form-field__help">
-                      Model for text reasoning and decision-making. Leave empty for auto-detect.
+                      Model for text reasoning and decision-making.
                     </span>
                   </label>
 
@@ -438,18 +589,141 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     <span className="form-field__label">Vision Model</span>
                     <input
                       type="text"
-                      value={draft.lmStudioVisionModel || ''}
+                      value={safeString(draft.lmStudioVisionModel)}
                       onChange={(event) => update('lmStudioVisionModel', event.target.value)}
                       className="text-input"
                       placeholder="qwen3-vl-8b"
                     />
                     <span className="form-field__help">
-                      Model for screen/image analysis. Leave empty for auto-detect.
+                      Model for screen/image analysis.
                     </span>
                   </label>
                 </div>
               </>
             )}
+          </section>
+
+          <section className="modal-section">
+            <div className="modal-section__header">
+              <span className="modal-section__eyebrow">OpenClaw Models</span>
+              <h3>Vision and planning models</h3>
+              <p className="modal-section__subtitle">
+                {loadingModels 
+                  ? 'Discovering models from OpenClaw...' 
+                  : modelsLoaded 
+                    ? `Found ${allModels.length} models from ${modelGroups.length} providers`
+                    : 'Click refresh to discover models from OpenClaw'}
+              </p>
+            </div>
+
+            <div className="settings-grid">
+              {/* Vision Model */}
+              <label className="form-field">
+                <div className="form-field__header">
+                  <span className="form-field__label">Vision Model</span>
+                  <div className="input-mode-toggle">
+                    <button
+                      type="button"
+                      className={`toggle-btn ${visionInputMode === 'select' ? 'toggle-btn--active' : ''}`}
+                      onClick={() => setVisionInputMode('select')}
+                    >
+                      Select
+                    </button>
+                    <button
+                      type="button"
+                      className={`toggle-btn ${visionInputMode === 'manual' ? 'toggle-btn--active' : ''}`}
+                      onClick={() => setVisionInputMode('manual')}
+                    >
+                      Manual
+                    </button>
+                  </div>
+                </div>
+                
+                {visionInputMode === 'select' ? (
+                  renderModelSelect(
+                    visionGroups,
+                    fallbackVisionModels,
+                    safeString(draft.visionModel),
+                    (value) => update('visionModel', value),
+                    visionSearch,
+                    setVisionSearch,
+                    'Select vision model...',
+                    loadingModels
+                  )
+                ) : (
+                  <input
+                    type="text"
+                    value={safeString(draft.visionModel)}
+                    onChange={(event) => update('visionModel', event.target.value)}
+                    className="text-input"
+                    placeholder="bailian/kimi-k2.5"
+                  />
+                )}
+                <span className="form-field__help">
+                  {activeVisionModel?.note || 'Model for screen/image analysis'}
+                  {activeVisionModel?.isFree ? ' (FREE)' : ''}
+                </span>
+              </label>
+
+              {/* Planning Model */}
+              <label className="form-field">
+                <div className="form-field__header">
+                  <span className="form-field__label">Planning Model</span>
+                  <div className="input-mode-toggle">
+                    <button
+                      type="button"
+                      className={`toggle-btn ${planningInputMode === 'select' ? 'toggle-btn--active' : ''}`}
+                      onClick={() => setPlanningInputMode('select')}
+                    >
+                      Select
+                    </button>
+                    <button
+                      type="button"
+                      className={`toggle-btn ${planningInputMode === 'manual' ? 'toggle-btn--active' : ''}`}
+                      onClick={() => setPlanningInputMode('manual')}
+                    >
+                      Manual
+                    </button>
+                  </div>
+                </div>
+                
+                {planningInputMode === 'select' ? (
+                  renderModelSelect(
+                    planningGroups,
+                    fallbackPlanningModels,
+                    safeString(draft.planningModel),
+                    (value) => update('planningModel', value),
+                    planningSearch,
+                    setPlanningSearch,
+                    'Select planning model...',
+                    loadingModels
+                  )
+                ) : (
+                  <input
+                    type="text"
+                    value={safeString(draft.planningModel)}
+                    onChange={(event) => update('planningModel', event.target.value)}
+                    className="text-input"
+                    placeholder="bailian/glm-5"
+                  />
+                )}
+                <span className="form-field__help">
+                  {activePlanningModel?.note || 'Model for decision making and reasoning'}
+                  {activePlanningModel?.isFree ? ' (FREE)' : ''}
+                </span>
+              </label>
+            </div>
+
+            <div className="settings-actions">
+              <button
+                type="button"
+                onClick={() => void loadModelsFromOpenClaw()}
+                disabled={loadingModels}
+                className="action-button action-button--ghost"
+              >
+                {loadingModels ? 'Refreshing...' : 'Refresh Models'}
+              </button>
+            </div>
           </section>
 
           <section className="modal-section">
@@ -472,54 +746,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               </label>
 
               <label className="form-field">
-                <span className="form-field__label">Vision Model</span>
-                <select
-                  value={draft.visionModel}
-                  onChange={(event) => update('visionModel', event.target.value)}
-                  className="select-input"
-                  disabled={loadingModels}
-                >
-                  {loadingModels ? (
-                    <option>Loading models from OpenClaw...</option>
-                  ) : (
-                    visionModels.map((model) => (
-                      <option key={model.value} value={model.value}>
-                        {model.label} {model.isFree ? '★' : ''}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <span className="form-field__help">
-                  {activeVisionModel?.note || 'Model for screen/image analysis'}
-                  {loadingModels ? ' (Loading...)' : ''}
-                </span>
-              </label>
-
-              <label className="form-field">
-                <span className="form-field__label">Planning Model</span>
-                <select
-                  value={draft.planningModel || ''}
-                  onChange={(event) => update('planningModel', event.target.value)}
-                  className="select-input"
-                  disabled={loadingModels}
-                >
-                  {loadingModels ? (
-                    <option>Loading models from OpenClaw...</option>
-                  ) : (
-                    planningModels.map((model) => (
-                      <option key={model.value} value={model.value}>
-                        {model.label} {model.isFree ? '★' : ''}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <span className="form-field__help">
-                  {activePlanningModel?.note || 'Model for decision making and reasoning'}
-                  {loadingModels ? ' (Loading...)' : ''}
-                </span>
-              </label>
-
-              <label className="form-field">
                 <span className="form-field__label">Autonomy</span>
                 <select
                   value={draft.autonomousLevel}
@@ -527,7 +753,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="select-input"
                 >
                   {AUTONOMY_LEVELS.map((level) => (
-                    <option key={level.value} value={level.value}>
+                    <option key={safeString(level.value)} value={level.value}>
                       {level.label}
                     </option>
                   ))}
@@ -542,7 +768,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="select-input"
                 >
                   {PERSONALITIES.map((personality) => (
-                    <option key={personality.value} value={personality.value}>
+                    <option key={safeString(personality.value)} value={personality.value}>
                       {personality.label}
                     </option>
                   ))}
@@ -558,7 +784,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <input
                   type="checkbox"
-                  checked={draft.autoConnect}
+                  checked={safeBoolean(draft.autoConnect)}
                   onChange={(event) => update('autoConnect', event.target.checked)}
                 />
               </label>
@@ -570,7 +796,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <input
                   type="checkbox"
-                  checked={draft.launchUiOnRomLoad}
+                  checked={safeBoolean(draft.launchUiOnRomLoad)}
                   onChange={(event) => update('launchUiOnRomLoad', event.target.checked)}
                 />
               </label>
@@ -582,14 +808,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <input
                   type="checkbox"
-                  checked={draft.useDualModel}
+                  checked={safeBoolean(draft.useDualModel)}
                   onChange={(event) => update('useDualModel', event.target.checked)}
                 />
               </label>
             </div>
 
             <div className="modal-callout">
-              Objective text and runtime controls stay in the main desk so the operator can see intent. Provider and endpoint details stay here.
+              Provider and endpoint details stay here. Objective text and runtime controls are in the main desk.
             </div>
           </section>
         </div>

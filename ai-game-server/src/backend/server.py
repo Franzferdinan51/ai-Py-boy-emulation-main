@@ -1213,37 +1213,365 @@ def get_providers_status():
 
 @app.route('/api/models', methods=['GET'])
 def get_models():
-    """Get a list of available models for a given provider"""
+    """
+    Get available models for a given provider with rich metadata.
+    
+    Query params:
+        provider: Provider name (e.g., 'lmstudio', 'openclaw', 'gemini')
+        
+    Response shape:
+    {
+        "provider": "lmstudio",
+        "models": [
+            {
+                "id": "qwen3-vl-8b",
+                "name": "Qwen3 VL 8B",
+                "label": "Qwen3 VL 8B",
+                "provider": "lmstudio",
+                "category": "vision",
+                "capabilities": ["vision", "reasoning"],
+                "is_vision_capable": true,
+                "is_free": true,
+                "manual_allowed": true,
+                "is_default": false,
+                "context_window": 8192,
+                "description": "Vision model for screen analysis"
+            }
+        ],
+        "manual_allowed": true,
+        "timestamp": "2026-03-19T20:00:00Z"
+    }
+    """
     provider_name = request.args.get('provider')
+    
+    # If no provider specified, return all available providers with their models
     if not provider_name:
-        return jsonify({"error": "Provider name is required"}), 400
+        return _get_all_providers_with_models()
+    
+    # Get models for specific provider
+    return _get_provider_models(provider_name)
 
-    models = ai_provider_manager.get_models(provider_name)
-    return jsonify({"models": models}), 200
+
+def _get_all_providers_with_models():
+    """Return all available providers with their models for settings UI."""
+    try:
+        provider_status = ai_provider_manager.get_provider_status()
+        providers_list = []
+        
+        for provider_id, status_info in provider_status.items():
+            provider_data = {
+                "id": provider_id,
+                "name": _get_provider_display_name(provider_id),
+                "status": status_info.get('status', 'unknown'),
+                "available": status_info.get('available', False),
+                "manual_allowed": _is_provider_manual_allowed(provider_id),
+                "priority": status_info.get('priority', 99),
+                "error": status_info.get('error'),
+                "models": []
+            }
+            
+            # Add models if provider is available
+            if status_info.get('available'):
+                models = _get_models_for_provider(provider_id)
+                provider_data["models"] = models
+                provider_data["default_model"] = _get_default_model_for_provider(provider_id, models)
+            
+            providers_list.append(provider_data)
+        
+        # Sort by priority
+        providers_list.sort(key=lambda p: p.get('priority', 99))
+        
+        return jsonify({
+            "providers": providers_list,
+            "default_provider": ai_provider_manager.default_provider,
+            "manual_allowed": True,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to get providers: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+def _get_provider_models(provider_name: str):
+    """Get models for a specific provider with rich metadata."""
+    try:
+        provider_status = ai_provider_manager.get_provider_status()
+        
+        if provider_name not in provider_status:
+            return jsonify({
+                "error": f"Provider '{provider_name}' not found",
+                "available_providers": list(provider_status.keys())
+            }), 404
+        
+        status_info = provider_status[provider_name]
+        models = _get_models_for_provider(provider_name)
+        
+        return jsonify({
+            "provider": provider_name,
+            "name": _get_provider_display_name(provider_name),
+            "status": status_info.get('status', 'unknown'),
+            "available": status_info.get('available', False),
+            "manual_allowed": _is_provider_manual_allowed(provider_name),
+            "models": models,
+            "default_model": _get_default_model_for_provider(provider_name, models),
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to get models for provider {provider_name}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+def _get_models_for_provider(provider_name: str) -> list:
+    """Get enriched models list for a provider."""
+    models_raw = ai_provider_manager.get_models(provider_name)
+    models_enriched = []
+    
+    for i, model_id in enumerate(models_raw):
+        model_data = _enrich_model_info(provider_name, model_id, i)
+        models_enriched.append(model_data)
+    
+    return models_enriched
+
+
+def _enrich_model_info(provider_name: str, model_id: str, index: int) -> dict:
+    """Enrich model info with metadata for UI consumption."""
+    # Determine capabilities based on model name patterns
+    model_lower = model_id.lower()
+    
+    is_vision = any(p in model_lower for p in ['vl', 'vision', 'kimi', 'llava', 'gpt-4v', 'gpt-4o'])
+    is_thinking = any(p in model_lower for p in ['think', 'reason', 'qwen', 'glm'])
+    
+    capabilities = []
+    if is_vision:
+        capabilities.append('vision')
+    if is_thinking or not is_vision:
+        capabilities.append('reasoning')
+    capabilities.append('text')
+    
+    # Determine category
+    if is_vision:
+        category = 'vision'
+    elif is_thinking:
+        category = 'reasoning'
+    else:
+        category = 'general'
+    
+    # Get display name
+    name_parts = model_id.split('/')[-1] if '/' in model_id else model_id
+    display_name = name_parts.replace('-', ' ').replace('_', ' ').title()
+    
+    # Check if free (local providers typically free)
+    is_free = provider_name in ['lmstudio', 'ollama', 'openclaw', 'mock']
+    
+    # Determine if this is a default model
+    is_default = False
+    if provider_name == 'lmstudio':
+        default_thinking = os.environ.get('LM_STUDIO_THINKING_MODEL', '')
+        default_vision = os.environ.get('LM_STUDIO_VISION_MODEL', '')
+        is_default = model_id in [default_thinking, default_vision]
+    elif provider_name == 'openclaw':
+        is_default = index == 0  # First model is typically default
+    
+    return {
+        "id": model_id,
+        "name": display_name,
+        "label": display_name,
+        "provider": provider_name,
+        "category": category,
+        "capabilities": capabilities,
+        "is_vision_capable": is_vision,
+        "is_free": is_free,
+        "manual_allowed": True,
+        "is_default": is_default,
+        "context_window": _estimate_context_window(model_id),
+        "description": _get_model_description(model_id, provider_name)
+    }
+
+
+def _estimate_context_window(model_id: str) -> int:
+    """Estimate context window based on model name patterns."""
+    model_lower = model_id.lower()
+    
+    if '128k' in model_lower:
+        return 128000
+    elif '32k' in model_lower:
+        return 32000
+    elif '8k' in model_lower:
+        return 8192
+    elif '4b' in model_lower:
+        return 4096
+    elif any(x in model_lower for x in ['27b', '35b', '70b', 'max']):
+        return 32000
+    elif any(x in model_lower for x in ['8b', '7b']):
+        return 8192
+    else:
+        return 4096  # Default assumption
+
+
+def _get_model_description(model_id: str, provider_name: str) -> str:
+    """Get human-readable description for a model."""
+    model_lower = model_id.lower()
+    
+    if 'vl' in model_lower or 'vision' in model_lower:
+        return "Vision model for screen analysis and image understanding"
+    elif 'think' in model_lower:
+        return "Enhanced reasoning model for complex decisions"
+    elif 'qwen' in model_lower:
+        return "Qwen language model for text generation"
+    elif 'glm' in model_lower:
+        return "GLM model for fast text generation"
+    elif 'kimi' in model_lower:
+        return "Kimi model for vision and reasoning tasks"
+    elif 'llava' in model_lower:
+        return "LLaVA vision-language model"
+    elif 'gpt-4' in model_lower:
+        return "GPT-4 model for advanced reasoning"
+    elif 'gemini' in model_lower:
+        return "Gemini multimodal model"
+    else:
+        return f"AI model: {model_id}"
+
+
+def _get_provider_display_name(provider_id: str) -> str:
+    """Get human-readable provider name."""
+    names = {
+        'lmstudio': 'LM Studio (Local)',
+        'openclaw': 'OpenClaw Gateway',
+        'gemini': 'Google Gemini',
+        'openrouter': 'OpenRouter',
+        'openai-compatible': 'OpenAI Compatible',
+        'nvidia': 'NVIDIA NIM',
+        'ollama': 'Ollama (Local)',
+        'mock': 'Mock Provider (Testing)',
+        'tetris-genetic': 'Tetris Genetic AI'
+    }
+    return names.get(provider_id, provider_id.title())
+
+
+def _is_provider_manual_allowed(provider_id: str) -> bool:
+    """Check if manual model entry is allowed for this provider."""
+    # All providers allow manual model entry
+    return True
+
+
+def _get_default_model_for_provider(provider_name: str, models: list) -> Optional[str]:
+    """Get the default model ID for a provider."""
+    # Check for explicitly marked default
+    for model in models:
+        if model.get('is_default'):
+            return model['id']
+    
+    # Check environment variables
+    env_defaults = {
+        'lmstudio': os.environ.get('LM_STUDIO_THINKING_MODEL'),
+        'openclaw': os.environ.get('OPENCLAW_MODEL'),
+        'gemini': os.environ.get('GEMINI_MODEL'),
+        'openrouter': os.environ.get('OPENROUTER_MODEL'),
+        'nvidia': os.environ.get('NVIDIA_MODEL'),
+        'openai-compatible': os.environ.get('OPENAI_MODEL')
+    }
+    
+    default = env_defaults.get(provider_name)
+    if default:
+        return default
+    
+    # Return first available model
+    if models:
+        return models[0]['id']
+    
+    return None
 
 @app.route('/api/openclaw/models', methods=['GET'])
 def get_openclaw_models():
-    """Get all available models from OpenClaw Gateway"""
+    """
+    Get all available models from OpenClaw Gateway with rich metadata.
+    
+    Query params:
+        refresh: Force refresh cache (default: false)
+        
+    Response shape:
+    {
+        "provider": "openclaw",
+        "name": "OpenClaw Gateway",
+        "status": "available",
+        "available": true,
+        "manual_allowed": true,
+        "models": [
+            {
+                "id": "bailian/kimi-k2.5",
+                "name": "Kimi K2.5",
+                "label": "Kimi K2.5 (Vision)",
+                "provider": "bailian",
+                "category": "vision",
+                "capabilities": ["vision", "reasoning", "text"],
+                "is_vision_capable": true,
+                "is_free": true,
+                "manual_allowed": true,
+                "is_default": false,
+                "context_window": 196608,
+                "priority": 100,
+                "description": "Best for game screen analysis (FREE)"
+            }
+        ],
+        "default_model": "bailian/kimi-k2.5",
+        "timestamp": "2026-03-19T20:00:00Z",
+        "cached": true
+    }
+    """
     try:
         force_refresh = request.args.get('refresh', 'false').lower() == 'true'
         discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
-        models = discovery.get_available_models(force_refresh=force_refresh)
+        raw_models = discovery.get_available_models(force_refresh=force_refresh)
+        
+        # Enrich models with consistent metadata
+        models_enriched = []
+        for i, model in enumerate(raw_models):
+            # Determine category based on capabilities
+            if model.is_vision_capable:
+                category = 'vision'
+            elif 'reasoning' in model.capabilities:
+                category = 'reasoning'
+            else:
+                category = 'general'
+            
+            model_data = {
+                "id": model.id,
+                "name": model.name,
+                "label": f"{model.name}{' (Vision)' if model.is_vision_capable else ''}",
+                "provider": model.provider,
+                "category": category,
+                "capabilities": list(model.capabilities) if model.capabilities else ['text'],
+                "is_vision_capable": model.is_vision_capable,
+                "is_free": model.is_free,
+                "manual_allowed": True,
+                "is_default": i == 0 and model.priority >= 90,  # First high-priority model is default
+                "context_window": model.context_window,
+                "priority": model.priority,
+                "description": model.description or f"AI model: {model.name}"
+            }
+            models_enriched.append(model_data)
+        
+        # Sort by priority (highest first)
+        models_enriched.sort(key=lambda m: m.get('priority', 0), reverse=True)
+        
+        # Mark first as default if none marked
+        if models_enriched and not any(m.get('is_default') for m in models_enriched):
+            models_enriched[0]['is_default'] = True
+        
+        # Get provider status
+        provider_status = "available" if raw_models else "unavailable"
+        default_model = next((m['id'] for m in models_enriched if m.get('is_default')), None)
         
         return jsonify({
-            "models": [
-                {
-                    "id": model.id,
-                    "name": model.name,
-                    "provider": model.provider,
-                    "capabilities": model.capabilities,
-                    "context_window": model.context_window,
-                    "is_vision_capable": model.is_vision_capable,
-                    "is_free": model.is_free,
-                    "description": model.description,
-                    "priority": model.priority
-                }
-                for model in models
-            ],
+            "provider": "openclaw",
+            "name": "OpenClaw Gateway",
+            "status": provider_status,
+            "available": bool(raw_models),
+            "manual_allowed": True,
+            "models": models_enriched,
+            "default_model": default_model,
             "timestamp": datetime.now().isoformat(),
             "cached": not force_refresh and discovery._is_cache_valid()
         }), 200
@@ -1254,26 +1582,46 @@ def get_openclaw_models():
 
 @app.route('/api/openclaw/models/vision', methods=['GET'])
 def get_vision_models():
-    """Get only vision-capable models from OpenClaw"""
+    """
+    Get only vision-capable models from OpenClaw with consistent metadata.
+    
+    Response shape: Same as /api/openclaw/models but filtered to vision models only.
+    """
     try:
         force_refresh = request.args.get('refresh', 'false').lower() == 'true'
         discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
-        models = discovery.get_vision_models()
+        raw_models = discovery.get_vision_models()
+        
+        models_enriched = []
+        for i, model in enumerate(raw_models):
+            model_data = {
+                "id": model.id,
+                "name": model.name,
+                "label": f"{model.name} (Vision)",
+                "provider": model.provider,
+                "category": "vision",
+                "capabilities": list(model.capabilities) if model.capabilities else ['vision', 'text'],
+                "is_vision_capable": True,
+                "is_free": model.is_free,
+                "manual_allowed": True,
+                "is_default": i == 0,
+                "context_window": model.context_window,
+                "priority": model.priority,
+                "description": model.description or f"Vision model: {model.name}"
+            }
+            models_enriched.append(model_data)
+        
+        # Sort by priority
+        models_enriched.sort(key=lambda m: m.get('priority', 0), reverse=True)
+        
+        default_model = models_enriched[0]['id'] if models_enriched else None
         
         return jsonify({
-            "models": [
-                {
-                    "id": model.id,
-                    "name": model.name,
-                    "provider": model.provider,
-                    "capabilities": model.capabilities,
-                    "context_window": model.context_window,
-                    "is_free": model.is_free,
-                    "description": model.description,
-                    "priority": model.priority
-                }
-                for model in models
-            ],
+            "provider": "openclaw",
+            "name": "OpenClaw Vision Models",
+            "category": "vision",
+            "models": models_enriched,
+            "default_model": default_model,
             "timestamp": datetime.now().isoformat()
         }), 200
         
@@ -1283,26 +1631,52 @@ def get_vision_models():
 
 @app.route('/api/openclaw/models/planning', methods=['GET'])
 def get_planning_models():
-    """Get models suitable for planning/decision making"""
+    """
+    Get models suitable for planning/decision making with consistent metadata.
+    
+    Response shape: Same as /api/openclaw/models but filtered to planning models only.
+    """
     try:
         force_refresh = request.args.get('refresh', 'false').lower() == 'true'
         discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
-        models = discovery.get_planning_models()
+        raw_models = discovery.get_planning_models()
+        
+        models_enriched = []
+        for i, model in enumerate(raw_models):
+            # Determine category
+            if model.is_vision_capable:
+                category = 'vision'
+            else:
+                category = 'reasoning'
+            
+            model_data = {
+                "id": model.id,
+                "name": model.name,
+                "label": model.name,
+                "provider": model.provider,
+                "category": category,
+                "capabilities": list(model.capabilities) if model.capabilities else ['reasoning', 'text'],
+                "is_vision_capable": model.is_vision_capable,
+                "is_free": model.is_free,
+                "manual_allowed": True,
+                "is_default": i == 0,
+                "context_window": model.context_window,
+                "priority": model.priority,
+                "description": model.description or f"Planning model: {model.name}"
+            }
+            models_enriched.append(model_data)
+        
+        # Sort by priority
+        models_enriched.sort(key=lambda m: m.get('priority', 0), reverse=True)
+        
+        default_model = models_enriched[0]['id'] if models_enriched else None
         
         return jsonify({
-            "models": [
-                {
-                    "id": model.id,
-                    "name": model.name,
-                    "provider": model.provider,
-                    "capabilities": model.capabilities,
-                    "context_window": model.context_window,
-                    "is_free": model.is_free,
-                    "description": model.description,
-                    "priority": model.priority
-                }
-                for model in models
-            ],
+            "provider": "openclaw",
+            "name": "OpenClaw Planning Models",
+            "category": "planning",
+            "models": models_enriched,
+            "default_model": default_model,
             "timestamp": datetime.now().isoformat()
         }), 200
         
@@ -1310,37 +1684,98 @@ def get_planning_models():
         logger.error(f"Failed to get planning models: {e}")
         return jsonify({"error": str(e)}), 500
 
+
 @app.route('/api/openclaw/models/recommend', methods=['GET'])
 def recommend_model():
-    """Get model recommendation for a specific use case"""
+    """
+    Get model recommendation for a specific use case.
+    
+    Query params:
+        use_case: 'vision', 'planning', 'fast', 'quality', 'free' (default: 'planning')
+        
+    Response shape:
+    {
+        "recommended": {
+            "id": "bailian/kimi-k2.5",
+            "name": "Kimi K2.5",
+            "label": "Kimi K2.5 (Vision)",
+            "provider": "bailian",
+            "category": "vision",
+            "is_vision_capable": true,
+            "is_free": true,
+            "description": "Best for game screen analysis (FREE)",
+            "is_default": true
+        },
+        "use_case": "vision",
+        "reason": "Best vision model available",
+        "alternatives": [...],
+        "timestamp": "2026-03-19T20:00:00Z"
+    }
+    """
     try:
         use_case = request.args.get('use_case', 'planning')
         force_refresh = request.args.get('refresh', 'false').lower() == 'true'
         discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
-        model = discovery.recommend_model(use_case)
+        recommended_model = discovery.recommend_model(use_case)
         
-        if model:
-            return jsonify({
-                "model": {
-                    "id": model.id,
-                    "name": model.name,
-                    "provider": model.provider,
-                    "capabilities": model.capabilities,
-                    "context_window": model.context_window,
-                    "is_vision_capable": model.is_vision_capable,
-                    "is_free": model.is_free,
-                    "description": model.description,
-                    "priority": model.priority
+        if recommended_model:
+            # Get alternatives
+            all_models = discovery.get_available_models()
+            alternatives = [m for m in all_models if m.id != recommended_model.id][:3]
+            
+            # Build response
+            response = {
+                "recommended": {
+                    "id": recommended_model.id,
+                    "name": recommended_model.name,
+                    "label": f"{recommended_model.name}{' (Vision)' if recommended_model.is_vision_capable else ''}",
+                    "provider": recommended_model.provider,
+                    "category": "vision" if recommended_model.is_vision_capable else "reasoning",
+                    "capabilities": list(recommended_model.capabilities) if recommended_model.capabilities else ['text'],
+                    "is_vision_capable": recommended_model.is_vision_capable,
+                    "is_free": recommended_model.is_free,
+                    "manual_allowed": True,
+                    "is_default": True,
+                    "context_window": recommended_model.context_window,
+                    "description": recommended_model.description or f"AI model: {recommended_model.name}"
                 },
                 "use_case": use_case,
+                "reason": _get_recommendation_reason(use_case, recommended_model),
+                "alternatives": [
+                    {
+                        "id": m.id,
+                        "name": m.name,
+                        "provider": m.provider,
+                        "is_free": m.is_free,
+                        "is_vision_capable": m.is_vision_capable
+                    }
+                    for m in alternatives
+                ],
                 "timestamp": datetime.now().isoformat()
-            }), 200
+            }
+            return jsonify(response), 200
         else:
-            return jsonify({"error": "No model found for this use case"}), 404
+            return jsonify({
+                "error": "No model found for this use case",
+                "use_case": use_case,
+                "available_use_cases": ["vision", "planning", "fast", "quality", "free"]
+            }), 404
             
     except Exception as e:
         logger.error(f"Failed to recommend model: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+def _get_recommendation_reason(use_case: str, model) -> str:
+    """Get human-readable reason for the recommendation."""
+    reasons = {
+        'vision': f"Best vision model available ({model.name})",
+        'planning': f"Best reasoning model for game decisions ({model.name})",
+        'fast': f"Fastest response time ({model.name})",
+        'quality': f"Highest quality model available ({model.name})",
+        'free': f"Best free model available ({model.name})"
+    }
+    return reasons.get(use_case, f"Recommended model: {model.name}")
 
 @app.route('/api/upload-rom', methods=['POST'])
 def upload_rom():
