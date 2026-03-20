@@ -69,6 +69,51 @@ Current important endpoints include:
 - `GET /api/spatial/npcs`
 - `GET /api/spatial/strategy`
 
+## Agent State Endpoints
+These endpoints manage agent goals, tasks, and state:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/agent/state` | Full agent state snapshot |
+| `GET /api/agent/status` | Agent status summary |
+| `GET /api/agent/goal` | Get current goal/task |
+| `POST /api/agent/goal` | Set goal/task |
+| `POST /api/agent/chat` | **Floating chat** - agent-aware chat with goal/task control |
+| `GET /api/agent/errors` | Recent agent errors |
+| `GET /api/agent/actions` | Recent agent actions |
+
+## Floating Chat Agent Instruction Flow
+
+The floating chat is **agent-first**, not cosmetic. It integrates with the agent state system.
+
+### Instruction Patterns
+
+| Pattern | Action | Example |
+|---------|--------|---------|
+| `goal:` or `objective:` | Sets `current_goal` | `goal: Catch a legendary Pokemon` |
+| `task:` or `do:` | Sets `current_task` | `task: Go to the Pokemon Center` |
+| `?status` or `status` | Returns agent status | `?status` |
+| Plain message | Regular AI chat | `What should I do next?` |
+
+### How It Works
+
+1. Frontend sends message to `/api/agent/chat`
+2. Backend parses intent (goal/task/query/chat)
+3. If goal/task: updates `agent_state` directly
+4. Gets AI response with current agent context
+5. Returns combined response with both chat and state
+
+### Example Flow
+
+```
+User: "goal: Beat the Elite Four"
+  → POST /api/agent/chat { message: "goal: Beat the Elite Four" }
+  → Intent parsed: { intent: 'goal', value: 'Beat the Elite Four' }
+  → agent_state['current_goal'] = 'Beat the Elite Four'
+  → AI response: "I've updated your goal to: Beat the Elite Four..."
+  → Response includes updated agent_state
+```
+
 ## Agent Tools (AI Gameplay)
 These endpoints are designed for AI agents to understand game state and make decisions:
 
@@ -87,12 +132,14 @@ When using `generic_mcp_server.py`, these map to MCP tools:
 - `act_and_observe` → `/api/agent/act`
 - `get_dialogue_state` → `/api/agent/dialogue`
 - `get_menu_state` → `/api/agent/menu`
+- `agent_chat` → `/api/agent/chat` (floating chat with goal/task control)
 
 These tools enable agents to:
 1. Query complete game state without vision
 2. Detect game mode transitions (battle started, text appearing, etc.)
 3. Act and react in single round-trips
 4. Make informed decisions based on structured data
+5. **Set goals/tasks via chat** - enables natural language agent control
 
 ## MCP/LM Studio notes
 `generic_mcp_server.py` must route tool calls to the real backend endpoints.

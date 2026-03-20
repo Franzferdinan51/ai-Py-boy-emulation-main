@@ -978,6 +978,207 @@ The frontend should:
 
 ---
 
+## Server-Side Vision Analysis API
+
+**CRITICAL: These endpoints return TEXT ANALYSIS, not images.**
+
+The vision analysis endpoints are designed for AI agents (LM Studio, MCP clients) that need to **understand** the screen content, not just receive raw pixel data.
+
+### Why Vision Analysis vs Raw Screenshot?
+
+| Endpoint Type | Returns | Use Case |
+|--------------|---------|----------|
+| `/api/screen`, `/screenshot` | Raw image bytes (base64 JPEG) | Displaying to humans, recording video, frontend UI |
+| `/api/vision/*` | Structured text analysis (JSON) | AI understanding, game state extraction, decision making |
+
+**Key Insight:** LM Studio / MCP agents may have interfaces that "accept" image attachments but don't truly process them. Vision analysis endpoints solve this by returning **text** that describes and analyzes the screen.
+
+---
+
+### POST `/api/vision/analyze`
+
+**Purpose:** Full structured analysis of the current game screen.
+
+**Request Body (optional):**
+
+```json
+{
+  "prompt": "Custom analysis prompt (optional)",
+  "context": {
+    "goal": "Current objective",
+    "game_type": "Game Boy"
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "analysis": {
+    "game_state": "exploration",
+    "description": "Player is in a grassy area near a building...",
+    "player_position": "center of screen",
+    "nearby_entities": ["npc", "building", "grass"],
+    "ui_elements": ["health_bar", "menu_indicator"],
+    "danger_level": "low",
+    "opportunities": ["talk to npc", "enter building"],
+    "raw_response": "Full vision model response..."
+  },
+  "model_used": "vision:bailian/kimi-k2.5",
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+**Game States:**
+- `exploration` - Moving around the world
+- `battle` - In combat
+- `menu` - Menu open
+- `dialog` - Reading text/dialogue
+- `title` - Title screen
+- `unknown` - Could not determine
+
+---
+
+### GET/POST `/api/vision/describe`
+
+**Purpose:** Simple text description of the current screen. Lightweight alternative to full analysis.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "description": "The player is standing in a town square with a Pokemon center to the north...",
+  "model_used": "vision:bailian/kimi-k2.5",
+  "timestamp": "..."
+}
+```
+
+---
+
+### GET `/api/vision/ocr`
+
+**Purpose:** Extract visible text from the current screen. Focus on dialogue, menus, numbers.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "text": {
+    "raw": "All extracted text...",
+    "lines": ["Line 1", "Line 2", ...],
+    "has_text": true,
+    "dialogue_active": false
+  },
+  "model_used": "...",
+  "timestamp": "..."
+}
+```
+
+**Use Cases:**
+- Reading dialogue boxes
+- Extracting menu options
+- Reading signs, item names
+- Getting HP/level/money values
+
+---
+
+### GET `/api/vision/summary`
+
+**Purpose:** Quick state summary. Fastest endpoint for rapid state checks.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "summary": {
+    "state": "exploration",
+    "safe_to_act": true,
+    "recommended_action": "explore",
+    "urgency": "low"
+  },
+  "model_used": "...",
+  "timestamp": "..."
+}
+```
+
+**Urgency Levels:**
+- `low` - Safe to explore, no immediate threats
+- `medium` - Battle or choice needed
+- `high` - Critical HP, danger, or urgent action needed
+
+---
+
+### GET `/api/vision/status`
+
+**Purpose:** Get vision analysis configuration and usage guidance.
+
+**Response:**
+
+```json
+{
+  "vision_available": true,
+  "dual_model_enabled": true,
+  "vision_model": "bailian/kimi-k2.5",
+  "planning_model": "bailian/glm-5",
+  "endpoints": {
+    "analyze": "/api/vision/analyze",
+    "describe": "/api/vision/describe",
+    "ocr": "/api/vision/ocr",
+    "summary": "/api/vision/summary"
+  },
+  "usage_guide": {
+    "when_to_use_screenshot": [
+      "Displaying the game to a human user",
+      "Recording gameplay footage",
+      "Visual debugging"
+    ],
+    "when_to_use_vision_analysis": [
+      "AI agent needs to understand the screen",
+      "Making gameplay decisions without human",
+      "Extracting text (OCR)",
+      "LM Studio / MCP agents that can't process images"
+    ]
+  }
+}
+```
+
+---
+
+## MCP Vision Analysis Tools
+
+The MCP server (`generic_mcp_server.py`) exposes these endpoints as tools for LM Studio:
+
+| MCP Tool | Backend Endpoint | Purpose |
+|----------|------------------|---------|
+| `analyze_screen` | POST `/api/vision/analyze` | Full structured analysis |
+| `describe_screen` | POST `/api/vision/describe` | Simple description |
+| `ocr_screen` | GET `/api/vision/ocr` | Text extraction |
+| `screen_summary` | GET `/api/vision/summary` | Quick state check |
+| `vision_status` | GET `/api/vision/status` | Configuration info |
+
+**Example MCP Usage (LM Studio):**
+
+```python
+# The agent calls the MCP tool and receives TEXT, not an image
+result = mcp_tool("analyze_screen", {"goal": "find the next gym"})
+
+# Result is structured text analysis:
+# {
+#   "game_state": "exploration",
+#   "description": "Player is in Pewter City...",
+#   "nearby_entities": ["gym_building", "npc"],
+#   "opportunities": ["enter gym", "talk to npc"],
+#   ...
+# }
+```
+
+---
+
 ## Cache Behavior
 
 - OpenClaw model discovery caches results for 5 minutes

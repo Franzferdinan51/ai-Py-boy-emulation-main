@@ -146,6 +146,7 @@ build/
 !OPENCLAW-COMPATIBILITY.md
 !AGENTS.md
 !SOUND-SUPPORT.md
+!FLOATING-CHAT-DESIGN.md
 !ai-game-server/README.md
 !skills/**/*.md
 !guides/*.md

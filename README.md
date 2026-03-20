@@ -60,9 +60,18 @@ http://localhost:5173
 - `GET /api/memory/watch`
 - `GET /api/agent/status`
 - `POST /api/agent/mode`
+- `POST /api/agent/goal`
+- `POST /api/agent/chat` (floating chat with goal/task control)
 - `POST /api/ai/runtime`
 - `POST /api/openclaw/config`
 - `GET /api/openclaw/health`
+
+### Agent-first floating chat
+- `POST /api/agent/chat` - Agent-aware chat that can set goals/tasks via natural language
+  - Use `goal:` prefix to set agent goal
+  - Use `task:` prefix to set agent task
+  - Use `?status` to query agent status
+  - Plain messages trigger regular AI chat
 
 ### Spatial / AI panels
 - `GET /api/spatial/position`
