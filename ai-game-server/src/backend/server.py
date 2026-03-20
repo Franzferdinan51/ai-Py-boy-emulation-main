@@ -360,8 +360,8 @@ game_state = {
 saved_states = {}
 
 ai_runtime_state = {
-    "provider": ai_provider_manager.default_provider,
-    "model": "",
+    "provider": "bailian",
+    "model": "bailian/qwen3.5-plus",
     "api_endpoint": "",
 }
 
@@ -410,7 +410,9 @@ component_health = {
 # Server start time for uptime tracking
 SERVER_START_TIME = time.time()
 
-if ai_runtime_state["provider"] == "lmstudio":
+if ai_runtime_state["provider"] == "bailian":
+    ai_runtime_state["model"] = os.environ.get('BAILIAN_MODEL', 'bailian/qwen3.5-plus')
+elif ai_runtime_state["provider"] == "lmstudio":
     ai_runtime_state["model"] = os.environ.get('LM_STUDIO_THINKING_MODEL', '')
     ai_runtime_state["api_endpoint"] = os.environ.get('LM_STUDIO_URL', 'http://localhost:1234/v1')
 elif ai_runtime_state["provider"] == "openai-compatible":
@@ -1434,7 +1436,7 @@ def get_providers():
                 "default_model": "bailian/kimi-k2.5"
             }
         ],
-        "default_provider": "openclaw",
+        "default_provider": "bailian",
         "manual_allowed": true,
         "timestamp": "2026-03-19T20:00:00Z"
     }
@@ -1482,13 +1484,67 @@ def get_models():
     return _get_provider_models(provider_name)
 
 
+
+
+def _get_synthetic_priority_providers():
+    """Return curated provider entries that should appear even if live discovery is incomplete."""
+    return [
+        {
+            "id": "bailian",
+            "name": "Alibaba Bailian",
+            "status": "available",
+            "available": True,
+            "manual_allowed": True,
+            "priority": 0,
+            "error": None,
+            "default_model": "bailian/qwen3.5-plus",
+            "models": [
+                {"id": "bailian/qwen3.5-plus", "name": "Qwen3.5 Plus", "label": "Qwen3.5 Plus ⭐", "provider": "bailian", "category": "reasoning", "role": "primary", "capabilities": ["text","reasoning"], "is_vision_capable": False, "is_free": False, "manual_allowed": True, "is_default": True, "context_window": 1000000, "description": "Primary default model"},
+                {"id": "bailian/kimi-k2.5", "name": "Kimi K2.5", "label": "Kimi K2.5 👁️", "provider": "bailian", "category": "vision", "role": "vision", "capabilities": ["text","vision","reasoning"], "is_vision_capable": True, "is_free": True, "manual_allowed": True, "is_default": False, "context_window": 196608, "description": "Default vision model"},
+                {"id": "bailian/MiniMax-M2.5", "name": "MiniMax M2.5", "label": "MiniMax M2.5 🧠", "provider": "bailian", "category": "reasoning", "role": "planning", "capabilities": ["text","reasoning"], "is_vision_capable": False, "is_free": True, "manual_allowed": True, "is_default": False, "context_window": 196608, "description": "Default planning model"},
+                {"id": "bailian/glm-5", "name": "GLM-5", "label": "GLM-5", "provider": "bailian", "category": "reasoning", "role": "general", "capabilities": ["text","reasoning"], "is_vision_capable": False, "is_free": False, "manual_allowed": True, "is_default": False, "context_window": 128000, "description": "Fast coding / reasoning"},
+            ]
+        },
+        {
+            "id": "minimax",
+            "name": "MiniMax",
+            "status": "available",
+            "available": True,
+            "manual_allowed": True,
+            "priority": 1,
+            "error": None,
+            "default_model": "bailian/MiniMax-M2.5",
+            "models": [
+                {"id": "bailian/MiniMax-M2.5", "name": "MiniMax M2.5", "label": "MiniMax M2.5", "provider": "minimax", "category": "reasoning", "role": "planning", "capabilities": ["text","reasoning"], "is_vision_capable": False, "is_free": True, "manual_allowed": True, "is_default": True, "context_window": 196608, "description": "MiniMax via Bailian"},
+            ]
+        },
+        {
+            "id": "moonshot",
+            "name": "Moonshot / Kimi",
+            "status": "available",
+            "available": True,
+            "manual_allowed": True,
+            "priority": 2,
+            "error": None,
+            "default_model": "bailian/kimi-k2.5",
+            "models": [
+                {"id": "bailian/kimi-k2.5", "name": "Kimi K2.5", "label": "Kimi K2.5", "provider": "moonshot", "category": "vision", "role": "vision", "capabilities": ["text","vision","reasoning"], "is_vision_capable": True, "is_free": True, "manual_allowed": True, "is_default": True, "context_window": 196608, "description": "Kimi via Bailian"},
+            ]
+        },
+    ]
+
 def _get_all_providers_with_models():
     """Return all available providers with their models for settings UI."""
     try:
         provider_status = ai_provider_manager.get_provider_status()
         providers_list = []
+        synthetic = _get_synthetic_priority_providers()
+        seen_provider_ids = {p["id"] for p in synthetic}
+        providers_list.extend(synthetic)
         
         for provider_id, status_info in provider_status.items():
+            if provider_id in seen_provider_ids:
+                continue
             provider_data = {
                 "id": provider_id,
                 "name": _get_provider_display_name(provider_id),
@@ -1513,7 +1569,7 @@ def _get_all_providers_with_models():
         
         return jsonify({
             "providers": providers_list,
-            "default_provider": ai_provider_manager.default_provider,
+            "default_provider": "bailian",
             "manual_allowed": True,
             "timestamp": datetime.now().isoformat()
         }), 200
@@ -2781,8 +2837,8 @@ def api_openclaw_config():
             'endpoint': app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'),
             'dual_model': {
                 'enabled': ai_provider_manager.use_dual_model,
-                'vision_model': ai_provider_manager.vision_model,
-                'planning_model': ai_provider_manager.planning_model
+                'vision_model': ai_provider_manager.vision_model or 'bailian/kimi-k2.5',
+                'planning_model': ai_provider_manager.planning_model or 'bailian/MiniMax-M2.5'
             },
             'status': 'available' if discovery.get_available_models() else 'unavailable',
             'timestamp': datetime.now().isoformat()
@@ -2814,8 +2870,8 @@ def api_openclaw_config():
         'endpoint': app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'),
         'dual_model': {
             'enabled': ai_provider_manager.use_dual_model,
-            'vision_model': ai_provider_manager.vision_model,
-            'planning_model': ai_provider_manager.planning_model
+            'vision_model': ai_provider_manager.vision_model or 'bailian/kimi-k2.5',
+            'planning_model': ai_provider_manager.planning_model or 'bailian/MiniMax-M2.5'
         }
     }
     result['timestamp'] = datetime.now().isoformat()
@@ -2896,10 +2952,16 @@ def api_ai_settings():
         discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
         openclaw_models = discovery.get_available_models()
         
+        runtime_provider = (ai_runtime_state.get('provider') if 'ai_runtime_state' in globals() else None) or 'bailian'
+        runtime_model = (ai_runtime_state.get('model') if 'ai_runtime_state' in globals() else None) or 'bailian/qwen3.5-plus'
         return jsonify({
-            'runtime': ai_runtime_state if 'ai_runtime_state' in globals() else {},
+            'runtime': {
+                'provider': runtime_provider,
+                'model': runtime_model,
+                'api_endpoint': app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789')
+            },
             'providers': providers_list,
-            'default_provider': ai_provider_manager.default_provider,
+            'default_provider': 'bailian',
             'openclaw': {
                 'endpoint': app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'),
                 'status': 'available' if openclaw_models else 'unavailable',
@@ -2907,8 +2969,8 @@ def api_ai_settings():
             },
             'dual_model': {
                 'enabled': ai_provider_manager.use_dual_model,
-                'vision_model': ai_provider_manager.vision_model,
-                'planning_model': ai_provider_manager.planning_model,
+                'vision_model': ai_provider_manager.vision_model or 'bailian/kimi-k2.5',
+                'planning_model': ai_provider_manager.planning_model or 'bailian/MiniMax-M2.5',
                 'available': ai_provider_manager.dual_model_provider is not None
             },
             'manual_allowed': True,
