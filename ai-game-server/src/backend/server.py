@@ -2598,6 +2598,7 @@ def api_spatial_npcs():
         return jsonify(empty_response), 200
 
 
+@app.route('/api/agent/strategy', methods=['GET'])
 @app.route('/api/spatial/strategy', methods=['GET'])
 def api_spatial_strategy():
     """

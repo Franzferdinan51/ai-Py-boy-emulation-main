@@ -365,6 +365,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
     try {
       const lmUrl = (draft.lmStudioUrl || 'http://localhost:1234/v1').replace(/\/+$/, '');
+      const parsed = new URL(lmUrl);
+      const hostname = parsed.hostname || '';
+      const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+      const isPrivateLan = /^10\./.test(hostname) || /^192\.168\./.test(hostname) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname);
+
+      if (!isLocalHost && !isPrivateLan) {
+        setLmStudioStatus({
+          ok: true,
+          message: 'Remote/OpenAI-compatible endpoint saved. Browser-side probe skipped to avoid CORS; test via backend/runtime instead.',
+        });
+        return;
+      }
+
       const response = await fetch(`${lmUrl}/models`);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);

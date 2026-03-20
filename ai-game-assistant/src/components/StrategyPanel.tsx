@@ -40,7 +40,7 @@ const StrategyPanel: React.FC<StrategyPanelProps> = ({ backendUrl, isRomLoaded, 
     setError(null);
 
     try {
-      const response = await fetch(`${backendUrl}/api/agent/strategy`);
+      const response = await fetch(`${backendUrl}/api/spatial/strategy`);
       if (!response.ok) {
         throw new Error(`Failed to fetch strategy: ${response.status}`);
       }
