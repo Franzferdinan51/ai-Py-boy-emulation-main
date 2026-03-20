@@ -38,15 +38,27 @@ export type EmulatorType = 'gb' | 'gba';
 export type AiProvider = 'openclaw' | 'lmstudio' | 'gemini' | 'openrouter' | 'openai-compatible' | 'nvidia' | 'mock' | 'tetris-genetic';
 
 export interface ModelInfo {
+  // Core identity
   id: string;
   name: string;
+  label: string;  // Display name with category suffix
   provider: string;
+  
+  // Classification
+  category: 'vision' | 'reasoning' | 'general';
   capabilities: string[];
-  context_window: number;
+  role: 'primary' | 'vision' | 'planning' | 'fallback' | 'general';
+  
+  // Capability flags
   is_vision_capable: boolean;
   is_free: boolean;
-  description: string;
+  manual_allowed: boolean;
+  is_default: boolean;
+  
+  // Metadata
+  context_window: number;
   priority: number;
+  description: string;
 }
 
 export interface AppSettings {

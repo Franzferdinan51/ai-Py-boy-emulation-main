@@ -1,12 +1,12 @@
 # API Contract - Model Discovery & Settings
 
-**Last Updated:** March 19, 2026
+**Last Updated:** March 19, 2026 20:30 EST
 
 This document describes the backend routes that power settings/model selection in the AI-Py-Boy platform.
 
 ## Overview
 
-All model/provider endpoints now return consistent metadata for frontend consumption:
+All model/provider endpoints return **OpenClaw-native metadata** for frontend consumption:
 
 - `id`: Unique identifier (used in API calls)
 - `name`: Short display name
@@ -17,9 +17,23 @@ All model/provider endpoints now return consistent metadata for frontend consump
 - `is_vision_capable`: Boolean for quick filtering
 - `is_free`: Boolean indicating free/unlimited usage
 - `manual_allowed`: Boolean - can user enter custom model ID?
-- `is_default`: Boolean - is this the default for this provider?
+- `is_default`: Boolean - is this the default for this role/category?
+- `role`: `primary`, `vision`, `planning`, `fallback`, or `general`
 - `context_window`: Estimated context window size
+- `priority`: Numeric priority for sorting (higher = better)
 - `description`: Human-readable description
+
+## Role Semantics
+
+Models are assigned roles based on their capabilities and priority:
+
+| Role | Description | Example Models |
+|------|-------------|----------------|
+| `primary` | Default model for general use | kimi-k2.5, glm-5 |
+| `vision` | Best for screen/image analysis | kimi-k2.5, qwen-vl-plus |
+| `planning` | Best for decision making | glm-5, MiniMax-M2.5 |
+| `fallback` | Alternative when primary unavailable | qwen3.5-plus |
+| `general` | No specific role assignment | Other models |
 
 ---
 

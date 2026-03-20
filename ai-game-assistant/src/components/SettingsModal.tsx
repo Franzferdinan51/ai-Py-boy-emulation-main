@@ -21,6 +21,7 @@ interface ModelOption {
   provider: string;
   isFree?: boolean;
   isVisionCapable?: boolean;
+  role?: string;  // 'primary', 'vision', 'planning', 'fallback', 'general'
 }
 
 interface ModelGroup {
@@ -87,6 +88,22 @@ const safeString = (value: unknown, fallback = ''): string => {
 const safeBoolean = (value: unknown, fallback = false): boolean => {
   if (value === null || value === undefined) return fallback;
   return Boolean(value);
+};
+
+const safeNumber = (value: unknown, fallback = 0): number => {
+  if (value === null || value === undefined || typeof value !== 'number') return fallback;
+  return value;
+};
+
+// Model role badge helper
+const getRoleBadge = (role?: string): string => {
+  switch (role) {
+    case 'primary': return '⭐';
+    case 'vision': return '👁️';
+    case 'planning': return '🧠';
+    case 'fallback': return '↩️';
+    default: return '';
+  }
 };
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -183,11 +200,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       
       groups[provider].models.push({
         value: model.id,
-        label: safeString(model.name, model.id),
+        label: safeString(model.label, model.name || model.id),
         note: model.description || (model.is_free ? 'FREE' : 'API credits'),
         provider,
         isFree: model.is_free,
-        isVisionCapable: model.is_vision_capable
+        isVisionCapable: model.is_vision_capable,
+        role: model.role  // Include role for badge display
       });
     });
     
@@ -243,14 +261,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Fallback models if none discovered
   const fallbackVisionModels: ModelOption[] = [
-    { value: 'bailian/kimi-k2.5', label: 'Kimi K2.5', note: 'Best for game screen analysis (FREE)', provider: 'bailian', isFree: true, isVisionCapable: true },
-    { value: 'bailian/qwen-vl-plus', label: 'Qwen VL Plus', note: 'High quality vision (quota)', provider: 'bailian', isFree: false, isVisionCapable: true },
+    { value: 'bailian/kimi-k2.5', label: 'Kimi K2.5 (Vision)', note: 'Best for game screen analysis (FREE)', provider: 'bailian', isFree: true, isVisionCapable: true, role: 'vision' },
+    { value: 'bailian/qwen-vl-plus', label: 'Qwen VL Plus (Vision)', note: 'High quality vision (quota)', provider: 'bailian', isFree: false, isVisionCapable: true, role: 'fallback' },
   ];
 
   const fallbackPlanningModels: ModelOption[] = [
-    { value: 'bailian/glm-5', label: 'GLM-5', note: 'Fast decisions, great for games', provider: 'bailian', isFree: false },
-    { value: 'bailian/MiniMax-M2.5', label: 'MiniMax M2.5', note: 'Unlimited, reliable (FREE)', provider: 'bailian', isFree: true },
-    { value: 'bailian/qwen3.5-plus', label: 'Qwen 3.5 Plus', note: 'Best reasoning (quota)', provider: 'bailian', isFree: false },
+    { value: 'bailian/glm-5', label: 'GLM-5 (Reasoning)', note: 'Fast decisions, great for games', provider: 'bailian', isFree: false, role: 'planning' },
+    { value: 'bailian/MiniMax-M2.5', label: 'MiniMax M2.5 (FREE)', note: 'Unlimited, reliable (FREE)', provider: 'bailian', isFree: true, role: 'fallback' },
+    { value: 'bailian/qwen3.5-plus', label: 'Qwen 3.5 Plus (Reasoning)', note: 'Best reasoning (quota)', provider: 'bailian', isFree: false, role: 'fallback' },
   ];
 
   useEffect(() => {
@@ -415,7 +433,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               <optgroup key={group.provider} label={group.label}>
                 {group.models.map(model => (
                   <option key={model.value} value={model.value}>
-                    {model.label} {model.isFree ? '★' : ''} — {model.note}
+                    {getRoleBadge(model.role)} {model.label || model.value} {model.isFree ? '★' : ''} — {model.note}
                   </option>
                 ))}
               </optgroup>
