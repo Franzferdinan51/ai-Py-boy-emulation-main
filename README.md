@@ -70,6 +70,14 @@ http://localhost:5173
 - `GET /api/spatial/npcs`
 - `GET /api/spatial/strategy`
 
+### Agent Tools (AI Gameplay)
+These endpoints are designed for AI agents to understand game state and make autonomous decisions:
+- `GET /api/agent/context` — Full game state (position, party, inventory, battle, recommendations)
+- `GET /api/agent/mode` — Current game mode (exploration, battle, menu, dialogue)
+- `POST /api/agent/act` — Execute action and observe result in one call
+- `GET /api/agent/dialogue` — Current dialogue/text box state
+- `GET /api/agent/menu` — Current menu state
+
 ### Sound control
 - `GET /api/sound/status`
 - `POST /api/sound/enable`

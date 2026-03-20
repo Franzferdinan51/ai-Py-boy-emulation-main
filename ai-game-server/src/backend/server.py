@@ -4121,6 +4121,8 @@ def execute_action():
 
         if success:
             add_to_action_history(action)
+            # Record to agent state for OpenClaw-style tracking
+            record_agent_action(action, frames, result="success", source="manual")
             logger.debug(f"[{request_id}] Action {action} executed successfully")
             return jsonify({
                 "message": "Action executed successfully",
@@ -4130,10 +4132,14 @@ def execute_action():
             }), 200
         else:
             logger.error(f"[{request_id}] Failed to execute action: {action}")
+            # Record error to agent state
+            record_agent_error("action_error", f"Failed to execute action: {action}", {"action": action, "frames": frames})
             return jsonify({"error": "Failed to execute action"}), 500
 
     except Exception as e:
         logger.error(f"[{request_id}] Error executing action: {e}", exc_info=True)
+        # Record error to agent state
+        record_agent_error("action_error", str(e), {"action": action if 'action' in locals() else "unknown"})
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
 @app.route('/api/ai-action', methods=['POST', 'OPTIONS'])

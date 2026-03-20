@@ -69,6 +69,31 @@ Current important endpoints include:
 - `GET /api/spatial/npcs`
 - `GET /api/spatial/strategy`
 
+## Agent Tools (AI Gameplay)
+These endpoints are designed for AI agents to understand game state and make decisions:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/agent/context` | Full game state snapshot (position, party, inventory, battle) |
+| `GET /api/agent/mode` | Current game mode (exploration, battle, menu, dialogue) |
+| `POST /api/agent/act` | Execute action and observe result |
+| `GET /api/agent/dialogue` | Current text/dialogue state |
+| `GET /api/agent/menu` | Current menu state |
+
+### MCP Tools (LM Studio)
+When using `generic_mcp_server.py`, these map to MCP tools:
+- `get_agent_context` → `/api/agent/context`
+- `get_game_mode` → `/api/agent/mode`
+- `act_and_observe` → `/api/agent/act`
+- `get_dialogue_state` → `/api/agent/dialogue`
+- `get_menu_state` → `/api/agent/menu`
+
+These tools enable agents to:
+1. Query complete game state without vision
+2. Detect game mode transitions (battle started, text appearing, etc.)
+3. Act and react in single round-trips
+4. Make informed decisions based on structured data
+
 ## MCP/LM Studio notes
 `generic_mcp_server.py` must route tool calls to the real backend endpoints.
 Pay special attention to:

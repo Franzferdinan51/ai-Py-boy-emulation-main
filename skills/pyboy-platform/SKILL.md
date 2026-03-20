@@ -91,3 +91,16 @@ Update repo-facing docs if the contract changed:
 - `TOOLS.md`
 - `AGENTS.md`
 - `ai-game-server/API-CONTRACT.md`
+
+## Agent Tools (March 2026)
+The platform has dedicated agent-first endpoints for AI gameplay:
+- `/api/agent/context` — Full state snapshot for decision making
+- `/api/agent/mode` — Game mode detection (exploration, battle, menu, dialogue)
+- `/api/agent/act` — Action + observation in single call
+- `/api/agent/dialogue` — Text box state
+- `/api/agent/menu` — Menu state
+
+MCP tools in `generic_mcp_server.py` map to these routes:
+- `get_agent_context`, `get_game_mode`, `act_and_observe`, `get_dialogue_state`, `get_menu_state`
+
+These enable agents to play autonomously without relying on vision alone.
