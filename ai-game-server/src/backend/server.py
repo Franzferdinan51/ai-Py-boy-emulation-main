@@ -365,6 +365,51 @@ ai_runtime_state = {
     "api_endpoint": "",
 }
 
+# Agent state for OpenClaw-style status tracking
+agent_state = {
+    "mode": "manual",  # "manual", "autonomous", "ai_assisted"
+    "enabled": False,
+    "current_goal": "",
+    "current_task": "",
+    "last_decision": None,
+    "last_action": None,
+    "last_action_time": None,
+    "errors": [],  # Recent errors (last 10)
+    "actions": [],  # Recent actions (last 20)
+    "decisions": [],  # Recent AI decisions (last 10)
+    "started_at": None,
+    "stats": {
+        "total_actions": 0,
+        "total_decisions": 0,
+        "total_errors": 0,
+    }
+}
+
+# Component health tracking
+component_health = {
+    "emulator": {
+        "status": "unknown",
+        "last_check": None,
+        "error": None,
+        "frame_count": 0,
+    },
+    "stream": {
+        "status": "unknown",
+        "last_check": None,
+        "error": None,
+        "clients": 0,
+    },
+    "runtime": {
+        "status": "unknown",
+        "last_check": None,
+        "error": None,
+        "uptime_seconds": 0,
+    }
+}
+
+# Server start time for uptime tracking
+SERVER_START_TIME = time.time()
+
 if ai_runtime_state["provider"] == "lmstudio":
     ai_runtime_state["model"] = os.environ.get('LM_STUDIO_THINKING_MODEL', '')
     ai_runtime_state["api_endpoint"] = os.environ.get('LM_STUDIO_URL', 'http://localhost:1234/v1')
@@ -1130,22 +1175,54 @@ def log_response_info(response):
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Enhanced health check endpoint for monitoring"""
+    """
+    Basic health check endpoint (OpenClaw-style).
+    
+    Response shape:
+    {
+        "status": "healthy" | "degraded" | "unhealthy",
+        "service": "ai-game-server",
+        "version": "3.0.0",
+        "python_version": string,
+        "platform": string,
+        "uptime_seconds": number,
+        "timestamp": string,
+        "checks": {
+            "flask": "ok" | "error",
+            "pyboy": "ok" | "not_available" | "error",
+            "mcp": "ok" | "not_available" | "error"
+        }
+    }
+    """
     import platform
     import sys
     
+    # Calculate uptime
+    uptime_seconds = time.time() - SERVER_START_TIME
+    
+    # Determine status
+    checks = {
+        "flask": "ok",
+        "pyboy": "ok" if PYBOY_AVAILABLE else "not_available",
+        "mcp": "ok" if MCP_AVAILABLE else "not_available"
+    }
+    
+    if checks["flask"] == "error":
+        status = "unhealthy"
+    elif checks["pyboy"] == "error":
+        status = "degraded"
+    else:
+        status = "healthy"
+    
     health_data = {
-        "status": "healthy",
+        "status": status,
         "service": "ai-game-server",
         "version": "3.0.0",
-        "python_version": sys.version,
+        "python_version": sys.version.split()[0],
         "platform": platform.platform(),
+        "uptime_seconds": round(uptime_seconds, 2),
         "timestamp": datetime.now().isoformat(),
-        "checks": {
-            "flask": "ok",
-            "pyboy": "ok" if PYBOY_AVAILABLE else "not_available",
-            "mcp": "ok" if MCP_AVAILABLE else "not_available"
-        }
+        "checks": checks
     }
     return jsonify(health_data), 200
 
@@ -2796,14 +2873,1079 @@ def api_ai_settings():
         logger.error(f"Failed to get AI settings: {e}")
         return jsonify({"error": str(e)}), 500
 
+# =========================================
+# OpenClaw-Style Agent/Health/Status Endpoints
+# =========================================
+
+@app.route('/api/agent/state', methods=['GET'])
+def api_agent_state():
+    """
+    Get comprehensive agent state (OpenClaw-style).
+    
+    Response shape:
+    {
+        "mode": "manual" | "autonomous" | "ai_assisted",
+        "enabled": boolean,
+        "current_goal": string,
+        "current_task": string,
+        "last_decision": {...} | null,
+        "last_action": string | null,
+        "last_action_time": string | null,
+        "recent_errors": [...],  // Last 10 errors
+        "recent_actions": [...],  // Last 20 actions
+        "stats": {
+            "total_actions": number,
+            "total_decisions": number,
+            "total_errors": number
+        },
+        "started_at": string | null,
+        "timestamp": string
+    }
+    """
+    now = datetime.now().isoformat()
+    
+    return jsonify({
+        'mode': agent_state.get('mode', 'manual'),
+        'enabled': agent_state.get('enabled', False),
+        'current_goal': agent_state.get('current_goal', ''),
+        'current_task': agent_state.get('current_task', ''),
+        'last_decision': agent_state.get('last_decision'),
+        'last_action': agent_state.get('last_action'),
+        'last_action_time': agent_state.get('last_action_time'),
+        'recent_errors': agent_state.get('errors', [])[-10:],
+        'recent_actions': agent_state.get('actions', [])[-20:],
+        'stats': agent_state.get('stats', {
+            'total_actions': 0,
+            'total_decisions': 0,
+            'total_errors': 0,
+        }),
+        'started_at': agent_state.get('started_at'),
+        'timestamp': now
+    }), 200
+
+
 @app.route('/api/agent/status', methods=['GET'])
 def api_agent_status():
+    """
+    Get agent status summary (OpenClaw-style).
+    
+    Response shape:
+    {
+        "mode": "manual" | "autonomous" | "ai_assisted",
+        "enabled": boolean,
+        "goal": string,
+        "last_action": string | null,
+        "last_error": string | null,
+        "action_count": number,
+        "error_count": number,
+        "timestamp": string
+    }
+    """
+    errors = agent_state.get('errors', [])
+    last_error = errors[-1] if errors else None
+    
     return jsonify({
-        'mode': agent_state.get('mode', 'manual') if 'agent_state' in globals() else 'manual',
-        'enabled': agent_state.get('enabled', False) if 'agent_state' in globals() else False,
-        'last_decision': agent_state.get('last_decision') if 'agent_state' in globals() else None,
-        'last_action': agent_state.get('last_action') if 'agent_state' in globals() else None,
+        'mode': agent_state.get('mode', 'manual'),
+        'enabled': agent_state.get('enabled', False),
+        'goal': agent_state.get('current_goal', ''),
+        'last_action': agent_state.get('last_action'),
+        'last_error': last_error,
+        'action_count': agent_state.get('stats', {}).get('total_actions', 0),
+        'error_count': agent_state.get('stats', {}).get('total_errors', 0),
+        'timestamp': datetime.now().isoformat()
     }), 200
+
+
+@app.route('/api/agent/goal', methods=['POST', 'GET'])
+def api_agent_goal():
+    """
+    Set or get the current agent goal.
+    
+    POST Body: {"goal": "string", "task": "string (optional)"}
+    
+    GET Response: {"goal": string, "task": string}
+    """
+    if request.method == 'GET':
+        return jsonify({
+            'goal': agent_state.get('current_goal', ''),
+            'task': agent_state.get('current_task', ''),
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    
+    data = request.get_json(silent=True) or {}
+    goal = data.get('goal', '')
+    task = data.get('task', '')
+    
+    agent_state['current_goal'] = goal
+    agent_state['current_task'] = task
+    
+    logger.info(f"Agent goal set: {goal}, task: {task}")
+    
+    return jsonify({
+        'ok': True,
+        'goal': goal,
+        'task': task,
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+
+@app.route('/api/agent/errors', methods=['GET'])
+def api_agent_errors():
+    """
+    Get recent agent errors.
+    
+    Query params:
+        limit: number (default: 10, max: 50)
+        
+    Response shape:
+    {
+        "errors": [
+            {
+                "timestamp": string,
+                "type": string,
+                "message": string,
+                "context": {...} | null
+            }
+        ],
+        "count": number,
+        "total_errors": number
+    }
+    """
+    try:
+        limit = min(int(request.args.get('limit', 10)), 50)
+    except (ValueError, TypeError):
+        limit = 10
+    
+    errors = agent_state.get('errors', [])[-limit:]
+    
+    return jsonify({
+        'errors': errors,
+        'count': len(errors),
+        'total_errors': agent_state.get('stats', {}).get('total_errors', 0),
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+
+@app.route('/api/agent/actions', methods=['GET'])
+def api_agent_actions():
+    """
+    Get recent agent actions.
+    
+    Query params:
+        limit: number (default: 20, max: 100)
+        
+    Response shape:
+    {
+        "actions": [
+            {
+                "timestamp": string,
+                "action": string,
+                "frames": number,
+                "result": string
+            }
+        ],
+        "count": number,
+        "total_actions": number
+    }
+    """
+    try:
+        limit = min(int(request.args.get('limit', 20)), 100)
+    except (ValueError, TypeError):
+        limit = 20
+    
+    actions = agent_state.get('actions', [])[-limit:]
+    
+    return jsonify({
+        'actions': actions,
+        'count': len(actions),
+        'total_actions': agent_state.get('stats', {}).get('total_actions', 0),
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+
+@app.route('/api/health/runtime', methods=['GET'])
+def api_health_runtime():
+    """
+    Get runtime health status (OpenClaw-style).
+    
+    Response shape:
+    {
+        "status": "healthy" | "degraded" | "unhealthy",
+        "uptime_seconds": number,
+        "uptime_human": string,
+        "checks": {
+            "flask": "ok" | "error",
+            "pyboy": "ok" | "not_available" | "error",
+            "mcp": "ok" | "not_available" | "error",
+            "memory": "ok" | "warning" | "critical"
+        },
+        "version": string,
+        "python_version": string,
+        "platform": string,
+        "timestamp": string
+    }
+    """
+    import platform
+    import sys
+    
+    # Calculate uptime
+    uptime_seconds = time.time() - SERVER_START_TIME
+    uptime_human = _format_uptime(uptime_seconds)
+    
+    # Check memory
+    memory_status = "ok"
+    memory_mb = _get_memory_usage()
+    if memory_mb > 1000:
+        memory_status = "warning"
+    elif memory_mb > 2000:
+        memory_status = "critical"
+    
+    # Determine overall status
+    checks = {
+        "flask": "ok",
+        "pyboy": "ok" if PYBOY_AVAILABLE else "not_available",
+        "mcp": "ok" if MCP_AVAILABLE else "not_available",
+        "memory": memory_status
+    }
+    
+    if checks["flask"] == "error" or checks["memory"] == "critical":
+        status = "unhealthy"
+    elif checks["pyboy"] == "error" or checks["memory"] == "warning":
+        status = "degraded"
+    else:
+        status = "healthy"
+    
+    # Update component health
+    component_health['runtime']['status'] = status
+    component_health['runtime']['last_check'] = datetime.now().isoformat()
+    component_health['runtime']['uptime_seconds'] = uptime_seconds
+    
+    return jsonify({
+        'status': status,
+        'uptime_seconds': round(uptime_seconds, 2),
+        'uptime_human': uptime_human,
+        'checks': checks,
+        'memory_mb': round(memory_mb, 2),
+        'version': '3.0.0',
+        'python_version': sys.version.split()[0],
+        'platform': platform.platform(),
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+
+@app.route('/api/health/emulator', methods=['GET'])
+def api_health_emulator():
+    """
+    Get emulator component health status (OpenClaw-style).
+    
+    Response shape:
+    {
+        "status": "healthy" | "degraded" | "unhealthy" | "not_loaded",
+        "rom_loaded": boolean,
+        "rom_name": string | null,
+        "active_emulator": string | null,
+        "frame_count": number,
+        "fps": number,
+        "last_check": string,
+        "error": string | null,
+        "performance": {
+            "avg_frame_time_ms": number,
+            "cache_hit_rate": number
+        }
+    }
+    """
+    state = get_game_state()
+    active = state.get('active_emulator')
+    
+    # Determine status
+    if not state.get('rom_loaded') or not active:
+        status = "not_loaded"
+    else:
+        # Check if emulator is responsive
+        try:
+            emulator = emulators.get(active)
+            if emulator and hasattr(emulator, 'is_running') and emulator.is_running():
+                status = "healthy"
+            elif emulator and state.get('rom_loaded'):
+                status = "degraded"  # ROM loaded but emulator not responsive
+            else:
+                status = "unhealthy"
+        except Exception as e:
+            status = "unhealthy"
+            logger.debug(f"Emulator health check error: {e}")
+    
+    # Get performance stats
+    perf_stats = get_performance_stats()
+    
+    # Get frame count
+    frame_count = 0
+    if active and active in emulators:
+        emulator = emulators[active]
+        if hasattr(emulator, 'get_frame_count'):
+            try:
+                frame_count = emulator.get_frame_count()
+            except Exception:
+                pass
+    
+    # Update component health
+    component_health['emulator']['status'] = status
+    component_health['emulator']['last_check'] = datetime.now().isoformat()
+    component_health['emulator']['frame_count'] = frame_count
+    
+    return jsonify({
+        'status': status,
+        'rom_loaded': state.get('rom_loaded', False),
+        'rom_name': state.get('rom_name', state.get('rom_path')),
+        'active_emulator': active,
+        'frame_count': frame_count,
+        'fps': round(perf_stats.get('current_fps', 0), 2),
+        'last_check': datetime.now().isoformat(),
+        'error': component_health['emulator'].get('error'),
+        'performance': {
+            'avg_frame_time_ms': round(perf_stats.get('avg_frame_time', 0) * 1000, 2),
+            'avg_encoding_time_ms': round(perf_stats.get('avg_encoding_time', 0) * 1000, 2),
+            'adaptive_fps_target': perf_stats.get('adaptive_fps_target', 60)
+        },
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+
+@app.route('/api/health/stream', methods=['GET'])
+def api_health_stream():
+    """
+    Get stream component health status (OpenClaw-style).
+    
+    Response shape:
+    {
+        "status": "healthy" | "degraded" | "unhealthy",
+        "websocket_running": boolean,
+        "websocket_port": number,
+        "websocket_url": string,
+        "active_clients": number,
+        "last_check": string,
+        "error": string | null
+    }
+    """
+    # Check WebSocket server status
+    ws_running = ws_server_running if 'ws_server_running' in globals() else False
+    ws_port = WS_PORT if 'WS_PORT' in globals() else 5003
+    ws_clients = len(ws_clients) if 'ws_clients' in globals() else 0
+    
+    # Determine status
+    if ws_running:
+        status = "healthy"
+    else:
+        status = "unhealthy"
+    
+    # Update component health
+    component_health['stream']['status'] = status
+    component_health['stream']['last_check'] = datetime.now().isoformat()
+    component_health['stream']['clients'] = ws_clients
+    
+    return jsonify({
+        'status': status,
+        'websocket_running': ws_running,
+        'websocket_port': ws_port,
+        'websocket_url': f"ws://localhost:{ws_port}/api/ws/stream" if ws_running else None,
+        'active_clients': ws_clients,
+        'sse_endpoint': '/api/stream',
+        'last_check': datetime.now().isoformat(),
+        'error': component_health['stream'].get('error'),
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+
+@app.route('/api/health', methods=['GET'])
+def api_health_comprehensive():
+    """
+    Get comprehensive health status for all components (OpenClaw-style).
+    
+    Response shape:
+    {
+        "status": "healthy" | "degraded" | "unhealthy",
+        "components": {
+            "runtime": {...},
+            "emulator": {...},
+            "stream": {...},
+            "agent": {...}
+        },
+        "summary": {
+            "healthy_count": number,
+            "degraded_count": number,
+            "unhealthy_count": number,
+            "unknown_count": number
+        },
+        "timestamp": string
+    }
+    """
+    # Get individual component health
+    runtime_health = _get_runtime_health_dict()
+    emulator_health = _get_emulator_health_dict()
+    stream_health = _get_stream_health_dict()
+    agent_health = _get_agent_health_dict()
+    
+    components = {
+        'runtime': runtime_health,
+        'emulator': emulator_health,
+        'stream': stream_health,
+        'agent': agent_health
+    }
+    
+    # Count statuses
+    statuses = [c.get('status', 'unknown') for c in components.values()]
+    summary = {
+        'healthy_count': statuses.count('healthy'),
+        'degraded_count': statuses.count('degraded'),
+        'unhealthy_count': statuses.count('unhealthy'),
+        'unknown_count': statuses.count('unknown') + statuses.count('not_loaded')
+    }
+    
+    # Determine overall status
+    if summary['unhealthy_count'] > 0:
+        status = "unhealthy"
+    elif summary['degraded_count'] > 0:
+        status = "degraded"
+    else:
+        status = "healthy"
+    
+    return jsonify({
+        'status': status,
+        'components': components,
+        'summary': summary,
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+
+# Helper functions for health endpoints
+
+def _format_uptime(seconds: float) -> str:
+    """Format uptime seconds to human-readable string."""
+    seconds = int(seconds)
+    days = seconds // 86400
+    hours = (seconds % 86400) // 3600
+    minutes = (seconds % 3600) // 60
+    secs = seconds % 60
+    
+    parts = []
+    if days > 0:
+        parts.append(f"{days}d")
+    if hours > 0:
+        parts.append(f"{hours}h")
+    if minutes > 0:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    
+    return " ".join(parts)
+
+
+def _get_runtime_health_dict() -> dict:
+    """Get runtime health as dictionary."""
+    uptime_seconds = time.time() - SERVER_START_TIME
+    memory_mb = _get_memory_usage()
+    
+    memory_status = "ok"
+    if memory_mb > 1000:
+        memory_status = "warning"
+    elif memory_mb > 2000:
+        memory_status = "critical"
+    
+    checks = {
+        "flask": "ok",
+        "pyboy": "ok" if PYBOY_AVAILABLE else "not_available",
+        "mcp": "ok" if MCP_AVAILABLE else "not_available",
+        "memory": memory_status
+    }
+    
+    if checks["flask"] == "error" or checks["memory"] == "critical":
+        status = "unhealthy"
+    elif checks["pyboy"] == "error" or checks["memory"] == "warning":
+        status = "degraded"
+    else:
+        status = "healthy"
+    
+    return {
+        'status': status,
+        'uptime_seconds': round(uptime_seconds, 2),
+        'memory_mb': round(memory_mb, 2),
+        'checks': checks
+    }
+
+
+def _get_emulator_health_dict() -> dict:
+    """Get emulator health as dictionary."""
+    state = get_game_state()
+    active = state.get('active_emulator')
+    
+    if not state.get('rom_loaded') or not active:
+        return {'status': 'not_loaded', 'rom_loaded': False}
+    
+    try:
+        emulator = emulators.get(active)
+        if emulator and hasattr(emulator, 'is_running') and emulator.is_running():
+            frame_count = emulator.get_frame_count() if hasattr(emulator, 'get_frame_count') else 0
+            return {
+                'status': 'healthy',
+                'rom_loaded': True,
+                'rom_name': state.get('rom_name', state.get('rom_path')),
+                'active_emulator': active,
+                'frame_count': frame_count
+            }
+        elif emulator and state.get('rom_loaded'):
+            return {'status': 'degraded', 'rom_loaded': True, 'active_emulator': active}
+        else:
+            return {'status': 'unhealthy', 'rom_loaded': False}
+    except Exception as e:
+        return {'status': 'unhealthy', 'error': str(e)}
+
+
+def _get_stream_health_dict() -> dict:
+    """Get stream health as dictionary."""
+    ws_running = ws_server_running if 'ws_server_running' in globals() else False
+    ws_clients = len(ws_clients) if 'ws_clients' in globals() else 0
+    
+    return {
+        'status': 'healthy' if ws_running else 'unhealthy',
+        'websocket_running': ws_running,
+        'active_clients': ws_clients
+    }
+
+
+def _get_agent_health_dict() -> dict:
+    """Get agent health as dictionary."""
+    enabled = agent_state.get('enabled', False)
+    mode = agent_state.get('mode', 'manual')
+    errors = agent_state.get('errors', [])
+    recent_errors = [e for e in errors[-5:] if e] if errors else []
+    
+    # Agent is healthy if enabled and no recent errors
+    if not enabled:
+        status = 'healthy'  # Disabled is healthy
+    elif len(recent_errors) > 3:
+        status = 'degraded'
+    else:
+        status = 'healthy'
+    
+    return {
+        'status': status,
+        'enabled': enabled,
+        'mode': mode,
+        'recent_errors': len(recent_errors)
+    }
+
+
+# =========================================
+# Agent Tools API (MCP/LM Studio Ready)
+# =========================================
+
+@app.route('/api/agent/context', methods=['GET'])
+def api_agent_context():
+    """
+    Get comprehensive agent context for AI decision making.
+    
+    Response shape:
+    {
+        "loaded": boolean,
+        "rom_name": string,
+        "frame": number,
+        "game_mode": "exploration" | "battle" | "menu" | "dialogue" | "title" | "unknown",
+        "position": {"x": number, "y": number, "map_id": number, "map_name": string},
+        "party": {"count": number, "pokemon": [...]},
+        "inventory": {"money": number, "items": [...]},
+        "battle": {"in_battle": boolean, "enemy": {...}},
+        "health_summary": {"party_healthy": boolean, "lowest_hp_percent": number, "needs_healing": boolean},
+        "recommendations": string[],
+        "timestamp": string
+    }
+    
+    Empty/loading response (no ROM):
+    {
+        "loaded": false,
+        "game_mode": "none",
+        "position": {...defaults...},
+        "party": {...defaults...},
+        ...
+    }
+    """
+    state = get_game_state()
+    active = state.get('active_emulator')
+    
+    empty_response = {
+        'loaded': False,
+        'rom_name': None,
+        'frame': 0,
+        'game_mode': 'none',
+        'position': {'x': 0, 'y': 0, 'map_id': 0, 'map_name': 'none'},
+        'party': {'count': 0, 'pokemon': []},
+        'inventory': {'money': 0, 'items': []},
+        'battle': {'in_battle': False, 'enemy': None},
+        'health_summary': {
+            'party_healthy': True,
+            'lowest_hp_percent': 100,
+            'needs_healing': False
+        },
+        'recommendations': [],
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify(empty_response), 200
+    
+    try:
+        emulator = emulators[active]
+        
+        # Get all context in one call
+        position = {'x': 0, 'y': 0, 'map_id': 0, 'map_name': 'unknown'}
+        party = {'count': 0, 'pokemon': []}
+        inventory = {'money': 0, 'items': []}
+        battle = {'in_battle': False, 'enemy': None}
+        
+        # Position
+        if hasattr(emulator, 'get_position'):
+            position = emulator.get_position()
+        
+        # Party
+        if hasattr(emulator, 'get_party_info'):
+            pokemon_list = emulator.get_party_info() or []
+            party = {
+                'count': len(pokemon_list),
+                'pokemon': pokemon_list
+            }
+        
+        # Inventory
+        if hasattr(emulator, 'get_inventory_info'):
+            inv = emulator.get_inventory_info() or {}
+            inventory = {
+                'money': inv.get('money', 0),
+                'items': inv.get('items', [])
+            }
+        
+        # Battle
+        if hasattr(emulator, 'get_battle_info'):
+            battle = emulator.get_battle_info()
+        
+        # Determine game mode
+        game_mode = 'exploration'
+        if battle.get('in_battle'):
+            game_mode = 'battle'
+        elif position.get('map_id', 255) == 255:
+            game_mode = 'title'
+        
+        # Health summary
+        lowest_hp = 100
+        needs_healing = False
+        for mon in party.get('pokemon', []):
+            hp_pct = mon.get('hp_percent', 100)
+            if hp_pct < lowest_hp:
+                lowest_hp = hp_pct
+            if hp_pct < 30:
+                needs_healing = True
+        
+        # Recommendations
+        recommendations = []
+        if needs_healing:
+            recommendations.append('Heal party at Pokemon Center')
+        if battle.get('in_battle'):
+            enemy = battle.get('enemy', {})
+            if enemy.get('hp_percent', 100) < 30 and lowest_hp > 50:
+                recommendations.append('Consider catching this Pokemon')
+            else:
+                recommendations.append('Battle in progress')
+        if inventory.get('money', 0) > 10000:
+            recommendations.append(f'Consider spending money: ¥{inventory["money"]:,}')
+        
+        return jsonify({
+            'loaded': True,
+            'rom_name': state.get('rom_name', state.get('rom_path', 'Unknown')),
+            'frame': emulator.get_frame_count() if hasattr(emulator, 'get_frame_count') else 0,
+            'game_mode': game_mode,
+            'position': position,
+            'party': party,
+            'inventory': inventory,
+            'battle': battle,
+            'health_summary': {
+                'party_healthy': not needs_healing,
+                'lowest_hp_percent': round(lowest_hp, 1),
+                'needs_healing': needs_healing
+            },
+            'recommendations': recommendations,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.debug(f"Error getting agent context: {e}")
+        empty_response['error'] = str(e)
+        return jsonify(empty_response), 200
+
+
+@app.route('/api/agent/mode', methods=['GET'])
+def api_get_game_mode():
+    """
+    Get the current game mode/state.
+    
+    Response shape:
+    {
+        "mode": "exploration" | "battle" | "menu" | "dialogue" | "title" | "unknown",
+        "in_battle": boolean,
+        "in_menu": boolean,
+        "in_dialogue": boolean,
+        "details": {
+            "battle_type": "wild" | "trainer" | "none",
+            "menu_type": "main" | "pokemon" | "bag" | "none",
+            "dialogue_active": boolean
+        },
+        "loaded": boolean,
+        "timestamp": string
+    }
+    """
+    state = get_game_state()
+    active = state.get('active_emulator')
+    
+    empty_response = {
+        'mode': 'none',
+        'in_battle': False,
+        'in_menu': False,
+        'in_dialogue': False,
+        'details': {
+            'battle_type': 'none',
+            'menu_type': 'none',
+            'dialogue_active': False
+        },
+        'loaded': False,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify(empty_response), 200
+    
+    try:
+        emulator = emulators[active]
+        
+        # Get battle info
+        battle_info = {}
+        if hasattr(emulator, 'get_battle_info'):
+            battle_info = emulator.get_battle_info()
+        
+        in_battle = battle_info.get('in_battle', False)
+        
+        # Get position for title screen detection
+        position = {}
+        if hasattr(emulator, 'get_position'):
+            position = emulator.get_position()
+        
+        # Determine mode
+        if in_battle:
+            mode = 'battle'
+        elif position.get('map_id', 0) == 255 or position.get('map_id', 0) == 0 and position.get('x', 0) == 0:
+            # Likely title screen or loading
+            mode = 'title'
+        else:
+            mode = 'exploration'
+        
+        return jsonify({
+            'mode': mode,
+            'in_battle': in_battle,
+            'in_menu': False,  # Would need memory analysis for this
+            'in_dialogue': False,  # Would need memory analysis for this
+            'details': {
+                'battle_type': battle_info.get('battle_type', 'none'),
+                'menu_type': 'none',  # Placeholder
+                'dialogue_active': False  # Placeholder
+            },
+            'loaded': True,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.debug(f"Error getting game mode: {e}")
+        empty_response['error'] = str(e)
+        return jsonify(empty_response), 200
+
+
+@app.route('/api/agent/act', methods=['POST'])
+def api_act_and_observe():
+    """
+    Execute an action and return the new state observation.
+    
+    POST Body:
+    {
+        "action": "UP" | "DOWN" | "LEFT" | "RIGHT" | "A" | "B" | "START" | "SELECT",
+        "frames": number (default: 1)
+    }
+    
+    Response shape:
+    {
+        "success": boolean,
+        "action": string,
+        "frames": number,
+        "observation": {
+            "game_mode": string,
+            "position": {...},
+            "battle": {...},
+            "health_summary": {...}
+        },
+        "changes": {
+            "position_changed": boolean,
+            "battle_started": boolean,
+            "battle_ended": boolean
+        },
+        "timestamp": string
+    }
+    """
+    state = get_game_state()
+    active = state.get('active_emulator')
+    
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify({
+            'success': False,
+            'error': 'No ROM loaded',
+            'timestamp': datetime.now().isoformat()
+        }), 400
+    
+    try:
+        data = request.get_json(silent=True) or {}
+        action = data.get('action', 'NOOP').upper()
+        frames = data.get('frames', 1)
+        
+        # Validate action
+        valid_actions = {'UP', 'DOWN', 'LEFT', 'RIGHT', 'A', 'B', 'START', 'SELECT', 'NOOP'}
+        if action not in valid_actions:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid action: {action}',
+                'valid_actions': list(valid_actions),
+                'timestamp': datetime.now().isoformat()
+            }), 400
+        
+        emulator = emulators[active]
+        
+        # Get state before action
+        position_before = {}
+        battle_before = {}
+        if hasattr(emulator, 'get_position'):
+            position_before = emulator.get_position()
+        if hasattr(emulator, 'get_battle_info'):
+            battle_before = emulator.get_battle_info()
+        
+        # Execute action
+        success = False
+        if hasattr(emulator, 'step'):
+            success = emulator.step(action, frames)
+        
+        # Get state after action
+        position_after = {}
+        battle_after = {}
+        if hasattr(emulator, 'get_position'):
+            position_after = emulator.get_position()
+        if hasattr(emulator, 'get_battle_info'):
+            battle_after = emulator.get_battle_info()
+        
+        # Determine changes
+        position_changed = (
+            position_before.get('x') != position_after.get('x') or
+            position_before.get('y') != position_after.get('y') or
+            position_before.get('map_id') != position_after.get('map_id')
+        )
+        
+        battle_started = not battle_before.get('in_battle', False) and battle_after.get('in_battle', False)
+        battle_ended = battle_before.get('in_battle', False) and not battle_after.get('in_battle', False)
+        
+        # Determine game mode
+        game_mode = 'exploration'
+        if battle_after.get('in_battle'):
+            game_mode = 'battle'
+        
+        # Health summary
+        lowest_hp = 100
+        needs_healing = False
+        if hasattr(emulator, 'get_party_info'):
+            party = emulator.get_party_info() or []
+            for mon in party:
+                hp_pct = mon.get('hp_percent', 100)
+                if hp_pct < lowest_hp:
+                    lowest_hp = hp_pct
+                if hp_pct < 30:
+                    needs_healing = True
+        
+        return jsonify({
+            'success': success,
+            'action': action,
+            'frames': frames,
+            'observation': {
+                'game_mode': game_mode,
+                'position': position_after,
+                'battle': battle_after,
+                'health_summary': {
+                    'party_healthy': not needs_healing,
+                    'lowest_hp_percent': round(lowest_hp, 1),
+                    'needs_healing': needs_healing
+                }
+            },
+            'changes': {
+                'position_changed': position_changed,
+                'battle_started': battle_started,
+                'battle_ended': battle_ended
+            },
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in act_and_observe: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
+@app.route('/api/agent/dialogue', methods=['GET'])
+def api_dialogue_state():
+    """
+    Get the current dialogue/text box state.
+    
+    Response shape:
+    {
+        "active": boolean,
+        "text": string or null,
+        "has_options": boolean,
+        "options": string[],
+        "selected_option": number,
+        "can_advance": boolean,
+        "loaded": boolean,
+        "timestamp": string
+    }
+    
+    Note: Full dialogue detection requires memory analysis.
+    This returns a safe default structure.
+    """
+    state = get_game_state()
+    active = state.get('active_emulator')
+    
+    empty_response = {
+        'active': False,
+        'text': None,
+        'has_options': False,
+        'options': [],
+        'selected_option': 0,
+        'can_advance': True,
+        'loaded': False,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify(empty_response), 200
+    
+    try:
+        emulator = emulators[active]
+        
+        # Dialogue detection would require:
+        # 1. Reading tilemap for text box detection
+        # 2. Reading dialogue text from memory
+        # 3. Reading menu selection state
+        
+        # For now, return safe defaults
+        # This can be enhanced with memory scanning later
+        
+        # Basic detection: check if in battle (battle has dialogue-like menus)
+        in_battle = False
+        if hasattr(emulator, 'get_battle_info'):
+            battle = emulator.get_battle_info()
+            in_battle = battle.get('in_battle', False)
+        
+        return jsonify({
+            'active': False,
+            'text': None,
+            'has_options': in_battle,  # Battle has move/item selection
+            'options': [],
+            'selected_option': 0,
+            'can_advance': True,
+            'loaded': True,
+            'note': 'Dialogue detection requires memory scanning - safe defaults returned',
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.debug(f"Error getting dialogue state: {e}")
+        empty_response['error'] = str(e)
+        return jsonify(empty_response), 200
+
+
+@app.route('/api/agent/menu', methods=['GET'])
+def api_menu_state():
+    """
+    Get the current menu state.
+    
+    Response shape:
+    {
+        "active": boolean,
+        "type": "main" | "pokemon" | "bag" | "battle" | "save" | "none",
+        "selection": number,
+        "options": string[],
+        "can_close": boolean,
+        "loaded": boolean,
+        "timestamp": string
+    }
+    
+    Note: Full menu detection requires memory analysis.
+    This returns a safe default structure.
+    """
+    state = get_game_state()
+    active = state.get('active_emulator')
+    
+    empty_response = {
+        'active': False,
+        'type': 'none',
+        'selection': 0,
+        'options': [],
+        'can_close': True,
+        'loaded': False,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    if not state.get('rom_loaded') or not active or active not in emulators:
+        return jsonify(empty_response), 200
+    
+    try:
+        emulator = emulators[active]
+        
+        # Menu detection would require:
+        # 1. Reading menu state byte
+        # 2. Reading menu selection index
+        # 3. Parsing menu items
+        
+        # Check battle state (battle has menus)
+        in_battle = False
+        battle_type = 'none'
+        if hasattr(emulator, 'get_battle_info'):
+            battle = emulator.get_battle_info()
+            in_battle = battle.get('in_battle', False)
+            battle_type = battle.get('battle_type', 'none')
+        
+        if in_battle:
+            return jsonify({
+                'active': True,
+                'type': 'battle',
+                'selection': 0,
+                'options': ['FIGHT', 'BAG', 'POKEMON', 'RUN'],
+                'can_close': False,
+                'loaded': True,
+                'timestamp': datetime.now().isoformat()
+            }), 200
+        
+        return jsonify({
+            'active': False,
+            'type': 'none',
+            'selection': 0,
+            'options': [],
+            'can_close': True,
+            'loaded': True,
+            'note': 'Menu detection requires memory scanning - safe defaults returned',
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.debug(f"Error getting menu state: {e}")
+        empty_response['error'] = str(e)
+        return jsonify(empty_response), 200
 
 @app.route('/api/openclaw/health', methods=['GET'])
 def api_openclaw_health():
@@ -4154,6 +5296,238 @@ def enable_sound():
     except Exception as e:
         logger.error(f"Error setting sound: {e}")
         return jsonify({"error": "Failed to set sound"}), 500
+
+
+# =========================================
+# Sound Control Endpoints
+# =========================================
+
+@app.route('/api/sound/status', methods=['GET'])
+def get_sound_status():
+    """
+    Get current sound configuration and status.
+    
+    Response shape:
+    {
+        "emulation_enabled": boolean,  // Sound emulation running
+        "volume": number,              // Volume 0-100
+        "output_enabled": boolean,     // Actual audio output (speaker)
+        "sdl_audiodriver": string,     // Current SDL audio driver
+        "sample_rate": number | null,  // Sample rate in Hz if available
+        "buffer_length": number | null // Buffer length if available
+    }
+    """
+    try:
+        current_state = get_game_state()
+        
+        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+            return jsonify({
+                "emulation_enabled": False,
+                "volume": 0,
+                "output_enabled": False,
+                "sdl_audiodriver": os.environ.get('SDL_AUDIODRIVER', 'not set'),
+                "sample_rate": None,
+                "buffer_length": None,
+                "message": "No ROM loaded"
+            }), 200
+        
+        emulator = emulators[current_state["active_emulator"]]
+        
+        # Check if emulator has sound methods
+        if hasattr(emulator, 'get_sound_info'):
+            sound_info = emulator.get_sound_info()
+            return jsonify(sound_info), 200
+        else:
+            return jsonify({
+                "emulation_enabled": False,
+                "volume": 0,
+                "output_enabled": False,
+                "sdl_audiodriver": os.environ.get('SDL_AUDIODRIVER', 'not set'),
+                "message": "Sound not supported by this emulator"
+            }), 200
+            
+    except Exception as e:
+        logger.error(f"Error getting sound status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sound/enable', methods=['POST'])
+def set_sound_enabled():
+    """
+    Enable or disable sound emulation.
+    
+    Request body:
+    {
+        "enabled": boolean  // True to enable, False to disable
+    }
+    
+    Note: Changes take effect on next ROM load or reset.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        enabled = data.get('enabled', True)
+        
+        current_state = get_game_state()
+        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+            return jsonify({"error": "No ROM loaded"}), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        
+        if hasattr(emulator, 'set_sound_enabled'):
+            success = emulator.set_sound_enabled(enabled)
+            return jsonify({
+                "success": success,
+                "emulation_enabled": enabled,
+                "message": f"Sound emulation {'enabled' if enabled else 'disabled'}. Changes take effect on next ROM load."
+            }), 200
+        else:
+            return jsonify({"error": "Sound control not supported by this emulator"}), 400
+            
+    except Exception as e:
+        logger.error(f"Error setting sound enabled: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sound/volume', methods=['POST'])
+def set_sound_volume():
+    """
+    Set sound volume.
+    
+    Request body:
+    {
+        "volume": number  // Volume 0-100 (percentage)
+    }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        volume = data.get('volume', 50)
+        
+        # Validate volume
+        if not isinstance(volume, (int, float)) or not 0 <= volume <= 100:
+            return jsonify({"error": "Volume must be between 0 and 100"}), 400
+        
+        volume = int(volume)
+        
+        current_state = get_game_state()
+        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+            return jsonify({"error": "No ROM loaded"}), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        
+        if hasattr(emulator, 'set_sound_volume'):
+            success = emulator.set_sound_volume(volume)
+            return jsonify({
+                "success": success,
+                "volume": volume,
+                "message": f"Volume set to {volume}%"
+            }), 200
+        else:
+            return jsonify({"error": "Sound control not supported by this emulator"}), 400
+            
+    except Exception as e:
+        logger.error(f"Error setting sound volume: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sound/output', methods=['POST'])
+def set_sound_output():
+    """
+    Enable or disable actual audio output (speaker).
+    
+    Request body:
+    {
+        "enabled": boolean  // True for speaker output, False for silent
+    }
+    
+    Note: Changes take effect on next ROM load or reset.
+    
+    macOS/Headless Caveats:
+    - For headless/server mode, output should typically be disabled
+    - Actual output requires audio device available on host system
+    - macOS may require SDL_AUDIODRIVER to be unset for speaker output
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        enabled = data.get('enabled', False)
+        
+        current_state = get_game_state()
+        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+            return jsonify({"error": "No ROM loaded"}), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        
+        if hasattr(emulator, 'set_sound_output'):
+            success = emulator.set_sound_output(enabled)
+            return jsonify({
+                "success": success,
+                "output_enabled": enabled,
+                "message": f"Sound output {'enabled (speaker)' if enabled else 'disabled (silent)'}. Changes take effect on next ROM load."
+            }), 200
+        else:
+            return jsonify({"error": "Sound control not supported by this emulator"}), 400
+            
+    except Exception as e:
+        logger.error(f"Error setting sound output: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sound/buffer', methods=['GET'])
+def get_sound_buffer():
+    """
+    Get the current sound buffer as base64-encoded audio.
+    
+    Response shape:
+    {
+        "samples": number,      // Number of samples
+        "channels": number,     // Number of channels (1=mono, 2=stereo)
+        "sample_rate": number,  // Sample rate in Hz
+        "data": string | null   // Base64-encoded raw audio data or null if unavailable
+    }
+    
+    Note: Raw audio data is signed 8-bit PCM, stereo interleaved.
+    """
+    try:
+        current_state = get_game_state()
+        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+            return jsonify({"error": "No ROM loaded"}), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        
+        if hasattr(emulator, 'get_sound_buffer'):
+            sound_array = emulator.get_sound_buffer()
+            
+            if sound_array is None:
+                return jsonify({
+                    "samples": 0,
+                    "channels": 2,
+                    "sample_rate": None,
+                    "data": None,
+                    "message": "Sound buffer unavailable (emulation disabled or not initialized)"
+                }), 200
+            
+            # Convert to base64
+            import base64
+            audio_data = base64.b64encode(sound_array.tobytes()).decode('utf-8')
+            
+            # Get sample rate if available
+            sample_rate = None
+            if hasattr(emulator, 'get_sound_info'):
+                info = emulator.get_sound_info()
+                sample_rate = info.get('sample_rate')
+            
+            return jsonify({
+                "samples": sound_array.shape[0] if len(sound_array.shape) > 0 else 0,
+                "channels": sound_array.shape[1] if len(sound_array.shape) > 1 else 1,
+                "sample_rate": sample_rate,
+                "data": audio_data,
+                "format": "int8_stereo"
+            }), 200
+        else:
+            return jsonify({"error": "Sound buffer not supported by this emulator"}), 400
+            
+    except Exception as e:
+        logger.error(f"Error getting sound buffer: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/input', methods=['POST'])
 def send_input():

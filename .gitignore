@@ -144,6 +144,7 @@ build/
 !EXAMPLES.md
 !OPENCLAW-INTEGRATION.md
 !AGENTS.md
+!SOUND-SUPPORT.md
 !ai-game-server/README.md
 !skills/**/*.md
 !guides/*.md

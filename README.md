@@ -70,6 +70,13 @@ http://localhost:5173
 - `GET /api/spatial/npcs`
 - `GET /api/spatial/strategy`
 
+### Sound control
+- `GET /api/sound/status`
+- `POST /api/sound/enable`
+- `POST /api/sound/volume`
+- `POST /api/sound/output`
+- `GET /api/sound/buffer`
+
 ## MCP / LM Studio
 LM Studio can connect through:
 - `ai-game-server/generic_mcp_server.py`
@@ -84,6 +91,7 @@ If you are extending this repo for agents, read:
 - `TOOLS.md` — local runtime/route/tool notes
 - `skills/pyboy-platform/SKILL.md` — repo-local agent skill
 - `ai-game-server/API-CONTRACT.md` — endpoint response shapes
+- `docs/SOUND-SUPPORT.md` — sound configuration and platform caveats
 
 ## Important engineering rules
 1. **One tick owner**

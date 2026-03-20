@@ -552,6 +552,81 @@ class ApiService {
   getDualModelStatus() {
     return this.request<DualModelStatus>('/api/dual-model/status');
   }
+
+  // =========================================
+  // Sound Control API Methods
+  // =========================================
+
+  /**
+   * Get current sound configuration and status
+   */
+  getSoundStatus() {
+    return this.request<{
+      emulation_enabled: boolean;
+      volume: number;
+      output_enabled: boolean;
+      sdl_audiodriver: string;
+      sample_rate?: number | null;
+      buffer_length?: number | null;
+      message?: string;
+    }>('/api/sound/status');
+  }
+
+  /**
+   * Enable or disable sound emulation
+   */
+  setSoundEnabled(enabled: boolean) {
+    return this.request<{
+      success: boolean;
+      emulation_enabled: boolean;
+      message: string;
+    }>('/api/sound/enable', {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  /**
+   * Set sound volume (0-100)
+   */
+  setSoundVolume(volume: number) {
+    return this.request<{
+      success: boolean;
+      volume: number;
+      message: string;
+    }>('/api/sound/volume', {
+      method: 'POST',
+      body: JSON.stringify({ volume }),
+    });
+  }
+
+  /**
+   * Enable or disable actual audio output (speaker)
+   */
+  setSoundOutput(enabled: boolean) {
+    return this.request<{
+      success: boolean;
+      output_enabled: boolean;
+      message: string;
+    }>('/api/sound/output', {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  /**
+   * Get current sound buffer (raw audio data)
+   */
+  getSoundBuffer() {
+    return this.request<{
+      samples: number;
+      channels: number;
+      sample_rate: number | null;
+      data: string | null;
+      format: string;
+      message?: string;
+    }>('/api/sound/buffer');
+  }
 }
 
 const apiService = new ApiService();

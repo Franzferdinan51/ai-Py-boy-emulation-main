@@ -344,7 +344,26 @@ try:
         print(f"ERROR: ROM file not found: {rom_path}")
         sys.exit(1)
 
-    pyboy = PyBoy(rom_path, window="headless", scale=2, sound_emulated=False, debug=False)
+    # Sound settings from environment or defaults
+    sound_enabled = os.environ.get('PYBOY_SOUND_ENABLED', 'true').lower() == 'true'
+    sound_volume = int(os.environ.get('PYBOY_SOUND_VOLUME', '50'))
+    sound_output = os.environ.get('PYBOY_SOUND_OUTPUT', 'false').lower() == 'true'
+    
+    # Configure SDL audio driver
+    if sound_output:
+        # Use system default for actual audio output
+        if 'SDL_AUDIODRIVER' in os.environ:
+            del os.environ['SDL_AUDIODRIVER']
+        print("Sound output: enabled (system audio)")
+    else:
+        # Use dummy driver for silent operation
+        os.environ['SDL_AUDIODRIVER'] = 'dummy'
+        print("Sound output: disabled (silent mode)")
+    
+    print(f"Sound emulation: {'enabled' if sound_enabled else 'disabled'}")
+    print(f"Sound volume: {sound_volume}%")
+    
+    pyboy = PyBoy(rom_path, window="headless", scale=2, sound_emulated=sound_enabled, sound_volume=sound_volume, debug=False)
     print("PyBoy initialized successfully")
     pyboy.set_emulation_speed(1)
     print("Emulation speed set to 1")
@@ -1477,14 +1496,20 @@ class PyBoyEmulatorMP(EmulatorInterface):
         try:
             # Initialize PyBoy in worker process with headless mode
             os.environ['SDL_WINDOW_HIDDEN'] = '1'
-            os.environ['SDL_AUDIODRIVER'] = 'disk'
+            # Use dummy audio driver for silent operation in multi-process mode
+            # (multi-process mode is typically for headless/server use)
+            os.environ['SDL_AUDIODRIVER'] = 'dummy'
             
+            # Sound settings from environment or defaults
+            sound_enabled = os.environ.get('PYBOY_SOUND_ENABLED', 'true').lower() == 'true'
+            sound_volume = int(os.environ.get('PYBOY_SOUND_VOLUME', '50'))
+
             pyboy = PyBoy(
                 rom_path,
                 window="headless",
                 scale=2,
-                sound_emulated=False,
-                sound_volume=0
+                sound_emulated=sound_enabled,
+                sound_volume=sound_volume
             )
             pyboy.set_emulation_speed(0)
 
@@ -1647,12 +1672,16 @@ class PyBoyEmulatorMP(EmulatorInterface):
         """Reset emulator in worker process"""
         try:
             pyboy.stop()
+            # Sound settings from environment or defaults
+            sound_enabled = os.environ.get('PYBOY_SOUND_ENABLED', 'true').lower() == 'true'
+            sound_volume = int(os.environ.get('PYBOY_SOUND_VOLUME', '50'))
+            
             pyboy = PyBoy(
                 rom_path,
                 window="null",
                 scale=2,
-                sound_emulated=False,
-                sound_volume=0
+                sound_emulated=sound_enabled,
+                sound_volume=sound_volume
             )
             pyboy.set_emulation_speed(0)
             pyboy.tick(1, False)
