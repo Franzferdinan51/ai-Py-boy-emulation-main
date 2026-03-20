@@ -1803,27 +1803,8 @@ def get_vision_models():
         discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
         raw_models = discovery.get_vision_models()
         
-        models_enriched = []
-        for i, model in enumerate(raw_models):
-            model_data = {
-                "id": model.id,
-                "name": model.name,
-                "label": f"{model.name} (Vision)",
-                "provider": model.provider,
-                "category": "vision",
-                "capabilities": list(model.capabilities) if model.capabilities else ['vision', 'text'],
-                "is_vision_capable": True,
-                "is_free": model.is_free,
-                "manual_allowed": True,
-                "is_default": i == 0,
-                "context_window": model.context_window,
-                "priority": model.priority,
-                "description": model.description or f"Vision model: {model.name}"
-            }
-            models_enriched.append(model_data)
-        
-        # Sort by priority
-        models_enriched.sort(key=lambda m: m.get('priority', 0), reverse=True)
+        # Use to_dict() for consistent shape
+        models_enriched = [model.to_dict() for model in raw_models]
         
         default_model = models_enriched[0]['id'] if models_enriched else None
         
@@ -1833,6 +1814,10 @@ def get_vision_models():
             "category": "vision",
             "models": models_enriched,
             "default_model": default_model,
+            "counts": {
+                "total": len(models_enriched),
+                "free": len([m for m in models_enriched if m.get('is_free')])
+            },
             "timestamp": datetime.now().isoformat()
         }), 200
         
@@ -1852,33 +1837,8 @@ def get_planning_models():
         discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
         raw_models = discovery.get_planning_models()
         
-        models_enriched = []
-        for i, model in enumerate(raw_models):
-            # Determine category
-            if model.is_vision_capable:
-                category = 'vision'
-            else:
-                category = 'reasoning'
-            
-            model_data = {
-                "id": model.id,
-                "name": model.name,
-                "label": model.name,
-                "provider": model.provider,
-                "category": category,
-                "capabilities": list(model.capabilities) if model.capabilities else ['reasoning', 'text'],
-                "is_vision_capable": model.is_vision_capable,
-                "is_free": model.is_free,
-                "manual_allowed": True,
-                "is_default": i == 0,
-                "context_window": model.context_window,
-                "priority": model.priority,
-                "description": model.description or f"Planning model: {model.name}"
-            }
-            models_enriched.append(model_data)
-        
-        # Sort by priority
-        models_enriched.sort(key=lambda m: m.get('priority', 0), reverse=True)
+        # Use to_dict() for consistent shape
+        models_enriched = [model.to_dict() for model in raw_models]
         
         default_model = models_enriched[0]['id'] if models_enriched else None
         
@@ -1888,6 +1848,10 @@ def get_planning_models():
             "category": "planning",
             "models": models_enriched,
             "default_model": default_model,
+            "counts": {
+                "total": len(models_enriched),
+                "free": len([m for m in models_enriched if m.get('is_free')])
+            },
             "timestamp": datetime.now().isoformat()
         }), 200
         
@@ -1904,7 +1868,7 @@ def recommend_model():
     Query params:
         use_case: 'vision', 'planning', 'fast', 'quality', 'free' (default: 'planning')
         
-    Response shape:
+    Response shape (OpenClaw-native):
     {
         "recommended": {
             "id": "bailian/kimi-k2.5",
@@ -1912,10 +1876,14 @@ def recommend_model():
             "label": "Kimi K2.5 (Vision)",
             "provider": "bailian",
             "category": "vision",
+            "capabilities": ["vision", "reasoning", "text"],
             "is_vision_capable": true,
             "is_free": true,
-            "description": "Best for game screen analysis (FREE)",
-            "is_default": true
+            "manual_allowed": true,
+            "is_default": true,
+            "role": "vision",
+            "context_window": 196608,
+            "description": "Best for game screen analysis (FREE)"
         },
         "use_case": "vision",
         "reason": "Best vision model available",
@@ -1934,22 +1902,9 @@ def recommend_model():
             all_models = discovery.get_available_models()
             alternatives = [m for m in all_models if m.id != recommended_model.id][:3]
             
-            # Build response
+            # Build response using to_dict() for consistent shape
             response = {
-                "recommended": {
-                    "id": recommended_model.id,
-                    "name": recommended_model.name,
-                    "label": f"{recommended_model.name}{' (Vision)' if recommended_model.is_vision_capable else ''}",
-                    "provider": recommended_model.provider,
-                    "category": "vision" if recommended_model.is_vision_capable else "reasoning",
-                    "capabilities": list(recommended_model.capabilities) if recommended_model.capabilities else ['text'],
-                    "is_vision_capable": recommended_model.is_vision_capable,
-                    "is_free": recommended_model.is_free,
-                    "manual_allowed": True,
-                    "is_default": True,
-                    "context_window": recommended_model.context_window,
-                    "description": recommended_model.description or f"AI model: {recommended_model.name}"
-                },
+                "recommended": recommended_model.to_dict(),
                 "use_case": use_case,
                 "reason": _get_recommendation_reason(use_case, recommended_model),
                 "alternatives": [
@@ -1958,7 +1913,8 @@ def recommend_model():
                         "name": m.name,
                         "provider": m.provider,
                         "is_free": m.is_free,
-                        "is_vision_capable": m.is_vision_capable
+                        "is_vision_capable": m.is_vision_capable,
+                        "role": m.role
                     }
                     for m in alternatives
                 ],
@@ -4320,6 +4276,10 @@ def get_ai_action():
 
                     # Update action history
                     add_to_action_history(action)
+                    
+                    # Record to agent state for OpenClaw-style tracking
+                    record_agent_action(action, 1, result="success", source="ai")
+                    record_agent_decision({"action": action, "goal": goal, "cached": True}, provider=actual_provider or api_name)
 
                     logger.info(f"[{request_id}] AI ({actual_provider or 'cached'}) suggested action: {action}")
                     return jsonify({
@@ -4437,6 +4397,10 @@ def get_ai_action():
             "current_provider": actual_provider or api_name,
             "current_model": model,
         })
+        
+        # Record to agent state for OpenClaw-style tracking
+        record_agent_action(action, 1, result="success", source="ai")
+        record_agent_decision({"action": action, "goal": goal}, provider=actual_provider or api_name)
 
         # Cache the AI response if optimization is available
         if OPTIMIZATION_SYSTEM_AVAILABLE and hasattr(optimization_system_manager, 'ai_cache_manager'):
