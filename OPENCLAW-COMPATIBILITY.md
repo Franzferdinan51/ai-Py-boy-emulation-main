@@ -162,6 +162,142 @@ If you were using an older setup:
 
 ---
 
+## LM Studio Vision Compatibility Guide
+
+### The Image Attachment Problem
+
+**Symptom:** The `get_screen` or `screenshot` MCP tool returns successfully and includes an image, but the agent/model cannot "see" or use the image for reasoning.
+
+**This is NOT a bug in the MCP server.** The `generic_mcp_server.py` correctly returns `ImageContent` alongside `TextContent`. The limitation is in how LM Studio chat interfaces and models handle these images.
+
+### Why Images May Not Work
+
+#### 1. **Non-Vision Model Selected** (Most Common)
+
+If the thinking model is NOT a vision-capable model, it literally cannot process images even if they're attached:
+
+| Model Type | Examples | Can See Images? |
+|------------|----------|-----------------|
+| Vision-capable | `qwen3-vl-8b`, `qwen3-vl-4b`, `jan-v2-vl-high`, `glm-4.6v-flash` | ✅ Yes |
+| Text-only | `qwen3.5-35b-a3b`, `qwen3.5-27b`, `glm-4.7-flash` | ❌ No |
+
+**Fix:** Ensure BOTH thinking AND vision model slots use vision-capable models.
+
+#### 2. **LM Studio Chat Interface Limitations**
+
+Some LM Studio versions or chat configurations do not properly forward image content from tool responses to the model:
+
+- Tool returns `ImageContent(data=base64, mimeType="image/jpeg")` 
+- Chat UI shows "image attached" or success message
+- But the actual chat message to the model doesn't include the image bytes
+
+**Symptoms:**
+- Tool output shows success with image metadata
+- Model response ignores the screen content
+- Model says "I can't see the image" or provides generic responses
+
+#### 3. **Thinking Mode Issues**
+
+Some reasoning/thinking models have known issues with multimodal input:
+- The model may strip image content when in "thinking" mode
+- Reasoning tokens may interfere with vision processing
+
+**Fix:** Disable thinking/reasoning for vision tasks, or use a non-thinking vision model.
+
+#### 4. **API Endpoint Misconfiguration**
+
+The LM Studio server MUST be accessed at the chat completions endpoint:
+- ✅ Correct: `http://localhost:1234/v1/chat/completions`
+- ❌ Wrong: `http://localhost:1234/` (missing `/v1/chat/completions`)
+
+The MCP server handles this internally, but ensure LM Studio server is running with the `/v1` prefix.
+
+#### 5. **Context Length Limits**
+
+Vision models have significant overhead per image:
+- A single Game Boy screenshot (160x144) is small, but still adds ~10KB
+- If the model is near its context limit, it may silently drop images
+
+**Fix:** Keep conversation history shorter when using vision, or use smaller context models.
+
+### Recommended LM Studio Settings for Vision
+
+#### Option A: High Quality Vision
+```
+Endpoint: http://localhost:1234/v1
+Thinking Model: qwen3-vl-8b  (or qwen/qwen3-vl-8b)
+Vision Model: qwen3-vl-8b     (same model handles both)
+```
+**Best for:** Complex games requiring strategic reasoning + vision
+
+#### Option B: Fast Vision
+```
+Endpoint: http://localhost:1234/v1
+Thinking Model: qwen3-vl-4b  (fast vision-capable)
+Vision Model: qwen3-vl-4b
+```
+**Best for:** Real-time gameplay, quick decisions
+
+#### Option C: Two-Model Setup (Advanced)
+```
+Endpoint: http://localhost:1234/v1
+Thinking Model: qwen3.5-35b-a3b  (best reasoning)
+Vision Model: qwen3-vl-8b        (sees the screen)
+```
+**How it works:**
+1. Use vision model to analyze screen via MCP tool
+2. Pass text summary to thinking model for decisions
+3. This requires custom prompt engineering
+
+### Alternative: Use Bailian for Vision
+
+Instead of LM Studio for vision, use the free Bailian vision models:
+
+```python
+# In vision_analysis.py or custom tool
+from bailian import VisionClient
+client = VisionClient(api_key="your-key")
+result = client.analyze(image_base64, prompt="What Pokemon game state is shown?")
+```
+
+Bailian models (`bailian/kimi-k2.5`) are:
+- ✅ FREE unlimited vision
+- ✅ Reliable image handling
+- ✅ Better at game state understanding
+
+### Verification: Is Your Vision Working?
+
+Test if vision is actually working:
+
+1. Call `get_screen` or `screenshot` MCP tool
+2. Check response contains BOTH:
+   - `TextContent` with success message
+   - `ImageContent` with actual base64 data
+3. Ask the model: "Describe what you see on the game screen"
+4. If it describes generic "Game Boy screen" without specifics → vision NOT working
+5. If it describes Pokemon, menus, positions → vision IS working
+
+### Code-Side Improvement: Explicit Vision Status
+
+The MCP server now includes a clear message about image attachment. To make this even clearer, you can check tool output:
+
+```python
+# In generic_mcp_server.py, get_screen handler:
+return [
+    TextContent(type="text", text=json.dumps({
+        "success": True,
+        "has_image": True,  # Explicit flag
+        "image_size_kb": len(result.get("image", "")) // 1024,
+        "vision_model_note": "Image attached as ImageContent. Ensure your LM Studio model is vision-capable (qwen3-vl-8b, qwen3-vl-4b, jan-v2-vl-*). Text-only models cannot see images."
+    })),
+    ImageContent(type="image", data=result.get("image"), mimeType="image/jpeg")
+]
+```
+
+This explicit warning in the text response helps diagnose configuration issues.
+
+---
+
 ## Related Documentation
 
 - `README.md` - Project overview
@@ -169,3 +305,4 @@ If you were using an older setup:
 - `TOOLS.md` - Tool and route reference
 - `skills/pyboy-platform/SKILL.md` - Platform architecture
 - `ai-game-server/API-CONTRACT.md` - API response shapes
+- `docs/LM-STUDIO-QUICKSTART.md` - LM Studio setup guide

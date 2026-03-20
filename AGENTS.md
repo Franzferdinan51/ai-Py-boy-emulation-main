@@ -11,12 +11,12 @@ Build and operate an AI/agent-first Game Boy platform on top of PyBoy, with:
 - OpenClaw / LM Studio friendly workflows
 
 ## Project layout
-- `ai-game-assistant/` — frontend + proxy UI
-- `ai-game-server/` — Flask backend, streaming, emulator control, MCP bridge helpers
-- `ai-game-server/generic_mcp_server.py` — LM Studio / MCP wrapper
-- `skills/` — repo-local AgentSkills
-- `docs/` — verification and platform notes
-- `saves/` — emulator save artifacts when used
+- `ai-game-assistant/` - frontend + proxy UI
+- `ai-game-server/` - Flask backend, streaming, emulator control, MCP bridge helpers
+- `ai-game-server/generic_mcp_server.py` - LM Studio / MCP wrapper
+- `skills/` - repo-local AgentSkills
+- `docs/` - verification and platform notes
+- `saves/` - emulator save artifacts when used
 
 ## Canonical runtime
 Preferred local stack:
@@ -126,7 +126,7 @@ When major behavior changes, update at least one of:
 - avoid frontend-specific hacks unless backend contract is already correct
 - prefer compatibility aliases over breaking route renames
 
-## Before claiming “fixed”
+## Before claiming "fixed"
 Verify as applicable:
 - ROM loads successfully
 - stream stays alive for multiple frame events
@@ -134,3 +134,13 @@ Verify as applicable:
 - required compatibility routes return 200
 - save/load performs real restore behavior
 - MCP path matches web path for core actions
+
+## LM Studio Vision Limitation (Critical)
+When using LM Studio with MCP tools:
+- `get_screen` and `screenshot` return `ImageContent` (actual image data)
+- BUT the agent/model can only "see" the image if using a **vision-capable model**
+- Text-only models (e.g., `qwen3.5-35b-a3b`, `glm-4.7-flash`) cannot process images
+
+**Vision-capable models:** `qwen3-vl-8b`, `qwen3-vl-4b`, `jan-v2-vl-*`, `glm-4.6v-flash`
+
+The MCP tool output now includes explicit warnings when images are attached but the model may not support vision. See `OPENCLAW-COMPATIBILITY.md` for the full "LM Studio Vision Compatibility Guide".

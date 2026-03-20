@@ -93,6 +93,8 @@ The wrapper exposes emulator control, save/load, button presses, screen capture,
 
 If web UI behavior and LM Studio behavior diverge, inspect the MCP wrapper first.
 
+⚠️ **Vision Note:** The `get_screen` and `screenshot` tools attach images correctly, but your LM Studio model MUST be vision-capable. See `OPENCLAW-COMPATIBILITY.md` for the "LM Studio Vision Compatibility Guide" section.
+
 ## Agent-first files
 If you are extending this repo for agents, read:
 - `AGENTS.md` — project invariants and agent workflow

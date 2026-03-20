@@ -581,15 +581,20 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
         elif name == "get_screen":
             result = api_get("/api/screen")
             if "image" in result and result.get("image"):
+                image_data = result.get("image")
+                image_size_kb = len(image_data) // 1024 if image_data else 0
                 return [
                     TextContent(type="text", text=json.dumps({
                         "success": True,
+                        "has_image": True,
+                        "image_size_kb": image_size_kb,
                         "frame": result.get("pyboy_frame"),
                         "shape": result.get("shape"),
                         "timestamp": result.get("timestamp"),
-                        "message": "Screen captured and attached as image content"
+                        "message": "Screen captured and attached as image content",
+                        "vision_warning": "NOTE: Image attached as ImageContent. Your LM Studio model MUST be vision-capable (qwen3-vl-8b, qwen3-vl-4b, jan-v2-vl-*, glm-4.6v-flash) to see this image. Text-only models (qwen3.5-35b, glm-4.7-flash) cannot process images."
                     })),
-                    ImageContent(type="image", data=result.get("image"), mimeType="image/jpeg")
+                    ImageContent(type="image", data=image_data, mimeType="image/jpeg")
                 ]
             return [TextContent(type="text", text=json.dumps(result))]
         
@@ -653,15 +658,20 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
         elif name == "screenshot":
             result = api_get("/api/screen")
             if "image" in result and result.get("image"):
+                image_data = result.get("image")
+                image_size_kb = len(image_data) // 1024 if image_data else 0
                 return [
                     TextContent(type="text", text=json.dumps({
                         "success": True,
+                        "has_image": True,
+                        "image_size_kb": image_size_kb,
                         "frame": result.get("pyboy_frame"),
                         "shape": result.get("shape"),
                         "timestamp": result.get("timestamp"),
-                        "message": "Screenshot attached as image content"
+                        "message": "Screenshot attached as image content",
+                        "vision_warning": "NOTE: Image attached as ImageContent. Your LM Studio model MUST be vision-capable (qwen3-vl-8b, qwen3-vl-4b, jan-v2-vl-*, glm-4.6v-flash) to see this image. Text-only models (qwen3.5-35b, glm-4.7-flash) cannot process images."
                     })),
-                    ImageContent(type="image", data=result.get("image"), mimeType="image/jpeg")
+                    ImageContent(type="image", data=image_data, mimeType="image/jpeg")
                 ]
             return [TextContent(type="text", text=json.dumps({"success": False, "error": "No image returned from backend"}))]
         
