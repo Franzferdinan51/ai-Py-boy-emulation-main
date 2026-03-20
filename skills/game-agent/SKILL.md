@@ -18,15 +18,15 @@ DuckBot can control Game Boy emulators (via PyBoy) to play games autonomously us
 ### 1. Register MCP Server (One-time)
 
 ```bash
-cd /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server
-mcporter add pyboy-emulator --stdio "python3 mcp_server.py"
+# Use generic_mcp_server.py for LM Studio + OpenClaw compatibility
+mcporter add pyboy-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"
 ```
 
 ### 2. Use Tools in Conversation
 
 ```bash
-# Load a ROM
-mcporter call pyboy-emulator.emulator_load_rom rom_path="/Users/duckets/.openclaw/workspace/mcp-pyboy/roms/pokemon-red.gb"
+# Load a ROM (replace with your actual ROM path)
+mcporter call pyboy-emulator.emulator_load_rom rom_path="/path/to/your/pokemon-red.gb"
 
 # Press buttons to start game
 mcporter call pyboy-emulator.emulator_press_button button="START"
@@ -297,8 +297,8 @@ emulator_get_game_state()
 ### Example 1: Complete Game Start
 
 ```python
-# Step 1: Load ROM
-emulator_load_rom(rom_path="/Users/duckets/.openclaw/workspace/mcp-pyboy/roms/pokemon-red.gb")
+# Step 1: Load ROM (replace with your actual ROM path)
+emulator_load_rom(rom_path="/path/to/your/pokemon-red.gb")
 
 # Step 2: Start game (wait for animation, press START)
 emulator_press_sequence(sequence="W W W W W START")
@@ -398,15 +398,15 @@ pip install pyboy pillow mcp
 
 #### MCP server not registered
 ```bash
-# Add the server
-mcporter add pyboy-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/mcp_server.py"
+# Add the server (use generic_mcp_server.py for LM Studio compatibility)
+mcporter add pyboy-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"
 
 # Verify
 mcporter list | grep pyboy
 
 # If issues, remove and re-add
 mcporter remove pyboy-emulator
-mcporter add pyboy-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/mcp_server.py"
+mcporter add pyboy-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"
 ```
 
 #### Emulator not initialized
@@ -497,12 +497,15 @@ Fix:
 ```
 ai-Py-boy-emulation-main/
 ├── ai-game-server/
-│   ├── mcp_server.py          # MCP tools server
+│   ├── generic_mcp_server.py  # MCP tools server (use this)
+│   ├── mcp_server.py           # Legacy MCP server
 │   ├── openclaw_agent.py      # Python agent
 │   ├── vision_bridge.py       # Screenshot utilities
 │   └── requirements.txt       # Dependencies
-├── skills/pyboy/
-│   └── SKILL.md              # This file
+├── skills/
+│   ├── pyboy-platform/       # Platform thinking
+│   ├── openclaw/              # OpenClaw integration
+│   └── game-agent/            # This file
 ├── tools/
 │   ├── memory_scan.py         # Memory scanning tool
 │   ├── battle_ai.py           # Battle AI tool

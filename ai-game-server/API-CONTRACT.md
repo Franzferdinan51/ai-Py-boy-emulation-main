@@ -453,6 +453,271 @@ All endpoints return consistent error format:
 
 ---
 
+---
+
+## Agent Tools API (AI Gameplay)
+
+These endpoints are designed for AI agents to understand game state and make decisions. They provide structured game information beyond raw screen data.
+
+### GET `/api/agent/context`
+
+**Purpose:** Get comprehensive agent context for AI decision making. Returns a complete snapshot of game state.
+
+**Response:**
+
+```json
+{
+  "loaded": true,
+  "rom_name": "Pokemon Red",
+  "frame": 12345,
+  "game_mode": "exploration",
+  "position": {
+    "x": 10,
+    "y": 20,
+    "map_id": 1,
+    "map_name": "Pallet Town"
+  },
+  "party": {
+    "count": 1,
+    "pokemon": [
+      {"species": "Charmander", "level": 5, "hp": 35, "max_hp": 35, "hp_percent": 100}
+    ]
+  },
+  "inventory": {
+    "money": 500,
+    "items": [
+      {"name": "Potion", "count": 5},
+      {"name": "Poke Ball", "count": 10}
+    ]
+  },
+  "battle": {
+    "in_battle": false,
+    "enemy": null
+  },
+  "health_summary": {
+    "party_healthy": true,
+    "lowest_hp_percent": 100,
+    "needs_healing": false
+  },
+  "recommendations": [],
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+**Why this helps agents:**
+- Provides complete game state in one call (no need for multiple API calls)
+- Includes actionable recommendations ("Heal party at Pokemon Center")
+- Returns safe defaults when data is unavailable
+- Agents can make decisions without needing vision
+
+---
+
+### GET `/api/agent/mode`
+
+**Purpose:** Get current game mode/state for quick decision making.
+
+**Response:**
+
+```json
+{
+  "mode": "exploration",
+  "in_battle": false,
+  "in_menu": false,
+  "in_dialogue": false,
+  "details": {
+    "battle_type": "none",
+    "menu_type": "none",
+    "dialogue_active": false
+  },
+  "loaded": true,
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+**Game Modes:**
+- `exploration` - Moving around the world
+- `battle` - In a Pokemon battle
+- `menu` - In a menu (bag, Pokemon, etc.)
+- `dialogue` - Reading text
+- `title` - Title screen
+- `none` - No ROM loaded
+
+**Why this helps agents:**
+- Quick check for state machine transitions
+- Determines what actions are valid (can't move in menu)
+- Battle detection triggers different decision logic
+
+---
+
+### POST `/api/agent/act`
+
+**Purpose:** Execute an action and observe the result in one call. Combines button press + observation.
+
+**Request Body:**
+
+```json
+{
+  "action": "A",
+  "frames": 1
+}
+```
+
+**Valid Actions:** `UP`, `DOWN`, `LEFT`, `RIGHT`, `A`, `B`, `START`, `SELECT`
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "action": "A",
+  "frames": 1,
+  "result": {
+    "game_mode": "exploration",
+    "position_changed": false,
+    "text_appeared": false,
+    "battle_started": false,
+    "menu_opened": false
+  },
+  "context": {
+    "position": {"x": 10, "y": 20},
+    "in_battle": false
+  },
+  "frame": 12346,
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+**Why this helps agents:**
+- Single round-trip for action + feedback
+- Detects state changes (battle started, text appeared, etc.)
+- Agents can react immediately to game responses
+
+---
+
+### GET `/api/agent/dialogue`
+
+**Purpose:** Get current dialogue/text box state.
+
+**Response:**
+
+```json
+{
+  "active": false,
+  "text": null,
+  "has_options": false,
+  "options": [],
+  "selected_option": 0,
+  "can_advance": true,
+  "loaded": true,
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+**Why this helps agents:**
+- Knows when to wait for text vs. take actions
+- Detects choice menus in dialogue
+- Can auto-advance through text boxes
+
+---
+
+### GET `/api/agent/menu`
+
+**Purpose:** Get current menu state.
+
+**Response:**
+
+```json
+{
+  "active": false,
+  "type": "none",
+  "selection": 0,
+  "options": [],
+  "can_close": true,
+  "loaded": true,
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+**Menu Types:**
+- `main` - Start menu
+- `pokemon` - Pokemon selection
+- `bag` - Item bag
+- `battle` - Battle menu (FIGHT/PKMN/ITEM/RUN)
+- `save` - Save/load menu
+- `none` - No menu active
+
+**Why this helps agents:**
+- Knows what menu options are available
+- Cursor position for selection
+- Can close menus appropriately
+
+---
+
+## Agent Tool Usage with LM Studio / MCP
+
+### MCP Server Connection
+
+The `generic_mcp_server.py` wraps these backend routes as MCP tools for LM Studio:
+
+```bash
+# Start the MCP server (connects to backend at localhost:5002)
+cd ai-game-server
+python generic_mcp_server.py
+```
+
+### Example: Agent Decision Loop
+
+```python
+# Pseudocode for agent loop using these tools
+import requests
+
+API = "http://localhost:5002"
+
+def agent_loop():
+    while True:
+        # 1. Get current context
+        context = requests.get(f"{API}/api/agent/context").json()
+        
+        if not context["loaded"]:
+            print("No ROM loaded")
+            break
+        
+        # 2. Check game mode
+        mode = requests.get(f"{API}/api/agent/mode").json()
+        
+        if mode["in_battle"]:
+            # Battle logic
+            attack()
+        elif mode["mode"] == "exploration":
+            # Exploration logic
+            explore()
+        
+        # 3. Act and observe result
+        result = requests.post(
+            f"{API}/api/agent/act",
+            json={"action": "A", "frames": 1}
+        ).json()
+        
+        if result["result"]["text_appeared"]:
+            # Wait for dialogue
+            dialogue = requests.get(f"{API}/api/agent/dialogue").json()
+            advance_dialogue()
+```
+
+### MCP Tool Mapping
+
+When using LM Studio with the MCP server, these tools map to:
+
+| MCP Tool | Backend Route | Purpose |
+|----------|--------------|---------|
+| `get_agent_context` | `/api/agent/context` | Full state snapshot |
+| `get_game_mode` | `/api/agent/mode` | Current mode detection |
+| `act_and_observe` | `/api/agent/act` | Action + observation |
+| `get_dialogue_state` | `/api/agent/dialogue` | Text box state |
+| `get_menu_state` | `/api/agent/menu` | Menu state |
+
+---
+
 ## Cache Behavior
 
 - OpenClaw model discovery caches results for 5 minutes

@@ -452,6 +452,115 @@ def add_to_action_history(action):
         if len(action_history) > ACTION_HISTORY_LIMIT:
             action_history.pop(0)
 
+# =========================================
+# Agent State Tracking Helpers
+# =========================================
+
+def record_agent_action(action: str, frames: int = 1, result: str = "success", source: str = "manual"):
+    """
+    Record an action to agent state for OpenClaw-style tracking.
+    
+    Args:
+        action: The action that was executed
+        frames: Number of frames the action was held
+        result: "success" or "error"
+        source: "manual", "ai", "autonomous"
+    """
+    now = datetime.now().isoformat()
+    
+    action_record = {
+        "timestamp": now,
+        "action": action,
+        "frames": frames,
+        "result": result,
+        "source": source
+    }
+    
+    agent_state['last_action'] = action
+    agent_state['last_action_time'] = now
+    agent_state['actions'].append(action_record)
+    
+    # Keep only last 50 actions
+    if len(agent_state['actions']) > 50:
+        agent_state['actions'] = agent_state['actions'][-50:]
+    
+    # Update stats
+    agent_state['stats']['total_actions'] = agent_state['stats'].get('total_actions', 0) + 1
+
+
+def record_agent_error(error_type: str, message: str, context: dict = None):
+    """
+    Record an error to agent state for OpenClaw-style tracking.
+    
+    Args:
+        error_type: Type of error (e.g., "emulator_error", "ai_error", "action_error")
+        message: Error message
+        context: Optional context dictionary
+    """
+    now = datetime.now().isoformat()
+    
+    error_record = {
+        "timestamp": now,
+        "type": error_type,
+        "message": message,
+        "context": context
+    }
+    
+    agent_state['errors'].append(error_record)
+    
+    # Keep only last 20 errors
+    if len(agent_state['errors']) > 20:
+        agent_state['errors'] = agent_state['errors'][-20:]
+    
+    # Update stats
+    agent_state['stats']['total_errors'] = agent_state['stats'].get('total_errors', 0) + 1
+
+
+def record_agent_decision(decision: dict, provider: str = None):
+    """
+    Record an AI decision to agent state for OpenClaw-style tracking.
+    
+    Args:
+        decision: The decision made by the AI (includes action, reasoning, etc.)
+        provider: The AI provider that made the decision
+    """
+    now = datetime.now().isoformat()
+    
+    decision_record = {
+        "timestamp": now,
+        "decision": decision,
+        "provider": provider
+    }
+    
+    agent_state['last_decision'] = decision_record
+    agent_state['decisions'].append(decision_record)
+    
+    # Keep only last 20 decisions
+    if len(agent_state['decisions']) > 20:
+        agent_state['decisions'] = agent_state['decisions'][-20:]
+    
+    # Update stats
+    agent_state['stats']['total_decisions'] = agent_state['stats'].get('total_decisions', 0) + 1
+
+
+def clear_agent_state():
+    """Clear agent state for a fresh start."""
+    agent_state['mode'] = 'manual'
+    agent_state['enabled'] = False
+    agent_state['current_goal'] = ''
+    agent_state['current_task'] = ''
+    agent_state['last_decision'] = None
+    agent_state['last_action'] = None
+    agent_state['last_action_time'] = None
+    agent_state['errors'] = []
+    agent_state['actions'] = []
+    agent_state['decisions'] = []
+    agent_state['stats'] = {
+        'total_actions': 0,
+        'total_decisions': 0,
+        'total_errors': 0,
+    }
+
 def configure_emulator_launch_ui(emulator, enabled: bool):
     """Apply UI launch preference to emulator implementations when supported."""
     if hasattr(emulator, 'set_auto_launch_ui'):
@@ -1612,7 +1721,7 @@ def get_openclaw_models():
     Query params:
         refresh: Force refresh cache (default: false)
         
-    Response shape:
+    Response shape (OpenClaw-native):
     {
         "provider": "openclaw",
         "name": "OpenClaw Gateway",
@@ -1630,12 +1739,17 @@ def get_openclaw_models():
                 "is_vision_capable": true,
                 "is_free": true,
                 "manual_allowed": true,
-                "is_default": false,
+                "is_default": true,
+                "role": "vision",
                 "context_window": 196608,
                 "priority": 100,
                 "description": "Best for game screen analysis (FREE)"
             }
         ],
+        "defaults": {
+            "vision_model": {...},
+            "planning_model": {...}
+        },
         "default_model": "bailian/kimi-k2.5",
         "timestamp": "2026-03-19T20:00:00Z",
         "cached": true
@@ -1644,42 +1758,16 @@ def get_openclaw_models():
     try:
         force_refresh = request.args.get('refresh', 'false').lower() == 'true'
         discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
+        
+        # Use the new get_runtime_config for unified response
+        runtime_config = discovery.get_runtime_config()
         raw_models = discovery.get_available_models(force_refresh=force_refresh)
         
-        # Enrich models with consistent metadata
-        models_enriched = []
-        for i, model in enumerate(raw_models):
-            # Determine category based on capabilities
-            if model.is_vision_capable:
-                category = 'vision'
-            elif 'reasoning' in model.capabilities:
-                category = 'reasoning'
-            else:
-                category = 'general'
-            
-            model_data = {
-                "id": model.id,
-                "name": model.name,
-                "label": f"{model.name}{' (Vision)' if model.is_vision_capable else ''}",
-                "provider": model.provider,
-                "category": category,
-                "capabilities": list(model.capabilities) if model.capabilities else ['text'],
-                "is_vision_capable": model.is_vision_capable,
-                "is_free": model.is_free,
-                "manual_allowed": True,
-                "is_default": i == 0 and model.priority >= 90,  # First high-priority model is default
-                "context_window": model.context_window,
-                "priority": model.priority,
-                "description": model.description or f"AI model: {model.name}"
-            }
-            models_enriched.append(model_data)
+        # Convert models using the new to_dict() method
+        models_enriched = [model.to_dict() for model in raw_models]
         
         # Sort by priority (highest first)
         models_enriched.sort(key=lambda m: m.get('priority', 0), reverse=True)
-        
-        # Mark first as default if none marked
-        if models_enriched and not any(m.get('is_default') for m in models_enriched):
-            models_enriched[0]['is_default'] = True
         
         # Get provider status
         provider_status = "available" if raw_models else "unavailable"
@@ -1692,6 +1780,8 @@ def get_openclaw_models():
             "available": bool(raw_models),
             "manual_allowed": True,
             "models": models_enriched,
+            "defaults": runtime_config.get('defaults', {}),
+            "counts": runtime_config.get('counts', {}),
             "default_model": default_model,
             "timestamp": datetime.now().isoformat(),
             "cached": not force_refresh and discovery._is_cache_valid()

@@ -462,6 +462,59 @@ async def list_tools() -> List[Tool]:
                 }
             }
         ),
+        # === AGENT TOOLS (High Impact for AI/LM Studio) ===
+        Tool(
+            name="get_agent_context",
+            description="Get comprehensive context for AI decision making. Returns party, inventory, position, battle state, health summary, and recommendations in one call. Ideal for agents needing full game state.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_game_mode",
+            description="Determine the current game mode (exploration, battle, menu, dialogue, title). Helps agents understand what actions are appropriate.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="act_and_observe",
+            description="Execute an action and return the new state observation. Combines button press with state update. Returns position, battle, and health changes.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Button to press: UP, DOWN, LEFT, RIGHT, A, B, START, SELECT",
+                        "enum": ["UP", "DOWN", "LEFT", "RIGHT", "A", "B", "START", "SELECT", "NOOP"]
+                    },
+                    "frames": {
+                        "type": "integer",
+                        "description": "Number of frames to hold the button (default: 1)",
+                        "default": 1
+                    }
+                },
+                "required": ["action"]
+            }
+        ),
+        Tool(
+            name="get_dialogue_state",
+            description="Get current dialogue/text box state. Returns whether dialogue is active, text content, and menu options if present.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_menu_state",
+            description="Get current menu state. Returns menu type, selection index, and available options.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
     ]
 
 def api_get(endpoint: str) -> Dict[str, Any]:
@@ -744,6 +797,29 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
                     "loaded": result.get("rom_loaded", False),
                     "frame": result.get("frame_count", 0)
                 }))]
+            return [TextContent(type="text", text=json.dumps(result))]
+        
+        # === AGENT TOOL HANDLERS ===
+        elif name == "get_agent_context":
+            result = api_get("/api/agent/context")
+            return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "get_game_mode":
+            result = api_get("/api/agent/mode")
+            return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "act_and_observe":
+            action = arguments.get("action", "NOOP").upper()
+            frames = arguments.get("frames", 1)
+            result = api_post("/api/agent/act", {"action": action, "frames": frames})
+            return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "get_dialogue_state":
+            result = api_get("/api/agent/dialogue")
+            return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "get_menu_state":
+            result = api_get("/api/agent/menu")
             return [TextContent(type="text", text=json.dumps(result))]
         
         else:

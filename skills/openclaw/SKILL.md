@@ -60,18 +60,18 @@ Route gaming tasks to specialized models:
 ### Register MCP Server (Required)
 
 ```bash
-# Add PyBoy MCP server to OpenClaw
-mcporter add duckbot-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/mcp_server.py"
+# Add PyBoy MCP server to OpenClaw (use generic_mcp_server.py for LM Studio compatibility)
+mcporter add pyboy-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"
 ```
 
 ### Verify Registration
 
 ```bash
 # List registered MCP servers
-mcporter list | grep duckbot
+mcporter list | grep pyboy
 
 # Test connection
-mcporter call duckbot-emulator emulator_get_state
+mcporter call pyboy-emulator emulator_get_state
 ```
 
 ---
@@ -215,10 +215,11 @@ ai-Py-boy-emulation-main/
 │   └── SKILL.md                    # This file
 ├── skills/duckbot/
 │   └── SKILL.md                    # DuckBot persona
-├── skills/pyboy/
-│   └── SKILL.md                    # PyBoy reference
+├── skills/pyboy-platform/
+│   └── SKILL.md                    # Platform thinking
 ├── ai-game-server/
-│   ├── mcp_server.py               # MCP server
+│   ├── generic_mcp_server.py       # MCP server (use this one)
+│   ├── mcp_server.py               # Legacy MCP server
 │   └── requirements.txt
 └── AGENTS.md                       # Agent guide
 ```
@@ -232,9 +233,9 @@ Add to your `~/.openclaw/openclaw.json`:
 ```json
 {
   "mcpServers": {
-    "duckbot-emulator": {
+    "pyboy-emulator": {
       "command": "python3",
-      "args": ["/Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/mcp_server.py"],
+      "args": ["/Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"],
       "env": {}
     }
   }

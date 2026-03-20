@@ -68,16 +68,17 @@ DuckBot believes in **smart, calculated gameplay**:
 ### Step 1: Register MCP Server
 
 ```bash
-mcporter add duckbot-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/mcp_server.py"
+# Use generic_mcp_server.py for LM Studio + OpenClaw compatibility
+mcporter add pyboy-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"
 ```
 
 ### Step 2: Load ROM
 
 ```json
 {
-  "tool": "duckbot-emulator.emulator_load_rom",
+  "tool": "pyboy-emulator.emulator_load_rom",
   "args": {
-    "rom_path": "/Users/duckets/.openclaw/workspace/mcp-pyboy/roms/pokemon-red.gb"
+    "rom_path": "/path/to/your/pokemon-red.gb"
   }
 }
 ```
@@ -86,7 +87,7 @@ mcporter add duckbot-emulator --stdio "python3 /Users/duckets/.openclaw/workspac
 
 ```json
 {
-  "tool": "duckbot-emulator.emulator_press_sequence",
+  "tool": "pyboy-emulator.emulator_press_sequence",
   "args": {
     "sequence": "W W W START A A A A A START"
   }
@@ -534,15 +535,15 @@ Examples:
 ### MCP Server Not Found
 
 ```bash
-# Add the server
-mcporter add duckbot-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/mcp_server.py"
+# Add the server (use generic_mcp_server.py)
+mcporter add pyboy-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"
 
 # Verify it's registered
-mcporter list | grep duckbot
+mcporter list | grep pyboy
 
 # If still issues, remove and re-add
-mcporter remove duckbot-emulator
-mcporter add duckbot-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/mcp_server.py"
+mcporter remove pyboy-emulator
+mcporter add pyboy-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"
 ```
 
 ### PyBoy Not Available
@@ -581,10 +582,13 @@ pip install pyboy pillow mcp
 
 ```
 ai-Py-boy-emulation-main/
-├── skills/duckbot/
-│   └── SKILL.md                    # This file
+├── skills/
+│   ├── duckbot/                    # DuckBot persona
+│   ├── pyboy-platform/             # Platform thinking
+│   └── openclaw/                  # OpenClaw integration
 ├── ai-game-server/
-│   ├── mcp_server.py               # MCP tools server
+│   ├── generic_mcp_server.py       # MCP tools server (use this)
+│   ├── mcp_server.py               # Legacy MCP server
 │   ├── openclaw_agent.py           # Python agent
 │   └── requirements.txt            # Dependencies
 ├── saves/                          # Save states

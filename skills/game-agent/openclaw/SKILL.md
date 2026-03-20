@@ -1,29 +1,24 @@
 # OpenClaw Integration Guide
 
 **Status:** ✅ Ready  
-**Version:** 1.0  
-**Last Updated:** March 19, 2026
+**Version:** 2.0 (Updated March 2026)
+**Note:** This guide covers the current ai-Py-boy-emulation-main platform
 
 ---
 
 ## Overview
 
-This guide covers OpenClaw-specific setup, MCP server registration, and spawn examples for the Game Agent skill. The MCP server enables OpenClaw agents to control Game Boy emulation programmatically.
+This guide covers OpenClaw-specific setup, MCP server registration, and spawn examples for the Game Boy platform. The MCP server enables OpenClaw agents to control Game Boy emulation programmatically.
 
 ---
 
 ## MCP Server Registration
 
-### Quick Register (Pre-configured)
-
-Two MCP servers are already configured:
+### Quick Register (Recommended)
 
 ```bash
-# Persistent HTTP server (recommended for agent workflows)
-mcporter add pyboy --url "http://127.0.0.1:8000/mcp"
-
-# Stdio server (spawns new process each call)
-mcporter add pyboy-stdio --stdio "python3 -m mcp_server.server"
+# Use generic_mcp_server.py for LM Studio + OpenClaw compatibility
+mcporter add pyboy-emulator --stdio "python3 /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server/generic_mcp_server.py"
 ```
 
 ### Verify Registration
@@ -32,11 +27,76 @@ mcporter add pyboy-stdio --stdio "python3 -m mcp_server.server"
 mcporter list | grep pyboy
 ```
 
-Expected output:
+---
+
+## Important: Use generic_mcp_server.py
+
+The repo has two MCP servers:
+- `ai-game-server/generic_mcp_server.py` - **Current, recommended** - works with LM Studio + OpenClaw
+- `ai-game-server/mcp_server.py` - Legacy implementation
+
+Always use `generic_mcp_server.py` for agent workflows.
+
+---
+
+## Platform Structure
+
+For OpenClaw integration, use these resources:
+- `AGENTS.md` - Agent invariants and workflow
+- `TOOLS.md` - Runtime ports and route documentation  
+- `skills/pyboy-platform/SKILL.md` - Platform thinking guide
+
+---
+
+## Quick Start
+
+```bash
+# 1. Start backend
+cd /Users/duckets/.openclaw/workspace/ai-Py-boy-emulation-main/ai-game-server
+PYTHONPATH="$PWD/src" python3 -c "from backend.server import app; app.run(host='0.0.0.0', port=5002, debug=False, threaded=True, use_reloader=False)"
+
+# 2. Register MCP
+mcporter add pyboy-emulator --stdio "python3 $PWD/../generic_mcp_server.py"
+
+# 3. Load ROM via MCP
+mcporter call pyboy-emulator.emulator_load_rom rom_path="/path/to/rom.gb"
+
+# 4. Play!
+mcporter call pyboy-emulator.emulator_press_sequence sequence="START A"
 ```
-pyboy — PyBoy GameBoy emulator MCP server (persistent HTTP) (13 tools)
-pyboy-stdio — PyBoy GameBoy emulator MCP server (stdio) (13 tools)
-```
+
+---
+
+## Runtime Ports
+
+- Backend API: `http://localhost:5002`
+- WebSocket stream: `ws://localhost:5003/`
+- Frontend: `http://localhost:5173`
+
+---
+
+## Available MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `emulator_load_rom` | Load a ROM file |
+| `emulator_press_button` | Press single button |
+| `emulator_press_sequence` | Press button sequence |
+| `emulator_get_frame` | Get screen as base64 PNG |
+| `emulator_get_state` | Get emulator state |
+| `emulator_save_state` | Save current state |
+| `emulator_load_state` | Load saved state |
+| `emulator_read_memory` | Read game RAM |
+
+---
+
+## For More Information
+
+See:
+- `AGENTS.md` - Agent invariants and workflow
+- `TOOLS.md` - Full route documentation
+- `skills/pyboy-platform/SKILL.md` - Platform thinking guide
+- `ai-game-server/API-CONTRACT.md` - Backend response shapes
 
 ### Server URLs
 
