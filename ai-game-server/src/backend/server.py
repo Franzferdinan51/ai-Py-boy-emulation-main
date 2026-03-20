@@ -1211,6 +1211,50 @@ def get_providers_status():
     """Get detailed status of all AI providers"""
     return jsonify(ai_provider_manager.get_provider_status()), 200
 
+
+@app.route('/api/providers', methods=['GET'])
+def get_providers():
+    """
+    Get all available AI providers with their models and configuration.
+    
+    This is the primary endpoint for the settings UI to populate dropdowns.
+    
+    Response shape:
+    {
+        "providers": [
+            {
+                "id": "openclaw",
+                "name": "OpenClaw Gateway",
+                "status": "available",
+                "available": true,
+                "manual_allowed": true,
+                "priority": 1,
+                "models": [
+                    {
+                        "id": "bailian/kimi-k2.5",
+                        "name": "Kimi K2.5",
+                        "label": "Kimi K2.5 (Vision)",
+                        "provider": "bailian",
+                        "category": "vision",
+                        "capabilities": ["vision", "reasoning", "text"],
+                        "is_vision_capable": true,
+                        "is_free": true,
+                        "manual_allowed": true,
+                        "is_default": true,
+                        "context_window": 196608,
+                        "description": "Best for game screen analysis (FREE)"
+                    }
+                ],
+                "default_model": "bailian/kimi-k2.5"
+            }
+        ],
+        "default_provider": "openclaw",
+        "manual_allowed": true,
+        "timestamp": "2026-03-19T20:00:00Z"
+    }
+    """
+    return _get_all_providers_with_models()
+
 @app.route('/api/models', methods=['GET'])
 def get_models():
     """
@@ -2524,22 +2568,233 @@ def api_agent_mode_set():
         agent_state['mode'] = mode
     return jsonify({'ok': True, 'mode': mode}), 200
 
-@app.route('/api/ai/runtime', methods=['POST'])
-def api_ai_runtime_set():
+
+@app.route('/api/ai/runtime', methods=['GET', 'POST'])
+def api_ai_runtime():
+    """
+    Get or set the AI runtime configuration.
+    
+    GET Response shape:
+    {
+        "provider": "openclaw",
+        "model": "bailian/kimi-k2.5",
+        "api_endpoint": "http://localhost:18789",
+        "available_providers": ["openclaw", "lmstudio", ...],
+        "provider_status": {...},
+        "manual_allowed": true,
+        "timestamp": "2026-03-19T20:00:00Z"
+    }
+    
+    POST Body:
+    {
+        "provider": "lmstudio",  // optional
+        "model": "qwen3-vl-8b",  // optional
+        "api_endpoint": "http://localhost:1234/v1"  // optional
+    }
+    """
+    if request.method == 'GET':
+        # Return current runtime state with available options
+        provider_status = ai_provider_manager.get_provider_status()
+        available_providers = ai_provider_manager.get_available_providers()
+        
+        return jsonify({
+            'state': ai_runtime_state if 'ai_runtime_state' in globals() else {},
+            'available_providers': available_providers,
+            'provider_status': provider_status,
+            'default_provider': ai_provider_manager.default_provider,
+            'manual_allowed': True,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    
+    # POST - update runtime state
     data = request.get_json(silent=True) or {}
     provider = data.get('provider')
     model = data.get('model')
+    api_endpoint = data.get('api_endpoint')
+    
     if 'ai_runtime_state' in globals():
         if provider is not None:
             ai_runtime_state['provider'] = provider
         if model is not None:
             ai_runtime_state['model'] = model
-    return jsonify({'ok': True, 'state': ai_runtime_state if 'ai_runtime_state' in globals() else {}}), 200
+        if api_endpoint is not None:
+            ai_runtime_state['api_endpoint'] = api_endpoint
+    
+    # Return updated state with confirmation
+    return jsonify({
+        'ok': True,
+        'state': ai_runtime_state if 'ai_runtime_state' in globals() else {},
+        'message': f"Runtime updated: provider={provider or 'unchanged'}, model={model or 'unchanged'}",
+        'timestamp': datetime.now().isoformat()
+    }), 200
 
-@app.route('/api/openclaw/config', methods=['POST'])
-def api_openclaw_config_set():
+
+@app.route('/api/openclaw/config', methods=['GET', 'POST'])
+def api_openclaw_config():
+    """
+    Get or set OpenClaw-specific configuration.
+    
+    GET Response shape:
+    {
+        "endpoint": "http://localhost:18789",
+        "models": {...},
+        "status": "available",
+        "timestamp": "2026-03-19T20:00:00Z"
+    }
+    
+    POST Body:
+    {
+        "endpoint": "http://localhost:18789",
+        "vision_model": "bailian/kimi-k2.5",
+        "planning_model": "bailian/glm-5",
+        "use_dual_model": true
+    }
+    """
+    if request.method == 'GET':
+        # Return current OpenClaw configuration
+        discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
+        
+        return jsonify({
+            'endpoint': app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'),
+            'dual_model': {
+                'enabled': ai_provider_manager.use_dual_model,
+                'vision_model': ai_provider_manager.vision_model,
+                'planning_model': ai_provider_manager.planning_model
+            },
+            'status': 'available' if discovery.get_available_models() else 'unavailable',
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    
+    # POST - update configuration
     data = request.get_json(silent=True) or {}
-    return jsonify({'ok': True, 'config': data}), 200
+    
+    result = {'ok': True, 'changes': []}
+    
+    if 'endpoint' in data:
+        endpoint = data['endpoint']
+        app.config['OPENCLAW_ENDPOINT'] = endpoint
+        # Also update discovery
+        discovery = get_model_discovery(endpoint)
+        discovery.clear_cache()
+        result['changes'].append(f"endpoint: {endpoint}")
+    
+    if 'vision_model' in data or 'planning_model' in data or 'use_dual_model' in data:
+        config_result = ai_provider_manager.configure_dual_model(
+            vision_model=data.get('vision_model'),
+            planning_model=data.get('planning_model'),
+            use_dual_model=data.get('use_dual_model')
+        )
+        if config_result.get('changes'):
+            result['changes'].extend(config_result['changes'])
+    
+    result['config'] = {
+        'endpoint': app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'),
+        'dual_model': {
+            'enabled': ai_provider_manager.use_dual_model,
+            'vision_model': ai_provider_manager.vision_model,
+            'planning_model': ai_provider_manager.planning_model
+        }
+    }
+    result['timestamp'] = datetime.now().isoformat()
+    
+    return jsonify(result), 200
+
+
+@app.route('/api/ai/settings', methods=['GET'])
+def api_ai_settings():
+    """
+    Get comprehensive AI settings for the settings UI.
+    
+    This is a convenience endpoint that combines all AI configuration
+    into a single response for the frontend settings page.
+    
+    Response shape:
+    {
+        "runtime": {
+            "provider": "openclaw",
+            "model": "bailian/kimi-k2.5",
+            "api_endpoint": "http://localhost:18789"
+        },
+        "providers": [
+            {
+                "id": "openclaw",
+                "name": "OpenClaw Gateway",
+                "status": "available",
+                "available": true,
+                "manual_allowed": true,
+                "models": [...],
+                "default_model": "bailian/kimi-k2.5"
+            }
+        ],
+        "openclaw": {
+            "endpoint": "http://localhost:18789",
+            "dual_model": {...},
+            "models": {...}
+        },
+        "dual_model": {
+            "enabled": true,
+            "vision_model": "bailian/kimi-k2.5",
+            "planning_model": "bailian/glm-5"
+        },
+        "manual_allowed": true,
+        "timestamp": "2026-03-19T20:00:00Z"
+    }
+    """
+    try:
+        # Get all the data
+        provider_status = ai_provider_manager.get_provider_status()
+        available_providers = ai_provider_manager.get_available_providers()
+        
+        # Build providers list with models
+        providers_list = []
+        for provider_id, status_info in provider_status.items():
+            provider_data = {
+                "id": provider_id,
+                "name": _get_provider_display_name(provider_id),
+                "status": status_info.get('status', 'unknown'),
+                "available": status_info.get('available', False),
+                "manual_allowed": _is_provider_manual_allowed(provider_id),
+                "priority": status_info.get('priority', 99),
+                "error": status_info.get('error'),
+                "models": []
+            }
+            
+            if status_info.get('available'):
+                models = _get_models_for_provider(provider_id)
+                provider_data["models"] = models
+                provider_data["default_model"] = _get_default_model_for_provider(provider_id, models)
+            
+            providers_list.append(provider_data)
+        
+        # Sort by priority
+        providers_list.sort(key=lambda p: p.get('priority', 99))
+        
+        # Get OpenClaw models
+        discovery = get_model_discovery(app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'))
+        openclaw_models = discovery.get_available_models()
+        
+        return jsonify({
+            'runtime': ai_runtime_state if 'ai_runtime_state' in globals() else {},
+            'providers': providers_list,
+            'default_provider': ai_provider_manager.default_provider,
+            'openclaw': {
+                'endpoint': app.config.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'),
+                'status': 'available' if openclaw_models else 'unavailable',
+                'models_count': len(openclaw_models)
+            },
+            'dual_model': {
+                'enabled': ai_provider_manager.use_dual_model,
+                'vision_model': ai_provider_manager.vision_model,
+                'planning_model': ai_provider_manager.planning_model,
+                'available': ai_provider_manager.dual_model_provider is not None
+            },
+            'manual_allowed': True,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Failed to get AI settings: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/agent/status', methods=['GET'])
 def api_agent_status():

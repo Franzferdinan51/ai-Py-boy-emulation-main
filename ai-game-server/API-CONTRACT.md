@@ -1,480 +1,460 @@
-# API Contract Documentation
+# API Contract - Model Discovery & Settings
 
-**Version:** 1.0.0  
-**Last Updated:** 2026-03-19  
-**Status:** Stable
+**Last Updated:** March 19, 2026
 
-This document defines the stable JSON response shapes for the PyBoy backend API endpoints.
+This document describes the backend routes that power settings/model selection in the AI-Py-Boy platform.
 
----
+## Overview
 
-## Core Principles
+All model/provider endpoints now return consistent metadata for frontend consumption:
 
-1. **Stable shapes** - Response structure never changes between versions
-2. **Safe defaults** - All endpoints return valid JSON even when no ROM is loaded
-3. **No placeholder lies** - If data isn't available, fields are empty/null, not fake data
-4. **Consistent timestamps** - All responses include ISO 8601 timestamp
-5. **Loaded indicator** - `loaded` boolean indicates if ROM is active
-
----
-
-## Response Shapes
-
-### Party Endpoint
-
-**GET `/api/party`**
-
-Returns party Pokemon information.
-
-```json
-{
-  "party_count": 3,
-  "party": [
-    {
-      "slot": 1,
-      "species_id": 25,
-      "species_name": "Pikachu",
-      "level": 12,
-      "hp": 35,
-      "max_hp": 40,
-      "status": 0,
-      "status_text": "OK",
-      "type1": "Electric",
-      "type2": null,
-      "moves": [],
-      "hp_percent": 87.5
-    }
-  ],
-  "timestamp": "2026-03-19T20:00:00.000000"
-}
-```
-
-**Empty/Loading Response:**
-```json
-{
-  "party_count": 0,
-  "party": [],
-  "timestamp": "2026-03-19T20:00:00.000000"
-}
-```
+- `id`: Unique identifier (used in API calls)
+- `name`: Short display name
+- `label`: Full display name for dropdowns (includes category suffix)
+- `provider`: Provider family
+- `category`: `vision`, `reasoning`, or `general`
+- `capabilities`: Array of capabilities (`vision`, `reasoning`, `text`)
+- `is_vision_capable`: Boolean for quick filtering
+- `is_free`: Boolean indicating free/unlimited usage
+- `manual_allowed`: Boolean - can user enter custom model ID?
+- `is_default`: Boolean - is this the default for this provider?
+- `context_window`: Estimated context window size
+- `description`: Human-readable description
 
 ---
 
-### Inventory Endpoint
+## Endpoints
 
-**GET `/api/inventory`**
+### GET `/api/providers`
 
-Returns player money and items.
+**Purpose:** Get all available AI providers with their models. Primary endpoint for settings UI.
 
-```json
-{
-  "money": 12345,
-  "money_formatted": "¥12,345",
-  "item_count": 5,
-  "items": [
-    {
-      "slot": 1,
-      "id": 4,
-      "name": "Poké Ball",
-      "quantity": 10
-    },
-    {
-      "slot": 2,
-      "id": 19,
-      "name": "Potion",
-      "quantity": 3
-    }
-  ],
-  "timestamp": "2026-03-19T20:00:00.000000"
-}
-```
-
-**Empty/Loading Response:**
-```json
-{
-  "money": 0,
-  "money_formatted": "¥0",
-  "item_count": 0,
-  "items": [],
-  "timestamp": "2026-03-19T20:00:00.000000"
-}
-```
-
----
-
-### Memory Watch Endpoint
-
-**GET `/api/memory/watch`**
-
-Returns watched memory addresses and their current values.
-
-```json
-{
-  "addresses": [],
-  "values": [],
-  "timestamp": "2026-03-19T20:00:00.000000",
-  "frame_count": 12345
-}
-```
-
-**Note:** This endpoint is a stub for future implementation. Currently returns empty arrays.
-
----
-
-### Spatial Position Endpoint
-
-**GET `/api/spatial/position`**
-
-Returns player position and map information.
-
-```json
-{
-  "x": 12,
-  "y": 8,
-  "map_id": 0,
-  "map_name": "Pallet Town",
-  "timestamp": "2026-03-19T20:00:00.000000",
-  "loaded": true
-}
-```
-
-**Empty/Loading Response:**
-```json
-{
-  "x": 0,
-  "y": 0,
-  "map_id": 0,
-  "map_name": "none",
-  "timestamp": "2026-03-19T20:00:00.000000",
-  "loaded": false
-}
-```
-
----
-
-### Spatial Minimap Endpoint
-
-**GET `/api/spatial/minimap`**
-
-Returns minimap tile data (sparse).
-
-```json
-{
-  "width": 20,
-  "height": 18,
-  "tiles": [],
-  "player": {
-    "x": 12,
-    "y": 8
-  },
-  "timestamp": "2026-03-19T20:00:00.000000",
-  "loaded": true,
-  "note": "Sparse minimap - tile data not implemented"
-}
-```
-
-**Empty/Loading Response:**
-```json
-{
-  "width": 0,
-  "height": 0,
-  "tiles": [],
-  "player": {"x": 0, "y": 0},
-  "timestamp": "2026-03-19T20:00:00.000000",
-  "loaded": false
-}
-```
-
----
-
-### Spatial NPCs Endpoint
-
-**GET `/api/spatial/npcs`**
-
-Returns nearby NPCs (including enemy Pokemon in battle).
-
-```json
-{
-  "npcs": [
-    {
-      "id": 25,
-      "name": "Pikachu",
-      "x": -1,
-      "y": -1,
-      "type": "enemy_pokemon",
-      "level": 5,
-      "hp_percent": 45.0
-    }
-  ],
-  "count": 1,
-  "timestamp": "2026-03-19T20:00:00.000000",
-  "loaded": true,
-  "note": "Battle NPCs only - sprite memory reading not implemented"
-}
-```
-
-**Empty/Loading Response:**
-```json
-{
-  "npcs": [],
-  "count": 0,
-  "timestamp": "2026-03-19T20:00:00.000000",
-  "loaded": false
-}
-```
-
----
-
-### Spatial Strategy Endpoint
-
-**GET `/api/spatial/strategy`**
-
-Returns strategic analysis and recommendations.
-
-```json
-{
-  "status": "Exploring with 3 Pokemon",
-  "health": {
-    "party_healthy": true,
-    "lowest_hp_percent": 75.0,
-    "needs_healing": false
-  },
-  "battle": {
-    "in_battle": false,
-    "recommendation": "none"
-  },
-  "recommendations": [
-    "Money: ¥12,345"
-  ],
-  "timestamp": "2026-03-19T20:00:00.000000",
-  "loaded": true
-}
-```
-
-**Battle Example:**
-```json
-{
-  "status": "In battle vs Rattata",
-  "health": {
-    "party_healthy": true,
-    "lowest_hp_percent": 85.0,
-    "needs_healing": false
-  },
-  "battle": {
-    "in_battle": true,
-    "recommendation": "attack",
-    "enemy": {
-      "species_id": 19,
-      "species_name": "Rattata",
-      "level": 3,
-      "hp": 12,
-      "max_hp": 15,
-      "hp_percent": 80.0
-    }
-  },
-  "recommendations": [
-    "Money: ¥500",
-    "Battle: attack"
-  ],
-  "timestamp": "2026-03-19T20:00:00.000000",
-  "loaded": true
-}
-```
-
-**Empty/Loading Response:**
-```json
-{
-  "status": "no_rom",
-  "health": {
-    "party_healthy": true,
-    "lowest_hp_percent": 100,
-    "needs_healing": false
-  },
-  "battle": {
-    "in_battle": false,
-    "recommendation": "none"
-  },
-  "recommendations": [],
-  "timestamp": "2026-03-19T20:00:00.000000",
-  "loaded": false
-}
-```
-
----
-
-## Game State Endpoints
-
-### Game State
-
-**GET `/api/game/state`**
-
-Returns current game state.
-
-```json
-{
-  "rom_loaded": true,
-  "active_emulator": "pyboy",
-  "rom_path": "/path/to/rom.gb",
-  "rom_name": "Pokemon Red",
-  "frame_count": 12345,
-  "fps": 60,
-  "speed_multiplier": 1.0,
-  "ai_providers": {...}
-}
-```
-
-### Agent Status
-
-**GET `/api/agent/status`**
-
-Returns AI agent status.
-
-```json
-{
-  "mode": "manual",
-  "enabled": false,
-  "last_decision": null,
-  "last_action": null
-}
-```
-
-### Screen
-
-**GET `/api/screen`**
-
-Returns base64-encoded screen image.
-
-```json
-{
-  "image": "base64_encoded_jpeg...",
-  "shape": [144, 160, 3],
-  "timestamp": 1234567890.123,
-  "pyboy_frame": 12345,
-  "performance": {
-    "total_time_ms": 5.23,
-    "conversion_time_ms": 2.1,
-    "current_fps": 60.0,
-    "adaptive_fps_target": 60
-  }
-}
-```
-
----
-
-## Action Endpoints
-
-### Button/Action
-
-**POST `/api/game/button`**  
-**POST `/api/game/action`**  
-**POST `/api/action`**
-
-Execute a button press or action.
-
-**Request:**
-```json
-{
-  "button": "A",
-  "frames": 1
-}
-```
+**Query Params:** None
 
 **Response:**
+
 ```json
 {
-  "message": "Action executed successfully",
-  "action": "A",
-  "frames": 1,
-  "history_length": 42
+  "providers": [
+    {
+      "id": "openclaw",
+      "name": "OpenClaw Gateway",
+      "status": "available",
+      "available": true,
+      "manual_allowed": true,
+      "priority": 1,
+      "error": null,
+      "models": [
+        {
+          "id": "bailian/kimi-k2.5",
+          "name": "Kimi K2.5",
+          "label": "Kimi K2.5 (Vision)",
+          "provider": "bailian",
+          "category": "vision",
+          "capabilities": ["vision", "reasoning", "text"],
+          "is_vision_capable": true,
+          "is_free": true,
+          "manual_allowed": true,
+          "is_default": true,
+          "context_window": 196608,
+          "description": "Best for game screen analysis (FREE)"
+        }
+      ],
+      "default_model": "bailian/kimi-k2.5"
+    },
+    {
+      "id": "lmstudio",
+      "name": "LM Studio (Local)",
+      "status": "available",
+      "available": true,
+      "manual_allowed": true,
+      "priority": 2,
+      "models": [...]
+    }
+  ],
+  "default_provider": "openclaw",
+  "manual_allowed": true,
+  "timestamp": "2026-03-19T20:00:00Z"
 }
 ```
 
-**Valid Actions:** `UP`, `DOWN`, `LEFT`, `RIGHT`, `A`, `B`, `START`, `SELECT`, `NOOP`
+---
+
+### GET `/api/models`
+
+**Purpose:** Get models for a specific provider (when `?provider=X`) or all providers (when no query param).
+
+**Query Params:**
+- `provider` (optional): Provider name to filter by
+
+**Response (specific provider):**
+
+```json
+{
+  "provider": "lmstudio",
+  "name": "LM Studio (Local)",
+  "status": "available",
+  "available": true,
+  "manual_allowed": true,
+  "models": [
+    {
+      "id": "qwen3-vl-8b",
+      "name": "Qwen3 VL 8B",
+      "label": "Qwen3 VL 8B",
+      "provider": "lmstudio",
+      "category": "vision",
+      "capabilities": ["vision", "reasoning", "text"],
+      "is_vision_capable": true,
+      "is_free": true,
+      "manual_allowed": true,
+      "is_default": false,
+      "context_window": 8192,
+      "description": "Vision model for screen analysis"
+    }
+  ],
+  "default_model": "qwen3-vl-8b",
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+---
+
+### GET `/api/openclaw/models`
+
+**Purpose:** Get all models available through OpenClaw Gateway.
+
+**Query Params:**
+- `refresh` (optional): Force cache refresh (`true`/`false`, default: `false`)
+
+**Response:**
+
+```json
+{
+  "provider": "openclaw",
+  "name": "OpenClaw Gateway",
+  "status": "available",
+  "available": true,
+  "manual_allowed": true,
+  "models": [
+    {
+      "id": "bailian/kimi-k2.5",
+      "name": "Kimi K2.5",
+      "label": "Kimi K2.5 (Vision)",
+      "provider": "bailian",
+      "category": "vision",
+      "capabilities": ["vision", "reasoning", "text"],
+      "is_vision_capable": true,
+      "is_free": true,
+      "manual_allowed": true,
+      "is_default": true,
+      "context_window": 196608,
+      "priority": 100,
+      "description": "Best for game screen analysis (FREE)"
+    }
+  ],
+  "default_model": "bailian/kimi-k2.5",
+  "timestamp": "2026-03-19T20:00:00Z",
+  "cached": true
+}
+```
+
+---
+
+### GET `/api/openclaw/models/vision`
+
+**Purpose:** Get only vision-capable models from OpenClaw.
+
+**Response:** Same shape as `/api/openclaw/models` but filtered to `is_vision_capable: true`.
+
+```json
+{
+  "provider": "openclaw",
+  "name": "OpenClaw Vision Models",
+  "category": "vision",
+  "models": [...],
+  "default_model": "bailian/kimi-k2.5",
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+---
+
+### GET `/api/openclaw/models/planning`
+
+**Purpose:** Get models suitable for planning/decision making.
+
+**Response:** Same shape as `/api/openclaw/models` but filtered to reasoning models.
+
+```json
+{
+  "provider": "openclaw",
+  "name": "OpenClaw Planning Models",
+  "category": "planning",
+  "models": [...],
+  "default_model": "bailian/glm-5",
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+---
+
+### GET `/api/openclaw/models/recommend`
+
+**Purpose:** Get model recommendation for a specific use case.
+
+**Query Params:**
+- `use_case`: One of `vision`, `planning`, `fast`, `quality`, `free` (default: `planning`)
+
+**Response:**
+
+```json
+{
+  "recommended": {
+    "id": "bailian/kimi-k2.5",
+    "name": "Kimi K2.5",
+    "label": "Kimi K2.5 (Vision)",
+    "provider": "bailian",
+    "category": "vision",
+    "is_vision_capable": true,
+    "is_free": true,
+    "description": "Best for game screen analysis (FREE)",
+    "is_default": true
+  },
+  "use_case": "vision",
+  "reason": "Best vision model available (Kimi K2.5)",
+  "alternatives": [
+    {
+      "id": "bailian/qwen3.5-plus",
+      "name": "Qwen 3.5 Plus",
+      "provider": "bailian",
+      "is_free": false,
+      "is_vision_capable": true
+    }
+  ],
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+---
+
+### GET/POST `/api/ai/runtime`
+
+**Purpose:** Get or set the current AI runtime configuration.
+
+**GET Response:**
+
+```json
+{
+  "state": {
+    "provider": "openclaw",
+    "model": "bailian/kimi-k2.5",
+    "api_endpoint": "http://localhost:18789"
+  },
+  "available_providers": ["openclaw", "lmstudio", "gemini"],
+  "provider_status": {
+    "openclaw": {"status": "available", "available": true},
+    "lmstudio": {"status": "available", "available": true}
+  },
+  "default_provider": "openclaw",
+  "manual_allowed": true,
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+**POST Body:**
+
+```json
+{
+  "provider": "lmstudio",
+  "model": "qwen3-vl-8b",
+  "api_endpoint": "http://localhost:1234/v1"
+}
+```
+
+**POST Response:**
+
+```json
+{
+  "ok": true,
+  "state": {
+    "provider": "lmstudio",
+    "model": "qwen3-vl-8b",
+    "api_endpoint": "http://localhost:1234/v1"
+  },
+  "message": "Runtime updated: provider=lmstudio, model=qwen3-vl-8b",
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+---
+
+### GET/POST `/api/openclaw/config`
+
+**Purpose:** Get or set OpenClaw-specific configuration.
+
+**GET Response:**
+
+```json
+{
+  "endpoint": "http://localhost:18789",
+  "dual_model": {
+    "enabled": true,
+    "vision_model": "bailian/kimi-k2.5",
+    "planning_model": "bailian/glm-5"
+  },
+  "status": "available",
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+**POST Body:**
+
+```json
+{
+  "endpoint": "http://localhost:18789",
+  "vision_model": "bailian/kimi-k2.5",
+  "planning_model": "bailian/glm-5",
+  "use_dual_model": true
+}
+```
+
+---
+
+### GET `/api/ai/settings`
+
+**Purpose:** Comprehensive settings endpoint combining all AI configuration. Use for initial settings page load.
+
+**Response:**
+
+```json
+{
+  "runtime": {
+    "provider": "openclaw",
+    "model": "bailian/kimi-k2.5",
+    "api_endpoint": "http://localhost:18789"
+  },
+  "providers": [
+    {
+      "id": "openclaw",
+      "name": "OpenClaw Gateway",
+      "status": "available",
+      "available": true,
+      "manual_allowed": true,
+      "models": [...],
+      "default_model": "bailian/kimi-k2.5"
+    }
+  ],
+  "default_provider": "openclaw",
+  "openclaw": {
+    "endpoint": "http://localhost:18789",
+    "status": "available",
+    "models_count": 5
+  },
+  "dual_model": {
+    "enabled": true,
+    "vision_model": "bailian/kimi-k2.5",
+    "planning_model": "bailian/glm-5",
+    "available": true
+  },
+  "manual_allowed": true,
+  "timestamp": "2026-03-19T20:00:00Z"
+}
+```
+
+---
+
+## Provider Categories
+
+| Category | Description | Example Models |
+|----------|-------------|----------------|
+| `vision` | Vision/image analysis | kimi-k2.5, qwen3-vl-8b, llava |
+| `reasoning` | Text reasoning/planning | glm-5, qwen3.5-plus, MiniMax-M2.5 |
+| `general` | General purpose | Default fallback |
+
+---
+
+## Manual Model Entry
+
+All providers support `manual_allowed: true`, meaning users can enter custom model IDs not in the discovered list.
+
+**Frontend Implementation:**
+
+1. Show dropdown with discovered models
+2. Add "Custom model..." option
+3. When selected, show text input for manual model ID
+4. Submit the manual ID as `model` in POST requests
+
+---
+
+## Backward Compatibility
+
+These changes are **backward compatible**:
+
+- Existing endpoints still work
+- New fields are additive (don't break existing code)
+- `/api/models?provider=X` returns enhanced response
+- `/api/providers/status` unchanged for compatibility
+
+---
+
+## Frontend Usage Examples
+
+### Populate Settings Dropdown
+
+```typescript
+// Fetch all providers with models
+const response = await fetch('/api/providers');
+const data = await response.json();
+
+// Build dropdown options
+data.providers.forEach(provider => {
+  if (provider.available) {
+    provider.models.forEach(model => {
+      console.log(`${model.label} (${model.id})`);
+    });
+  }
+});
+```
+
+### Set Runtime Model
+
+```typescript
+await fetch('/api/ai/runtime', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    provider: 'lmstudio',
+    model: 'qwen3-vl-8b'
+  })
+});
+```
+
+### Get Vision Models Only
+
+```typescript
+const response = await fetch('/api/openclaw/models/vision');
+const data = await response.json();
+
+// data.models contains only vision-capable models
+```
 
 ---
 
 ## Error Responses
 
-All endpoints return safe JSON on error:
+All endpoints return consistent error format:
 
 ```json
 {
-  "error": "Error description",
-  "timestamp": "2026-03-19T20:00:00.000000"
-}
-```
-
-Or for endpoints with `loaded` field:
-
-```json
-{
-  ...default_fields...,
-  "loaded": false,
-  "error": "Error description"
+  "error": "Provider 'unknown' not found",
+  "available_providers": ["openclaw", "lmstudio", "gemini"]
 }
 ```
 
 ---
 
-## Map ID Reference (Pokemon Red/Blue)
+## Cache Behavior
 
-| ID | Name |
-|----|------|
-| 0x00 | Pallet Town |
-| 0x01 | Viridian City |
-| 0x02 | Pewter City |
-| 0x03 | Cerulean City |
-| 0x04 | Lavender Town |
-| 0x05 | Vermilion City |
-| 0x06 | Celadon City |
-| 0x07 | Fuchsia City |
-| 0x08 | Cinnabar Island |
-| 0x09 | Indigo Plateau |
-| 0x0A | Saffron City |
-| 0x38 | Route 1 |
-| 0x39 | Route 2 |
-| 0x3A | Route 3 |
-
----
-
-## Testing
-
-Test endpoints locally with curl:
-
-```bash
-# Health check
-curl http://localhost:5002/health
-
-# Party info
-curl http://localhost:5002/api/party
-
-# Inventory
-curl http://localhost:5002/api/inventory
-
-# Position
-curl http://localhost:5002/api/spatial/position
-
-# Strategy
-curl http://localhost:5002/api/spatial/strategy
-
-# Press A button
-curl -X POST http://localhost:5002/api/game/button \
-  -H "Content-Type: application/json" \
-  -d '{"button": "A", "frames": 1}'
-```
-
----
-
-## Changelog
-
-### v1.0.0 (2026-03-19)
-- Initial stable API contract
-- Added `/api/party` with Pokemon party reading
-- Added `/api/inventory` with money and items
-- Added `/api/memory/watch` stub
-- Added `/api/spatial/position` with player coordinates
-- Added `/api/spatial/minimap` (sparse implementation)
-- Added `/api/spatial/npcs` (battle NPCs only)
-- Added `/api/spatial/strategy` with recommendations
-- All endpoints return stable JSON shapes
-- Safe empty/loading responses for all endpoints
+- OpenClaw model discovery caches results for 5 minutes
+- Use `?refresh=true` to force refresh
+- Check `cached` field in response to know if data is from cache
