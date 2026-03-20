@@ -2391,6 +2391,597 @@ def api_memory_watch():
     except Exception as e:
         return jsonify({'addresses': [], 'values': [], 'timestamp': datetime.now().isoformat(), 'error': str(e)}), 200
 
+
+# =========================================
+# Server-Side Vision Analysis Endpoints
+# =========================================
+# These endpoints capture the screen and return STRUCTURED TEXT ANALYSIS,
+# not just raw image data. This allows LM Studio / MCP agents to understand
+# the screen even when their interface does not truly consume attached images.
+#
+# KEY DIFFERENCE:
+# - get_screen/screenshot: Returns raw image bytes (for humans/visual display)
+# - analyze_screen/describe_screen/ocr_screen: Returns text analysis (for AI agents)
+# =========================================
+
+@app.route('/api/vision/analyze', methods=['POST'])
+def api_vision_analyze():
+    """
+    Analyze the current game screen using the configured vision model.
+    
+    This endpoint captures the screen and returns STRUCTURED TEXT ANALYSIS,
+    not just an attached image. This is designed for AI agents that cannot
+    process attached images in their interface.
+    
+    Request body (optional):
+    {
+        "prompt": "Custom analysis prompt (optional)",
+        "context": {"goal": "...", "game_type": "..."} // Optional context
+    }
+    
+    Response shape:
+    {
+        "success": true,
+        "analysis": {
+            "game_state": "exploration",  // exploration, battle, menu, dialog, title
+            "description": "Player is in a grassy area near a building...",
+            "player_position": "center of screen",
+            "nearby_entities": ["npc", "building", "grass"],
+            "ui_elements": ["health_bar", "menu_indicator"],
+            "danger_level": "low",  // low, medium, high
+            "opportunities": ["talk to npc", "enter building"],
+            "text_visible": false,
+            "raw_response": "Full vision model response..."
+        },
+        "model_used": "bailian/kimi-k2.5",
+        "timestamp": "2026-03-19T20:00:00Z"
+    }
+    
+    Note: This is DIFFERENT from /api/screen which returns raw image bytes.
+    Use this endpoint when you need TEXT ANALYSIS of the screen, not the image itself.
+    """
+    try:
+        current_state = get_game_state()
+        if not current_state.get("rom_loaded") or not current_state.get("active_emulator"):
+            return jsonify({
+                "success": False,
+                "error": "No ROM loaded",
+                "analysis": None,
+                "timestamp": datetime.now().isoformat()
+            }), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        
+        # Get screen bytes
+        screen_array = emulator.get_screen()
+        if screen_array is None or screen_array.size == 0:
+            return jsonify({
+                "success": False,
+                "error": "Failed to capture screen",
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+        # Convert to bytes for vision model
+        img_bytes = emulator.get_screen_bytes()
+        if not img_bytes:
+            return jsonify({
+                "success": False,
+                "error": "Failed to encode screen",
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+        # Get request data
+        data = request.get_json(silent=True) or {}
+        custom_prompt = data.get('prompt')
+        context = data.get('context', {})
+        context.setdefault('goal', current_state.get('current_goal', 'explore and progress'))
+        context.setdefault('game_type', 'Game Boy')
+        
+        # Build vision prompt
+        prompt = custom_prompt or f"""Analyze this Game Boy game screen. Provide:
+
+1. **Game State**: What's happening? (exploration, battle, menu, dialog, title screen)
+2. **Description**: Brief visual description of what you see
+3. **Player Position**: Where is the player on screen?
+4. **Nearby Entities**: NPCs, enemies, items, obstacles (list what you can identify)
+5. **UI Elements**: Menus, text boxes, health bars, indicators
+6. **Danger Level**: Is there immediate danger? (low/medium/high)
+7. **Opportunities**: What could the player do next?
+
+Current objective: {context.get('goal')}
+
+Be concise but specific. Focus on actionable information for gameplay."""
+
+        # Use dual-model provider for vision analysis
+        if ai_provider_manager.use_dual_model and ai_provider_manager.dual_model_provider:
+            analysis = ai_provider_manager.dual_model_provider.analyze_screen(img_bytes, context)
+            
+            return jsonify({
+                "success": True,
+                "analysis": {
+                    "game_state": analysis.game_state,
+                    "description": analysis.raw_description,
+                    "player_position": analysis.player_position,
+                    "nearby_entities": analysis.nearby_entities,
+                    "ui_elements": analysis.ui_elements,
+                    "danger_level": analysis.danger_level,
+                    "opportunities": analysis.opportunities,
+                    "raw_response": analysis.raw_description
+                },
+                "model_used": f"vision:{ai_provider_manager.vision_model}",
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        
+        # Fallback: use single provider with vision capability
+        vision_model = os.environ.get('LM_STUDIO_VISION_MODEL', 'qwen3-vl-8b')
+        provider_name = os.environ.get('VISION_PROVIDER', 'lmstudio')
+        
+        connector = ai_provider_manager.get_provider(provider_name)
+        if connector:
+            # Call the vision-capable model
+            import base64
+            image_base64 = base64.b64encode(img_bytes).decode('utf-8')
+            
+            # Most providers have a method to analyze images
+            if hasattr(connector, 'analyze_image'):
+                result = connector.analyze_image(image_base64, prompt)
+            elif hasattr(connector, 'chat_with_image'):
+                result = connector.chat_with_image(prompt, image_base64, context)
+            else:
+                # Generic fallback - construct a message with image context
+                result = connector.chat_with_ai(
+                    f"[Image attached - screen capture]\n\n{prompt}",
+                    img_bytes,
+                    context
+                )
+            
+            return jsonify({
+                "success": True,
+                "analysis": {
+                    "game_state": "unknown",
+                    "description": result if isinstance(result, str) else str(result),
+                    "raw_response": result if isinstance(result, str) else str(result)
+                },
+                "model_used": f"{provider_name}:{vision_model}",
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        
+        return jsonify({
+            "success": False,
+            "error": "No vision-capable AI provider available",
+            "hint": "Configure LM_STUDIO_VISION_MODEL or enable dual-model mode",
+            "timestamp": datetime.now().isoformat()
+        }), 503
+        
+    except Exception as e:
+        logger.error(f"Error in vision analysis: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+
+@app.route('/api/vision/describe', methods=['GET', 'POST'])
+def api_vision_describe():
+    """
+    Get a simple human-readable description of the current screen.
+    
+    This is a lightweight alternative to /api/vision/analyze for quick
+    screen understanding. Returns just a text description.
+    
+    GET: Use default description prompt
+    POST body: {"prompt": "Custom prompt (optional)"}
+    
+    Response shape:
+    {
+        "success": true,
+        "description": "The player is standing in a town square...",
+        "model_used": "bailian/kimi-k2.5",
+        "timestamp": "..."
+    }
+    
+    Difference from /api/screen:
+    - /api/screen returns raw image bytes (for display)
+    - /api/vision/describe returns TEXT describing the image (for understanding)
+    """
+    try:
+        current_state = get_game_state()
+        if not current_state.get("rom_loaded") or not current_state.get("active_emulator"):
+            return jsonify({
+                "success": False,
+                "error": "No ROM loaded",
+                "description": None,
+                "timestamp": datetime.now().isoformat()
+            }), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        img_bytes = emulator.get_screen_bytes()
+        
+        if not img_bytes:
+            return jsonify({
+                "success": False,
+                "error": "Failed to capture screen",
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+        # Get custom prompt if provided
+        data = request.get_json(silent=True) or {}
+        custom_prompt = data.get('prompt', 'Describe what you see on this Game Boy screen in 2-3 sentences.')
+        
+        # Use dual-model provider
+        if ai_provider_manager.use_dual_model and ai_provider_manager.dual_model_provider:
+            analysis = ai_provider_manager.dual_model_provider.analyze_screen(
+                img_bytes, 
+                {"goal": "describe the screen"}
+            )
+            return jsonify({
+                "success": True,
+                "description": analysis.raw_description,
+                "model_used": f"vision:{ai_provider_manager.vision_model}",
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        
+        # Fallback to single provider
+        connector = ai_provider_manager.get_provider()
+        if connector:
+            result = connector.chat_with_ai(
+                custom_prompt,
+                img_bytes,
+                {"goal": "describe screen"}
+            )
+            return jsonify({
+                "success": True,
+                "description": result,
+                "model_used": ai_provider_manager.default_provider,
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        
+        return jsonify({
+            "success": False,
+            "error": "No AI provider available",
+            "timestamp": datetime.now().isoformat()
+        }), 503
+        
+    except Exception as e:
+        logger.error(f"Error in vision describe: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+
+@app.route('/api/vision/ocr', methods=['GET'])
+def api_vision_ocr():
+    """
+    Extract visible text from the current screen using OCR.
+    
+    This endpoint focuses specifically on text extraction, useful for:
+    - Reading dialogue boxes
+    - Extracting menu options
+    - Reading in-game text (signs, items, etc.)
+    
+    Response shape:
+    {
+        "success": true,
+        "text": {
+            "raw": "All extracted text...",
+            "lines": ["Line 1", "Line 2", ...],
+            "has_text": true,
+            "dialogue_active": false
+        },
+        "model_used": "...",
+        "timestamp": "..."
+    }
+    
+    Note: This returns EXTRACTED TEXT, not the screen image.
+    For the raw screen, use /api/screen.
+    """
+    try:
+        current_state = get_game_state()
+        if not current_state.get("rom_loaded") or not current_state.get("active_emulator"):
+            return jsonify({
+                "success": False,
+                "error": "No ROM loaded",
+                "text": {"raw": "", "lines": [], "has_text": False},
+                "timestamp": datetime.now().isoformat()
+            }), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        img_bytes = emulator.get_screen_bytes()
+        
+        if not img_bytes:
+            return jsonify({
+                "success": False,
+                "error": "Failed to capture screen",
+                "text": {"raw": "", "lines": [], "has_text": False},
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+        # OCR-focused prompt
+        ocr_prompt = """Extract all visible text from this Game Boy screen.
+
+List each distinct text element you can see:
+- Dialogue text
+- Menu options
+- Item names
+- Numbers (HP, level, money, etc.)
+- Any other readable text
+
+Format your response as:
+TEXT_FOUND: [yes/no]
+LINES:
+- Line 1 text
+- Line 2 text
+...
+
+If no text is visible, respond with:
+TEXT_FOUND: no
+LINES: (none)"""
+
+        # Use vision model for OCR
+        if ai_provider_manager.use_dual_model and ai_provider_manager.dual_model_provider:
+            analysis = ai_provider_manager.dual_model_provider.analyze_screen(
+                img_bytes,
+                {"goal": "extract text"}
+            )
+            
+            # Parse OCR response
+            raw_text = analysis.raw_description
+            lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
+            has_text = bool(lines) and 'no text' not in raw_text.lower()
+            
+            return jsonify({
+                "success": True,
+                "text": {
+                    "raw": raw_text,
+                    "lines": lines,
+                    "has_text": has_text,
+                    "dialogue_active": any('dialogue' in line.lower() for line in lines)
+                },
+                "model_used": f"vision:{ai_provider_manager.vision_model}",
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        
+        # Fallback
+        connector = ai_provider_manager.get_provider()
+        if connector:
+            result = connector.chat_with_ai(ocr_prompt, img_bytes, {"goal": "ocr"})
+            
+            lines = [line.strip() for line in result.split('\n') if line.strip()]
+            has_text = bool(lines)
+            
+            return jsonify({
+                "success": True,
+                "text": {
+                    "raw": result,
+                    "lines": lines,
+                    "has_text": has_text
+                },
+                "model_used": ai_provider_manager.default_provider,
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        
+        return jsonify({
+            "success": False,
+            "error": "No vision-capable AI provider available for OCR",
+            "text": {"raw": "", "lines": [], "has_text": False},
+            "timestamp": datetime.now().isoformat()
+        }), 503
+        
+    except Exception as e:
+        logger.error(f"Error in OCR: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "text": {"raw": "", "lines": [], "has_text": False},
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+
+@app.route('/api/vision/summary', methods=['GET'])
+def api_vision_summary():
+    """
+    Get a quick summary of the current screen state.
+    
+    This is the fastest vision endpoint, designed for rapid state checks.
+    Returns minimal but actionable information.
+    
+    Response shape:
+    {
+        "success": true,
+        "summary": {
+            "state": "exploration",  // exploration, battle, menu, dialog
+            "safe_to_act": true,
+            "recommended_action": "explore",
+            "urgency": "low"  // low, medium, high
+        },
+        "model_used": "...",
+        "timestamp": "..."
+    }
+    
+    Use this for quick checks when you don't need full analysis.
+    For detailed analysis, use /api/vision/analyze.
+    For raw image, use /api/screen.
+    """
+    try:
+        current_state = get_game_state()
+        if not current_state.get("rom_loaded") or not current_state.get("active_emulator"):
+            return jsonify({
+                "success": False,
+                "error": "No ROM loaded",
+                "summary": None,
+                "timestamp": datetime.now().isoformat()
+            }), 400
+        
+        emulator = emulators[current_state["active_emulator"]]
+        img_bytes = emulator.get_screen_bytes()
+        
+        if not img_bytes:
+            return jsonify({
+                "success": False,
+                "error": "Failed to capture screen",
+                "summary": None,
+                "timestamp": datetime.now().isoformat()
+            }), 500
+        
+        # Quick summary prompt
+        summary_prompt = """Quick screen analysis. Respond in this EXACT format:
+
+STATE: [exploration/battle/menu/dialog/title]
+SAFE_TO_ACT: [yes/no]
+URGENCY: [low/medium/high]
+RECOMMENDED: [one action: UP/DOWN/LEFT/RIGHT/A/B/WAIT]
+
+Only respond with those 4 lines. No other text."""
+
+        # Use vision model
+        if ai_provider_manager.use_dual_model and ai_provider_manager.dual_model_provider:
+            analysis = ai_provider_manager.dual_model_provider.analyze_screen(
+                img_bytes,
+                {"goal": "quick summary"}
+            )
+            
+            # Parse summary
+            raw = analysis.raw_description.lower()
+            
+            state = "unknown"
+            if "battle" in raw:
+                state = "battle"
+            elif "menu" in raw:
+                state = "menu"
+            elif "dialog" in raw:
+                state = "dialog"
+            elif "explor" in raw or "overworld" in raw:
+                state = "exploration"
+            
+            safe = "battle" not in raw and "danger" not in raw
+            urgency = "high" if "danger" in raw or "critical" in raw else "medium" if "battle" in raw else "low"
+            
+            return jsonify({
+                "success": True,
+                "summary": {
+                    "state": state,
+                    "safe_to_act": safe,
+                    "recommended_action": analysis.opportunities[0] if analysis.opportunities else "explore",
+                    "urgency": urgency
+                },
+                "model_used": f"vision:{ai_provider_manager.vision_model}",
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        
+        # Fallback
+        connector = ai_provider_manager.get_provider()
+        if connector:
+            result = connector.chat_with_ai(summary_prompt, img_bytes, {"goal": "summary"})
+            
+            # Parse the structured response
+            lines = result.strip().split('\n')
+            summary_data = {}
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    summary_data[key.strip().lower().replace(' ', '_')] = value.strip()
+            
+            return jsonify({
+                "success": True,
+                "summary": {
+                    "state": summary_data.get('state', 'unknown'),
+                    "safe_to_act": summary_data.get('safe_to_act', 'yes').lower() == 'yes',
+                    "recommended_action": summary_data.get('recommended', 'wait'),
+                    "urgency": summary_data.get('urgency', 'low')
+                },
+                "model_used": ai_provider_manager.default_provider,
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        
+        return jsonify({
+            "success": False,
+            "error": "No AI provider available",
+            "summary": None,
+            "timestamp": datetime.now().isoformat()
+        }), 503
+        
+    except Exception as e:
+        logger.error(f"Error in vision summary: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "summary": None,
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+
+@app.route('/api/vision/status', methods=['GET'])
+def api_vision_status():
+    """
+    Get the current vision analysis configuration and status.
+    
+    Response shape:
+    {
+        "vision_available": true,
+        "dual_model_enabled": true,
+        "vision_model": "bailian/kimi-k2.5",
+        "planning_model": "bailian/glm-5",
+        "providers": {
+            "openclaw": {"available": true, "vision_capable": true},
+            "lmstudio": {"available": true, "vision_capable": true}
+        },
+        "endpoints": {
+            "analyze": "/api/vision/analyze",
+            "describe": "/api/vision/describe",
+            "ocr": "/api/vision/ocr",
+            "summary": "/api/vision/summary"
+        },
+        "difference_from_screenshot": {
+            "screenshot_endpoints": ["/api/screen", "/screenshot"],
+            "screenshot_returns": "Raw image bytes (base64 JPEG)",
+            "vision_endpoints": ["/api/vision/analyze", "/api/vision/describe", ...],
+            "vision_returns": "Structured text analysis (JSON)"
+        },
+        "timestamp": "..."
+    }
+    """
+    provider_status = ai_provider_manager.get_provider_status()
+    dual_model_status = ai_provider_manager.get_dual_model_status()
+    
+    return jsonify({
+        "vision_available": dual_model_status.get("available", False),
+        "dual_model_enabled": dual_model_status.get("enabled", False),
+        "vision_model": dual_model_status.get("vision_model", "not configured"),
+        "planning_model": dual_model_status.get("planning_model", "not configured"),
+        "providers": {
+            name: {
+                "available": info.get("available", False),
+                "vision_capable": name in ["openclaw", "lmstudio", "gemini"]
+            }
+            for name, info in provider_status.items()
+        },
+        "endpoints": {
+            "analyze": "/api/vision/analyze",
+            "describe": "/api/vision/describe",
+            "ocr": "/api/vision/ocr",
+            "summary": "/api/vision/summary"
+        },
+        "usage_guide": {
+            "when_to_use_screenshot": [
+                "Displaying the game to a human user",
+                "Recording gameplay footage",
+                "Visual debugging",
+                "Frontend needs raw pixels"
+            ],
+            "when_to_use_vision_analysis": [
+                "AI agent needs to understand the screen",
+                "Making gameplay decisions without human",
+                "Extracting text (OCR)",
+                "Detecting game state changes",
+                "LM Studio / MCP agents that can't process images"
+            ]
+        },
+        "timestamp": datetime.now().isoformat()
+    }), 200
+
 # =========================================
 # Spatial Endpoints (MCP/UI Contract)
 # =========================================
@@ -3096,6 +3687,219 @@ def api_agent_goal():
         'task': task,
         'timestamp': datetime.now().isoformat()
     }), 200
+
+
+# Intent patterns for floating chat instruction parsing
+INTENT_PATTERNS = {
+    'goal': ['goal:', 'objective:', 'my goal is ', 'i want to ', 'go for '],
+    'task': ['task:', 'do: ', 'please ', 'can you '],
+    'query': ['?status', '?state', 'status', 'state:']
+}
+
+def parse_instruction(message: str) -> dict:
+    """
+    Parse message to detect instruction intent.
+    
+    Returns:
+        {'intent': 'goal'|'task'|'query'|'chat', 'value': string}
+    """
+    if not message:
+        return {'intent': 'chat', 'value': ''}
+    
+    lower = message.lower().strip()
+    
+    for intent, patterns in INTENT_PATTERNS.items():
+        for pattern in patterns:
+            if lower.startswith(pattern):
+                return {
+                    'intent': intent,
+                    'value': message[len(pattern):].strip()
+                }
+    
+    return {'intent': 'chat', 'value': message}
+
+
+def format_agent_status_response() -> str:
+    """Format agent status as a readable string for chat response"""
+    mode = agent_state.get('mode', 'manual')
+    goal = agent_state.get('current_goal', '(none)')
+    task = agent_state.get('current_task', '(none)')
+    last_action = agent_state.get('last_action', 'None')
+    last_time = agent_state.get('last_action_time', 'Never')
+    stats = agent_state.get('stats', {})
+    total_actions = stats.get('total_actions', 0)
+    
+    response = f"Agent Status:\n"
+    response += f"- Mode: {mode}\n"
+    response += f"- Goal: {goal}\n"
+    response += f"- Task: {task}\n"
+    response += f"- Last action: {last_action}"
+    if last_time != 'Never':
+        response += f" ({last_time})"
+    response += f"\n- Total actions: {total_actions}"
+    
+    return response
+
+
+@app.route('/api/agent/chat', methods=['POST'])
+def api_agent_chat():
+    """
+    Agent-aware chat endpoint that can set goals/tasks via chat.
+    
+    This endpoint integrates the floating chat with the agent state system.
+    Use prefixes to control agent behavior:
+    - "goal: <text>" - Set the agent's current goal
+    - "task: <text>" - Set the agent's current task
+    - "?status" or "status" - Query agent status
+    - Plain text - Regular chat with AI
+    
+    Request Body:
+    {
+        "message": "string (required)",
+        "api_name": "string (optional, default: openclaw)",
+        "api_key": "string (optional)",
+        "api_endpoint": "string (optional)",
+        "model": "string (optional)"
+    }
+    
+    Response:
+    {
+        "ok": boolean,
+        "intent_detected": "goal"|"task"|"query"|"chat",
+        "goal_updated": string|null,
+        "task_updated": string|null,
+        "chat_response": "string",
+        "agent_state": {...},
+        "timestamp": "string"
+    }
+    """
+    try:
+        current_state = get_game_state()
+        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
+            return jsonify({
+                "ok": False,
+                "error": "No ROM loaded",
+                "chat_response": None,
+                "timestamp": datetime.now().isoformat()
+            }), 400
+        
+        data = request.get_json(silent=True) or {}
+        user_message = data.get('message', '')
+        
+        if not user_message:
+            return jsonify({
+                "ok": False,
+                "error": "Message is required",
+                "chat_response": None,
+                "timestamp": datetime.now().isoformat()
+            }), 400
+        
+        # Parse intent from message
+        parsed = parse_instruction(user_message)
+        intent = parsed['intent']
+        value = parsed['value']
+        
+        goal_updated = None
+        task_updated = None
+        chat_response = None
+        
+        # Handle intent
+        if intent == 'goal' and value:
+            # Set agent goal
+            agent_state['current_goal'] = value
+            logger.info(f"Agent goal set via chat: {value}")
+            goal_updated = value
+            chat_response = f"I've updated your goal to: {value}. What would you like me to help you with?"
+        
+        elif intent == 'task' and value:
+            # Set agent task
+            agent_state['current_task'] = value
+            logger.info(f"Agent task set via chat: {value}")
+            task_updated = value
+            chat_response = f"I've set your current task to: {value}. I'll focus on this now."
+        
+        elif intent == 'query':
+            # Return agent status
+            chat_response = format_agent_status_response()
+        
+        else:
+            # Regular chat - get AI response
+            api_name = data.get('api_name', 'openclaw')
+            api_key = data.get('api_key')
+            api_endpoint = data.get('api_endpoint')
+            model = data.get('model')
+            
+            # Get screen bytes
+            current_state = get_game_state()
+            emulator = emulators[current_state["active_emulator"]]
+            img_bytes = emulator.get_screen_bytes()
+            
+            if len(img_bytes) == 0:
+                return jsonify({
+                    "ok": False,
+                    "error": "Failed to capture screen",
+                    "chat_response": None,
+                    "timestamp": datetime.now().isoformat()
+                }), 500
+            
+            # Build context with agent state
+            context = {
+                "current_goal": agent_state.get('current_goal', ''),
+                "current_task": agent_state.get('current_task', ''),
+                "action_history": get_action_history()[-10:],
+                "game_type": current_state["active_emulator"].upper()
+            }
+            
+            # Get AI response using the provider
+            try:
+                if api_name in ai_apis:
+                    ai_connector = ai_apis[api_name]
+                    chat_response = ai_connector.chat_with_ai(user_message, img_bytes, context)
+                elif api_name == 'openclaw' or not api_name:
+                    # Use OpenClaw provider
+                    from backend.ai_apis.openclaw_ai_provider import OpenClawAIProvider
+                    oc_provider = OpenClawAIProvider(
+                        endpoint=api_endpoint or os.environ.get('OPENCLAW_ENDPOINT', 'http://localhost:18789'),
+                        api_key=api_key or os.environ.get('OPENCLAW_API_KEY', '')
+                    )
+                    chat_response = oc_provider.chat_with_ai(user_message, img_bytes, context)
+                else:
+                    chat_response = f"Provider '{api_name}' not available. Use: {', '.join(ai_apis.keys())}"
+            except Exception as e:
+                logger.error(f"AI chat error: {e}")
+                chat_response = f"I couldn't process that request. Error: {str(e)}"
+        
+        # Get current agent state for response
+        errors = agent_state.get('errors', [])
+        last_error = errors[-1] if errors else None
+        
+        return jsonify({
+            "ok": True,
+            "intent_detected": intent,
+            "goal_updated": goal_updated,
+            "task_updated": task_updated,
+            "chat_response": chat_response,
+            "agent_state": {
+                "mode": agent_state.get('mode', 'manual'),
+                "enabled": agent_state.get('enabled', False),
+                "current_goal": agent_state.get('current_goal', ''),
+                "current_task": agent_state.get('current_task', ''),
+                "last_action": agent_state.get('last_action'),
+                "last_action_time": agent_state.get('last_action_time'),
+                "last_error": last_error,
+                "action_count": agent_state.get('stats', {}).get('total_actions', 0)
+            },
+            "timestamp": datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in agent chat: {e}")
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+            "chat_response": None,
+            "timestamp": datetime.now().isoformat()
+        }), 500
 
 
 @app.route('/api/agent/errors', methods=['GET'])

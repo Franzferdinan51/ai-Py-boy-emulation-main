@@ -515,6 +515,64 @@ async def list_tools() -> List[Tool]:
                 "properties": {}
             }
         ),
+        # === SERVER-SIDE VISION ANALYSIS TOOLS ===
+        # These tools capture the screen and return TEXT ANALYSIS, not images.
+        # Use these when you need to UNDERSTAND the screen, not just see it.
+        # For raw screenshots, use get_screen or screenshot tools instead.
+        Tool(
+            name="analyze_screen",
+            description="Capture and analyze the current game screen. Returns STRUCTURED TEXT ANALYSIS including game state, description, nearby entities, UI elements, danger level, and opportunities. Use this when you need to UNDERSTAND what's on screen, not just see the pixels. This is different from get_screen which returns raw image bytes.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Optional custom analysis prompt"
+                    },
+                    "goal": {
+                        "type": "string",
+                        "description": "Current objective context (optional)"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="describe_screen",
+            description="Get a simple text description of the current screen. Lightweight alternative to analyze_screen for quick understanding. Returns human-readable description of what's visible.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Optional custom description prompt"
+                    }
+                }
+            }
+        ),
+        Tool(
+            name="ocr_screen",
+            description="Extract visible text from the current screen using OCR. Focuses specifically on text extraction - dialogue boxes, menu options, item names, numbers, etc. Returns extracted text lines, not the image.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="screen_summary",
+            description="Get a quick summary of the current screen state. Fastest vision endpoint for rapid state checks. Returns: game state, safety status, urgency, and recommended action.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="vision_status",
+            description="Get the current vision analysis configuration. Shows available vision models, endpoints, and usage guidance for when to use vision analysis vs raw screenshots.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
     ]
 
 def api_get(endpoint: str) -> Dict[str, Any]:
@@ -831,6 +889,142 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
         elif name == "get_menu_state":
             result = api_get("/api/agent/menu")
             return [TextContent(type="text", text=json.dumps(result))]
+        
+        # === SERVER-SIDE VISION ANALYSIS TOOL HANDLERS ===
+        # These capture the screen and return TEXT ANALYSIS, not images.
+        # This allows AI agents to understand the screen even when their
+        # interface does not truly consume attached images.
+        
+        elif name == "analyze_screen":
+            """Full structured analysis of the current screen."""
+            prompt = arguments.get("prompt") if arguments else None
+            goal = arguments.get("goal") if arguments else None
+            
+            data = {}
+            if prompt:
+                data["prompt"] = prompt
+            if goal:
+                data["context"] = {"goal": goal}
+            
+            if data:
+                result = requests.post(
+                    f"{DEFAULT_BACKEND_URL}/api/vision/analyze",
+                    json=data,
+                    timeout=30
+                ).json()
+            else:
+                result = requests.post(
+                    f"{DEFAULT_BACKEND_URL}/api/vision/analyze",
+                    json={},
+                    timeout=30
+                ).json()
+            
+            # Return structured analysis as text
+            if result.get("success"):
+                analysis = result.get("analysis", {})
+                output = {
+                    "success": True,
+                    "game_state": analysis.get("game_state", "unknown"),
+                    "description": analysis.get("description", ""),
+                    "player_position": analysis.get("player_position"),
+                    "nearby_entities": analysis.get("nearby_entities", []),
+                    "ui_elements": analysis.get("ui_elements", []),
+                    "danger_level": analysis.get("danger_level", "low"),
+                    "opportunities": analysis.get("opportunities", []),
+                    "model_used": result.get("model_used"),
+                    "timestamp": result.get("timestamp")
+                }
+                return [TextContent(type="text", text=json.dumps(output, indent=2))]
+            else:
+                return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "describe_screen":
+            """Simple text description of the current screen."""
+            prompt = arguments.get("prompt") if arguments else None
+            
+            data = {"prompt": prompt} if prompt else {}
+            
+            if data:
+                result = requests.post(
+                    f"{DEFAULT_BACKEND_URL}/api/vision/describe",
+                    json=data,
+                    timeout=30
+                ).json()
+            else:
+                result = requests.post(
+                    f"{DEFAULT_BACKEND_URL}/api/vision/describe",
+                    json={},
+                    timeout=30
+                ).json()
+            
+            if result.get("success"):
+                return [TextContent(type="text", text=json.dumps({
+                    "success": True,
+                    "description": result.get("description", ""),
+                    "model_used": result.get("model_used"),
+                    "timestamp": result.get("timestamp")
+                }, indent=2))]
+            else:
+                return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "ocr_screen":
+            """Extract text from the current screen."""
+            result = requests.get(
+                f"{DEFAULT_BACKEND_URL}/api/vision/ocr",
+                timeout=30
+            ).json()
+            
+            if result.get("success"):
+                text_data = result.get("text", {})
+                return [TextContent(type="text", text=json.dumps({
+                    "success": True,
+                    "has_text": text_data.get("has_text", False),
+                    "lines": text_data.get("lines", []),
+                    "dialogue_active": text_data.get("dialogue_active", False),
+                    "raw_text": text_data.get("raw", ""),
+                    "model_used": result.get("model_used"),
+                    "timestamp": result.get("timestamp")
+                }, indent=2))]
+            else:
+                return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "screen_summary":
+            """Quick summary of current screen state."""
+            result = requests.get(
+                f"{DEFAULT_BACKEND_URL}/api/vision/summary",
+                timeout=30
+            ).json()
+            
+            if result.get("success"):
+                summary = result.get("summary", {})
+                return [TextContent(type="text", text=json.dumps({
+                    "success": True,
+                    "state": summary.get("state", "unknown"),
+                    "safe_to_act": summary.get("safe_to_act", True),
+                    "urgency": summary.get("urgency", "low"),
+                    "recommended_action": summary.get("recommended_action", "wait"),
+                    "model_used": result.get("model_used"),
+                    "timestamp": result.get("timestamp")
+                }, indent=2))]
+            else:
+                return [TextContent(type="text", text=json.dumps(result))]
+        
+        elif name == "vision_status":
+            """Get vision analysis configuration and status."""
+            result = requests.get(
+                f"{DEFAULT_BACKEND_URL}/api/vision/status",
+                timeout=10
+            ).json()
+            
+            return [TextContent(type="text", text=json.dumps({
+                "vision_available": result.get("vision_available", False),
+                "dual_model_enabled": result.get("dual_model_enabled", False),
+                "vision_model": result.get("vision_model", ""),
+                "planning_model": result.get("planning_model", ""),
+                "endpoints": result.get("endpoints", {}),
+                "usage_guide": result.get("usage_guide", {}),
+                "timestamp": result.get("timestamp")
+            }, indent=2))]
         
         else:
             return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]

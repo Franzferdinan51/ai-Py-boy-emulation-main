@@ -732,6 +732,252 @@ When using LM Studio with the MCP server, these tools map to:
 
 ---
 
+## Agent State & Goal Endpoints
+
+### GET `/api/agent/state`
+
+**Purpose:** Get comprehensive agent state (OpenClaw-style).
+
+**Response:**
+
+```json
+{
+  "mode": "manual",
+  "enabled": false,
+  "current_goal": "Beat the Elite Four",
+  "current_task": "",
+  "last_decision": null,
+  "last_action": "A",
+  "last_action_time": "2026-03-19T21:44:55Z",
+  "recent_errors": [],
+  "recent_actions": [
+    {"timestamp": "2026-03-19T21:44:55Z", "action": "A", "frames": 1, "result": "success"}
+  ],
+  "stats": {
+    "total_actions": 42,
+    "total_decisions": 15,
+    "total_errors": 0
+  },
+  "started_at": null,
+  "timestamp": "2026-03-19T21:45:00Z"
+}
+```
+
+---
+
+### GET `/api/agent/status`
+
+**Purpose:** Get agent status summary (OpenClaw-style).
+
+**Response:**
+
+```json
+{
+  "mode": "manual",
+  "enabled": false,
+  "goal": "Beat the Elite Four",
+  "last_action": "A",
+  "last_error": null,
+  "action_count": 42,
+  "error_count": 0,
+  "timestamp": "2026-03-19T21:45:00Z"
+}
+```
+
+---
+
+### GET/POST `/api/agent/goal`
+
+**Purpose:** Get or set the current agent goal/task.
+
+**GET Response:**
+
+```json
+{
+  "goal": "Beat the Elite Four",
+  "task": "",
+  "timestamp": "2026-03-19T21:45:00Z"
+}
+```
+
+**POST Body:**
+
+```json
+{
+  "goal": "Beat the Elite Four",
+  "task": "Train up my team"
+}
+```
+
+**POST Response:**
+
+```json
+{
+  "ok": true,
+  "goal": "Beat the Elite Four",
+  "task": "Train up my team",
+  "timestamp": "2026-03-19T21:45:00Z"
+}
+```
+
+---
+
+### POST `/api/agent/chat`
+
+**Purpose:** Agent-aware chat that can set goals/tasks via natural language. This is the **floating chat** endpoint that integrates chat with agent state.
+
+**Instruction Patterns:**
+
+| Pattern | Action | Example |
+|---------|--------|---------|
+| `goal:` or `objective:` | Sets `current_goal` | `goal: Catch a legendary` |
+| `task:` or `do:` | Sets `current_task` | `task: Go to Pokemon Center` |
+| `?status` or `status` | Returns agent status | `?status` |
+| Plain message | Regular AI chat | `What should I do?` |
+
+**Request Body:**
+
+```json
+{
+  "message": "goal: Beat the Elite Four",
+  "api_name": "openclaw",
+  "model": "bailian/kimi-k2.5"
+}
+```
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "intent_detected": "goal",
+  "goal_updated": "Beat the Elite Four",
+  "task_updated": null,
+  "chat_response": "I've updated your goal to: Beat the Elite Four. To beat the Elite Four, you'll need...",
+  "agent_state": {
+    "mode": "autonomous",
+    "enabled": true,
+    "current_goal": "Beat the Elite Four",
+    "current_task": "",
+    "last_action": "A",
+    "last_action_time": "2026-03-19T21:44:55Z",
+    "last_error": null,
+    "action_count": 42
+  },
+  "timestamp": "2026-03-19T21:45:00Z"
+}
+```
+
+**Query Response (status/state):**
+
+```json
+{
+  "ok": true,
+  "intent_detected": "query",
+  "goal_updated": null,
+  "task_updated": null,
+  "chat_response": "Agent Status:\n- Mode: autonomous\n- Goal: Beat the Elite Four\n- Task: (none)\n- Last action: A (15 seconds ago)\n- Total actions: 42",
+  "agent_state": {...},
+  "timestamp": "2026-03-19T21:45:00Z"
+}
+```
+
+---
+
+### GET `/api/agent/errors`
+
+**Purpose:** Get recent agent errors.
+
+**Query Params:**
+- `limit`: number (default: 10, max: 50)
+
+**Response:**
+
+```json
+{
+  "errors": [
+    {
+      "timestamp": "2026-03-19T21:40:00Z",
+      "type": "action_failed",
+      "message": "Invalid button press",
+      "context": {"action": "INVALID", "frame": 12345}
+    }
+  ],
+  "count": 1,
+  "total_errors": 1,
+  "timestamp": "2026-03-19T21:45:00Z"
+}
+```
+
+---
+
+### GET `/api/agent/actions`
+
+**Purpose:** Get recent agent actions.
+
+**Query Params:**
+- `limit`: number (default: 20, max: 100)
+
+**Response:**
+
+```json
+{
+  "actions": [
+    {
+      "timestamp": "2026-03-19T21:44:55Z",
+      "action": "A",
+      "frames": 1,
+      "result": "success"
+    }
+  ],
+  "count": 1,
+  "total_actions": 42,
+  "timestamp": "2026-03-19T21:45:00Z"
+}
+```
+
+---
+
+## Floating Chat Agent Instruction Flow
+
+The floating chat in the frontend is designed to be **agent-first**, not cosmetic. It provides:
+
+1. **Direct goal/task control** via natural language prefixes
+2. **Status queries** without leaving the chat interface
+3. **Regular AI chat** for game questions and advice
+
+### Integration with Agent State
+
+The floating chat endpoints map directly to the agent state system:
+
+```
+User Input: "goal: Catch Mewtwo"
+        │
+        ▼
+POST /api/agent/chat
+        │
+        ▼
+Parse intent → { intent: 'goal', value: 'Catch Mewtwo' }
+        │
+        ▼
+Update agent_state['current_goal'] = 'Catch Mewtwo'
+        │
+        ▼
+Get AI response with updated context
+        │
+        ▼
+Return: { intent_detected: 'goal', goal_updated: 'Catch Mewtwo', chat_response: ..., agent_state: ... }
+```
+
+### Frontend Implementation
+
+The frontend should:
+1. Send all chat messages to `/api/agent/chat` (not `/api/chat`)
+2. Display goal/task updates from response fields
+3. Show agent state changes immediately in the UI
+
+---
+
 ## Cache Behavior
 
 - OpenClaw model discovery caches results for 5 minutes
