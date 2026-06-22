@@ -1,11 +1,28 @@
-Flask==2.3.2
-Flask-CORS==4.0.0
+# Core web framework (Flask 3.x)
+Flask>=3.0,<4.0
+Flask-CORS>=4.0.0,<7.0
+Werkzeug>=3.0,<4.0
+
+# Image and array
 numpy>=1.24.3
 Pillow>=9.5.0
-requests==2.31.0
-openai>=1.0.0
-pyboy==2.7.0  # Game Boy emulator (Latest)
-pygba==0.2.4  # Game Boy Advance emulator (Latest)
-mcp>=1.0.0  # Model Context Protocol
-python-dotenv>=1.0.0  # Environment variables
-websockets>=12.0  # WebSocket streaming support
+
+# HTTP / API clients
+requests>=2.31.0
+openai>=1.50.0,<3.0  # OpenAI Python SDK (2.x line)
+httpx>=0.27.0
+
+# Emulators (PyBoy 2.x + PyGBA)
+pyboy>=2.0.0,<3.0  # Game Boy emulator
+pygba>=0.2.0       # Game Boy Advance emulator
+
+# Agent / MCP
+mcp>=1.0.0          # Model Context Protocol
+
+# Utilities
+python-dotenv>=1.0.0
+websockets>=12.0
+
+# Optional: performance / vision
+# opencv-python>=4.8.0
+# torch>=2.0.0

@@ -6765,6 +6765,34 @@ def main():
     start_websocket_server()
     logger.info(f"[WS] WebSocket server started on ws://localhost:{WS_PORT}/api/ws/stream")
 
+    # ------------------------------------------------------------------
+    # Wire agent_features (sessions, memory, events, telemetry, collision)
+    # ------------------------------------------------------------------
+    try:
+        from backend.agent_features import register_all as register_agent_features
+
+        def _active_emulator_ref():
+            try:
+                _state = get_game_state()
+                _active = _state.get("active_emulator")
+                if _active and _active in emulators:
+                    return emulators[_active]
+            except Exception:  # noqa: BLE001
+                return None
+            return None
+
+        counts = register_agent_features(
+            app,
+            emulator_ref_getter=_active_emulator_ref,
+        )
+        logger.info(
+            f"[agent_features] Registered routes — sessions:{counts.get('sessions',0)} "
+            f"memory:{counts.get('memory',0)} events:{counts.get('events',0)} "
+            f"telemetry:{counts.get('telemetry',0)} collision:{counts.get('collision',0)}"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"[agent_features] Failed to register: {e}", exc_info=True)
+
     try:
         app.run(host=HOST, port=PORT, debug=DEBUG, threaded=True, use_reloader=False)
     except Exception as e:
