@@ -639,6 +639,258 @@ class ApiService {
       message?: string;
     }>('/api/sound/buffer');
   }
+
+  // =========================================
+  // agent_features — sessions / events / telemetry / memory / collision
+  // =========================================
+
+  // ----- Sessions ---------------------------------------------------
+
+  listSessions() {
+    return this.request<{
+      sessions: Array<{
+        id: string;
+        name: string;
+        rom_name?: string | null;
+        emulator?: string | null;
+        created_at?: string;
+        updated_at?: string;
+        active: boolean;
+        milestones_count?: number;
+        objectives_count?: number;
+      }>;
+      active_session_id: string | null;
+      count: number;
+    }>('/api/games');
+  }
+
+  getCurrentSession() {
+    return this.request<{
+      session: Record<string, unknown> | null;
+    }>('/api/games/current');
+  }
+
+  createSession(payload: { name?: string; rom_name?: string; emulator?: string; objectives?: string[] } = {}) {
+    return this.request<{
+      session: { id: string; name: string; [k: string]: unknown };
+      message: string;
+    }>('/api/games/new', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  activateSession(sessionId: string) {
+    return this.request<{ success: boolean; session_id: string; message?: string }>(
+      `/api/games/${encodeURIComponent(sessionId)}/activate`,
+      { method: 'POST' }
+    );
+  }
+
+  deleteSession(sessionId: string) {
+    return this.request<{ success: boolean; message?: string }>(
+      `/api/games/${encodeURIComponent(sessionId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  saveSessionState(sessionId: string) {
+    return this.request<{ success: boolean; bytes?: number; message?: string }>(
+      `/api/games/${encodeURIComponent(sessionId)}/save_state`,
+      { method: 'POST' }
+    );
+  }
+
+  loadSessionState(sessionId: string) {
+    return this.request<{ success: boolean; bytes?: number; message?: string }>(
+      `/api/games/${encodeURIComponent(sessionId)}/save_state`,
+      { method: 'GET' }
+    );
+  }
+
+  // ----- Events (reasoning stream) -----------------------------------
+
+  listEvents(params: { kind?: string; session_id?: string; limit?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (params.kind) qs.set('kind', params.kind);
+    if (params.session_id) qs.set('session_id', params.session_id);
+    if (params.limit !== undefined) qs.set('limit', String(params.limit));
+    const tail = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<{
+      events: Array<{
+        id: string | number;
+        kind: string;
+        session_id?: string | null;
+        message: string;
+        data?: Record<string, unknown>;
+        timestamp: string;
+      }>;
+      count: number;
+    }>(`/api/agent/events${tail}`);
+  }
+
+  postEvent(payload: {
+    kind: 'THINK' | 'DECIDE' | 'ACT' | 'MILESTONE' | 'ALERT' | 'OBSERVE' | 'REFLECT';
+    message: string;
+    session_id?: string;
+    data?: Record<string, unknown>;
+  }) {
+    return this.request<{ success: boolean; event?: Record<string, unknown> }>(
+      '/api/agent/events',
+      { method: 'POST', body: JSON.stringify(payload) }
+    );
+  }
+
+  getEventStats() {
+    return this.request<{
+      total: number;
+      by_kind: Record<string, number>;
+      by_session: Record<string, number>;
+    }>('/api/agent/events/stats');
+  }
+
+  clearEvents() {
+    return this.request<{ success: boolean; cleared?: number }>(
+      '/api/agent/events/clear',
+      { method: 'POST' }
+    );
+  }
+
+  // ----- Telemetry (stuck-meter, blackouts, etc.) --------------------
+
+  getTelemetry(sessionId?: string) {
+    const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+    return this.request<{
+      session_id?: string | null;
+      stuck_meter: number;
+      position_history_len: number;
+      last_positions: Array<{ x: number; y: number; map_id?: number; ts: number }>;
+      actions_total: number;
+      actions_success: number;
+      actions_failure: number;
+      battles_won: number;
+      battles_lost: number;
+      blackouts: number;
+      party_hp_total?: number | null;
+      party_hp_max?: number | null;
+      ts: string;
+    }>(`/api/agent/telemetry${qs}`);
+  }
+
+  recordPosition(payload: { x: number; y: number; map_id?: number; session_id?: string }) {
+    return this.request<{ success: boolean; stuck_meter: number; alert_emitted?: boolean }>(
+      '/api/agent/telemetry/position',
+      { method: 'POST', body: JSON.stringify(payload) }
+    );
+  }
+
+  recordAction(payload: { action: string; result: 'success' | 'failure'; session_id?: string; details?: string }) {
+    return this.request<{ success: boolean }>(
+      '/api/agent/telemetry/action',
+      { method: 'POST', body: JSON.stringify(payload) }
+    );
+  }
+
+  resetTelemetry(sessionId?: string) {
+    const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+    return this.request<{ success: boolean }>(`/api/agent/telemetry/reset`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // ----- Memory (KnowledgeBase) -------------------------------------
+
+  getMemory(params: { type?: string; session_id?: string; limit?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (params.type) qs.set('type', params.type);
+    if (params.session_id) qs.set('session_id', params.session_id);
+    if (params.limit !== undefined) qs.set('limit', String(params.limit));
+    const tail = qs.toString() ? `?${qs.toString()}` : '';
+    return this.request<{
+      entries: Array<{
+        id: string | number;
+        type: string;
+        key?: string;
+        value?: unknown;
+        message?: string;
+        session_id?: string;
+        timestamp: string;
+        tags?: string[];
+      }>;
+      count: number;
+    }>(`/api/agent/memory${tail}`);
+  }
+
+  getMemorySummary() {
+    return this.request<{
+      total: number;
+      by_type: Record<string, number>;
+      latest_by_type: Record<string, { timestamp: string; message?: string; key?: string }>;
+    }>('/api/agent/memory/summary');
+  }
+
+  searchMemory(q: string, sessionId?: string) {
+    const qs = new URLSearchParams({ q });
+    if (sessionId) qs.set('session_id', sessionId);
+    return this.request<{
+      matches: Array<{
+        id: string | number;
+        type: string;
+        message?: string;
+        score: number;
+        timestamp: string;
+      }>;
+      count: number;
+    }>(`/api/agent/memory/search?${qs.toString()}`);
+  }
+
+  addMemoryNote(payload: { message: string; tags?: string[]; session_id?: string }) {
+    return this.request<{ success: boolean; entry?: Record<string, unknown> }>(
+      '/api/agent/memory/note',
+      { method: 'POST', body: JSON.stringify(payload) }
+    );
+  }
+
+  addMemoryLocation(payload: { name: string; map_id?: number; x?: number; y?: number; notes?: string; session_id?: string }) {
+    return this.request<{ success: boolean; entry?: Record<string, unknown> }>(
+      '/api/agent/memory/location',
+      { method: 'POST', body: JSON.stringify(payload) }
+    );
+  }
+
+  completeMemoryObjective(payload: { objective: string; session_id?: string }) {
+    return this.request<{ success: boolean; entry?: Record<string, unknown> }>(
+      '/api/agent/memory/objective_complete',
+      { method: 'POST', body: JSON.stringify(payload) }
+    );
+  }
+
+  // ----- Collision (spatial) -----------------------------------------
+
+  getCollisionGrid(width = 32, height = 32) {
+    return this.request<{
+      ok: boolean;
+      ascii?: string;
+      labeled?: string;
+      width: number;
+      height: number;
+      provider?: string;
+      error?: string;
+    }>(`/api/spatial/collision?width=${width}&height=${height}`);
+  }
+
+  getGridText(width = 20, height = 18) {
+    return this.request<{
+      ok: boolean;
+      text?: string;
+      width: number;
+      height: number;
+      provider?: string;
+      error?: string;
+    }>(`/api/spatial/grid/text?width=${width}&height=${height}`);
+  }
 }
 
 const apiService = new ApiService();
