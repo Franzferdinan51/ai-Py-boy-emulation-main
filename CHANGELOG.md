@@ -117,11 +117,76 @@ endpoints: sessions, events (incl. SSE), telemetry, memory, collision.
   82 kB gzipped).
 - All new modules import cleanly with no circular-import warnings.
 
+## [Unreleased] — 2026-06-22
+
+### Refactored — server.py split into Flask blueprints (Stage 3 continued)
+
+Continuing the Stage 3 work, five more domain groups have been moved out of
+the monolithic `server.py` (was 5,917 lines, 92 routes) into focused, reusable
+blueprint modules under `backend/routes/`:
+
+| Module            | Routes extracted                                                                                           | Lines removed from server.py |
+| ---               | ---                                                                                                        | ---                           |
+| `routes/health.py`     | `/health`, `/api/health`, `/api/health/runtime`, `/api/health/emulator`, `/api/health/stream`        | ~120                          |
+| `routes/ai_models.py`  | `/api/providers`, `/api/providers/status`, `/api/models`, `/api/openclaw/models` (+ vision / planning / recommend) | ~310                          |
+| `routes/ai_runtime.py` | `/api/ai/runtime`, `/api/openclaw/config`, `/api/ai/settings`, `/api/openclaw/health`             | ~205                          |
+| `routes/screen.py`     | `/api/screen`, `/api/screen/debug`, `/api/stream`, `/api/performance`, `/api/emulator/mode`, `/api/emulator/clear-cache` | ~165                          |
+| `routes/input.py`      | `/api/game/button`, `/api/game/action`, `/api/action`, `/api/ai-action`, `/api/chat`, `/input`     | ~720                          |
+
+Net effect: `server.py` shrank from **5,917 → 3,337 lines** (−2,580, −44%).
+All 76 routes still respond with the same URL / method / JSON shape as the
+legacy handlers. The new blueprints follow the same
+`register_*_routes(app, **deps)` pattern, so any subset can be mounted on a
+different Flask app (e.g. for a stripped-down embed).
+
+The `routes/__init__.py::register_all` signature grew new optional kwargs for
+each blueprint (e.g. `health_*`, `ai_models_*`, `ai_runtime_*`, `screen_*`,
+`input_*`). All defaults are sensible no-ops — wiring with the production
+call site in `server.py::main()` is the only consumer that needs them.
+
+### Added — Flask test-client smoke test
+
+`tests/test_blueprint_smoke.py` (43 checks) verifies:
+
+- No `(rule, method)` pair is registered twice across all blueprints
+  (shadowing is now a hard assertion).
+- Every new endpoint returns the expected status code (200 for healthy paths,
+  400 for ROM-required, 503 for service-unavailable fallbacks).
+- Response bodies include the same key fields the legacy handlers returned
+  (`status`, `checks`, `providers`, `runtime.state`, `performance.server_performance`,
+  `system_info`, etc.).
+
+Run with either:
+
+```bash
+python3 tests/test_blueprint_smoke.py   # exits non-zero on regression
+pytest tests/test_blueprint_smoke.py   # integrated with the test runner
+```
+
+The two `/api/config*` 503s are baseline behavior (no `SecureConfig` in the
+test env) — verified by stashing the refactor and re-running the suite.
+
+### Verified
+
+- `python3 -c "import backend.server as srv"` succeeds; 76 routes registered.
+- `pytest tests/test_all.py tests/test_blueprint_smoke.py` — **5 passed**.
+- `routes/__init__.py::register_all` smoke trace:
+  `config:2 health:5 ai_models:7 ai_runtime:4 save_load:4 screen:6 input:6 ui:4 ws:3 tetris:4 vision:5`
+  (50 routes from blueprints + 26 still in server.py for the agent/spatial/ROM domain).
+- Baseline stash test confirms `/api/config*` 503 behavior is preserved
+  (not a regression introduced by the refactor).
+
 ## Future
 
 ### Planned (next phases)
-- Split remaining domains in `server.py`: agent, spatial, ai_runtime, ai_action,
-  screen, input, health into blueprints (Stage 3 cont.)
+- Split remaining domains in `server.py`: agent (8 routes — `/api/agent/state`,
+  `/api/agent/mode`, `/api/agent/goal`, `/api/agent/chat`, `/api/agent/errors`,
+  `/api/agent/actions`, `/api/agent/context`, `/api/agent/act`,
+  `/api/agent/dialogue`, `/api/agent/menu`), spatial (3 routes — `/api/spatial/position`,
+  `/api/spatial/minimap`, `/api/spatial/npcs`), strategy (`/api/spatial/strategy`,
+  `/api/agent/strategy`), and ROM management (`/api/load_rom`,
+  `/api/game/state`, `/api/party`, `/api/inventory`, `/api/memory/watch`,
+  `/api/upload-rom`, `/api/rom/load`) into blueprints (Stage 3 cont.)
 - Frontend: Grid map view (uses `/api/spatial/grid`), 3-tier objectives panel,
   party belt (all 6 slots compact), RAG over memory
 - PyBoy 2.x API audit (verify we're using `screen.image`, `pyboy.memory` correctly)

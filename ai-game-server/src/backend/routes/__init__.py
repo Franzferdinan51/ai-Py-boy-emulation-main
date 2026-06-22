@@ -20,11 +20,19 @@ read them lazily via the getter callables to avoid circular imports.
 """
 from __future__ import annotations
 
+import multiprocessing
+import os
+import time
 from typing import Any, Callable, Dict, Optional
 
 from . import (
+    ai_models,
+    ai_runtime,
     config,
+    health,
+    input,
     save_load,
+    screen,
     ui,
     ws,
     tetris,
@@ -32,8 +40,13 @@ from . import (
 )
 
 __all__ = [
+    "ai_models",
+    "ai_runtime",
     "config",
+    "health",
+    "input",
     "save_load",
+    "screen",
     "ui",
     "ws",
     "tetris",
@@ -55,6 +68,45 @@ def register_all(
     debug: bool = False,
     saved_states: Optional[Dict[str, Any]] = None,
     websocket_runner: Optional[Any] = None,
+    # health() deps — all optional with sensible defaults so the blueprint
+    # can be wired without breaking the module-load-time registration site.
+    health_server_start_time_getter: Optional[Callable[[], float]] = None,
+    health_pyboy_available: bool = False,
+    health_mcp_available: bool = False,
+    health_format_uptime: Optional[Callable[[float], str]] = None,
+    health_get_memory_usage: Optional[Callable[[], float]] = None,
+    health_component_health: Optional[Dict[str, Any]] = None,
+    health_ws_status_getter: Optional[Callable[[], Any]] = None,
+    health_get_performance_stats: Optional[Callable[[], Dict[str, Any]]] = None,
+    health_agent_state_getter: Optional[Callable[[], Dict[str, Any]]] = None,
+    # ai_models() deps — optional; endpoints return 503 if missing.
+    ai_models_get_model_discovery: Optional[Callable[..., Any]] = None,
+    ai_models_openclaw_endpoint_getter: Optional[Callable[[], str]] = None,
+    # ai_runtime() deps
+    ai_runtime_state_getter: Optional[Callable[[], Dict[str, Any]]] = None,
+    ai_runtime_state_setter: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ai_runtime_openclaw_endpoint_setter: Optional[Callable[[str], None]] = None,
+    # screen() deps
+    screen_numpy_to_base64: Optional[Callable[..., Any]] = None,
+    screen_update_performance_metrics: Optional[Callable[[float, float], None]] = None,
+    screen_performance_monitor: Optional[Dict[str, Any]] = None,
+    screen_get_memory_usage: Optional[Callable[[], float]] = None,
+    screen_use_multi_process: bool = False,
+    screen_optimization_system_manager: Any = None,
+    screen_optimization_system_available: bool = False,
+    screen_get_performance_stats: Optional[Callable[[], Dict[str, Any]]] = None,
+    # input() deps
+    input_update_game_state: Optional[Callable[[Dict[str, Any]], None]] = None,
+    input_get_action_history: Optional[Callable[[], list]] = None,
+    input_add_to_action_history: Optional[Callable[[Any], None]] = None,
+    input_record_agent_action: Optional[Callable[..., None]] = None,
+    input_record_agent_error: Optional[Callable[..., None]] = None,
+    input_record_agent_decision: Optional[Callable[..., None]] = None,
+    input_validate_string_input: Optional[Callable[..., Any]] = None,
+    input_validate_integer_input: Optional[Callable[..., Any]] = None,
+    input_validate_json_data: Optional[Callable[..., Any]] = None,
+    input_timeout_handler: Optional[Callable[[float], Any]] = None,
+    input_ai_request_timeout: float = 30.0,
 ) -> Dict[str, int]:
     """Register all blueprint routes on the given Flask app.
 
@@ -80,12 +132,104 @@ def register_all(
     )
 
     _step(
+        "health",
+        lambda: health.register_health_routes(
+            app,
+            server_start_time_getter=health_server_start_time_getter
+            or (lambda: time.time()),
+            pyboy_available=health_pyboy_available,
+            mcp_available=health_mcp_available,
+            format_uptime=health_format_uptime
+            or health._default_format_uptime,
+            get_memory_usage=health_get_memory_usage
+            or health._default_get_memory_usage,
+            component_health=health_component_health,
+            ws_status_getter=health_ws_status_getter
+            or health._default_ws_status,
+            game_state_getter=game_state_getter,
+            emulators_getter=emulators_getter,
+            get_performance_stats=health_get_performance_stats
+            or health._default_performance_stats,
+            agent_state_getter=health_agent_state_getter
+            or (lambda: {"enabled": False, "mode": "manual", "errors": []}),
+        ),
+    )
+
+    _step(
+        "ai_models",
+        lambda: ai_models.register_ai_models_routes(
+            app,
+            ai_provider_manager=ai_provider_manager,
+            get_model_discovery=ai_models_get_model_discovery,
+            openclaw_endpoint_getter=ai_models_openclaw_endpoint_getter
+            or (lambda: os.environ.get("OPENCLAW_ENDPOINT", "http://localhost:18789")),
+        ),
+    )
+
+    _step(
+        "ai_runtime",
+        lambda: ai_runtime.register_ai_runtime_routes(
+            app,
+            ai_provider_manager=ai_provider_manager,
+            get_model_discovery=ai_models_get_model_discovery,
+            ai_runtime_state_getter=ai_runtime_state_getter
+            or (lambda: {}),
+            ai_runtime_state_setter=ai_runtime_state_setter,
+            openclaw_endpoint_getter=ai_models_openclaw_endpoint_getter
+            or (lambda: os.environ.get("OPENCLAW_ENDPOINT", "http://localhost:18789")),
+            openclaw_endpoint_setter=ai_runtime_openclaw_endpoint_setter,
+        ),
+    )
+
+    _step(
         "save_load",
         lambda: save_load.register_save_load_routes(
             app,
             emulators_getter=emulators_getter,
             game_state_getter=game_state_getter,
             saved_states=saved_states if saved_states is not None else {},
+        ),
+    )
+
+    _step(
+        "screen",
+        lambda: screen.register_screen_routes(
+            app,
+            game_state_getter=game_state_getter,
+            emulators_getter=emulators_getter,
+            numpy_to_base64_image=screen_numpy_to_base64,
+            update_performance_metrics=screen_update_performance_metrics,
+            performance_monitor=screen_performance_monitor,
+            get_performance_stats=(screen_get_performance_stats or (lambda: {})),
+            get_memory_usage=screen_get_memory_usage,
+            use_multi_process=screen_use_multi_process,
+            optimization_system_manager=screen_optimization_system_manager,
+            optimization_system_available=screen_optimization_system_available,
+            multiprocessing_cpu_count=multiprocessing.cpu_count,
+        ),
+    )
+
+    _step(
+        "input",
+        lambda: input.register_input_routes(
+            app,
+            game_state_getter=game_state_getter,
+            emulators_getter=emulators_getter,
+            update_game_state=input_update_game_state or (lambda _u: None),
+            get_action_history=input_get_action_history or (lambda: []),
+            add_to_action_history=input_add_to_action_history or (lambda _a: None),
+            record_agent_action=input_record_agent_action,
+            record_agent_error=input_record_agent_error,
+            record_agent_decision=input_record_agent_decision,
+            validate_string_input=input_validate_string_input,
+            validate_integer_input=input_validate_integer_input,
+            validate_json_data=input_validate_json_data,
+            timeout_handler=input_timeout_handler,
+            ai_provider_manager=ai_provider_manager,
+            ai_runtime_state_getter=ai_runtime_state_getter or (lambda: {}),
+            optimization_system_manager=screen_optimization_system_manager,
+            optimization_system_available=screen_optimization_system_available,
+            ai_request_timeout=input_ai_request_timeout,
         ),
     )
 

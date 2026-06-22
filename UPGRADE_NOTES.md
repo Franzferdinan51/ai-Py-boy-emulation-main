@@ -252,6 +252,25 @@ Built 5 new feature modules under `ai-game-server/src/backend/agent_features/`:
 
 The new modules are already self-contained and additive. The legacy 6,778-line `server.py` still works and is now augmented with 33 new endpoints. Full blueprint split is the next step.
 
+#### Stage 3 cont. (2026-06-22) — five more blueprints shipped
+
+`server.py` shrank from **5,917 → 3,337 lines** (−2,580, −44%) by extracting:
+
+| Blueprint              | Routes                                                                                                       | ~LOC moved |
+| ---                    | ---                                                                                                          | ---         |
+| `routes/health.py`     | `/health`, `/api/health`, `/api/health/runtime`, `/api/health/emulator`, `/api/health/stream`               | 120         |
+| `routes/ai_models.py`  | `/api/providers`, `/api/providers/status`, `/api/models`, `/api/openclaw/models[/{vision,planning,recommend}]` | 310         |
+| `routes/ai_runtime.py` | `/api/ai/runtime`, `/api/openclaw/config`, `/api/ai/settings`, `/api/openclaw/health`                       | 205         |
+| `routes/screen.py`     | `/api/screen`, `/api/screen/debug`, `/api/stream`, `/api/performance`, `/api/emulator/mode`, `/api/emulator/clear-cache` | 165         |
+| `routes/input.py`      | `/api/game/button`, `/api/game/action`, `/api/action`, `/api/ai-action`, `/api/chat`, `/input`              | 720         |
+
+Plus `tests/test_blueprint_smoke.py` (43 Flask test-client checks) — guards against
+any future route shadowing and asserts the same response shapes the legacy handlers
+returned. **5 passed** in the local pytest run; no regressions.
+
+Server-resident routes remaining for Stage 3 cont. round 2:
+agent (10), spatial (3), strategy (2), ROM management (7) — see CHANGELOG "Future".
+
 ### Stage 4: Frontend Updates — PENDING
 - Field Log panel (reasoning stream)
 - Grid map view (SCREEN ⇄ GRID toggle)
