@@ -176,17 +176,68 @@ test env) — verified by stashing the refactor and re-running the suite.
 - Baseline stash test confirms `/api/config*` 503 behavior is preserved
   (not a regression introduced by the refactor).
 
+## [Unreleased] — 2026-06-22 (Stage 3 cont. round 2)
+
+### Refactored — server.py split completed for the last 22 routes
+
+The last group of routes has been moved out of `server.py` (3,337 → 1,678
+lines, −1,659 lines, −50% net from the original 6,806-line monolith).
+
+| Module                | Routes extracted                                                                                            | LOC moved |
+| ---                   | ---                                                                                                          | ---        |
+| `routes/agent.py`     | `/api/agent/state`, `/api/agent/status`, `/api/agent/goal` (GET/POST), `/api/agent/chat`, `/api/agent/errors`, `/api/agent/actions`, `/api/agent/context`, `/api/agent/mode` (GET/POST), `/api/agent/act`, `/api/agent/dialogue`, `/api/agent/menu` | 800        |
+| `routes/spatial.py`   | `/api/spatial/position`, `/api/spatial/minimap`, `/api/spatial/npcs`, `/api/spatial/strategy`, `/api/agent/strategy` (alias) | 320        |
+| `routes/rom.py`       | `/api/upload-rom`, `/api/load_rom`, `/api/rom/load`, `/api/game/state`, `/api/party`, `/api/inventory`, `/api/memory/watch` | 540        |
+
+The agent blueprint uses a `agent_state_getter` + `agent_state_mutate`
+pair to share the in-memory `agent_state` dict without circular imports.
+The chat endpoint keeps its full OpenClaw-aware instruction parser
+(`goal:` / `task:` / `?status`) and AI-provider fallback path. The ROM
+blueprint takes all upload-pipeline helpers (`validate_file_upload`,
+`validate_string_input`, `sanitize_filename`, `sync_loaded_rom_state`,
+`ensure_emulation_loop_running`) as injection callables so the surface is
+importable in isolation; missing deps yield a structured 503.
+
+### Updated — `tests/test_blueprint_smoke.py` (78 checks now)
+
+Extended from 43 → 78 checks to cover all three new blueprints:
+
+- **Agent (15)**: state, status, errors, actions, context, mode (GET+POST),
+  goal (GET+POST), chat (400 without ROM), act (400 without ROM), strategy,
+  dialogue, menu
+- **Spatial (6)**: position/minimap/npcs/strategy return empty-shape 200
+  without ROM; position payload has `loaded: false`
+- **ROM (14)**: game/state, party, inventory, memory/watch all 200 with
+  expected shape; upload-rom/load_rom/rom/load return 400 on empty payloads
+
+### Verified
+
+- `python3 -c "import backend.server as srv"` succeeds; 76 routes registered.
+- `routes/__init__.py::register_all` trace:
+  `config:2 health:5 ai_models:7 ai_runtime:4 save_load:4 screen:6 input:6 agent:12 spatial:5 rom:7 ui:4 ws:3 tetris:4 vision:5`
+- `pytest tests/test_all.py tests/test_blueprint_smoke.py` — **5 passed**.
+- `python3 tests/test_blueprint_smoke.py` — **78/78 passed**.
+- `cd ai-game-assistant && npx tsc --noEmit` — clean, no frontend breakage
+  from the route extraction.
+
+### Server.py status
+
+`server.py` now hosts only:
+
+- App construction (`app = Flask(__name__)`)
+- Global state (game_state, agent_state, ai_runtime_state, emulators, …)
+- Helper functions (`validate_*`, `sanitize_filename`, `configure_emulator_launch_ui`,
+  `sync_loaded_rom_state`, `ensure_emulation_loop_running`, …)
+- One `register_all` call that wires all 14 blueprints
+- The `/api/status` rollup endpoint (it depends on multiple globals
+  that blueprints don't need)
+- `main()` entry point
+
 ## Future
 
 ### Planned (next phases)
-- Split remaining domains in `server.py`: agent (8 routes — `/api/agent/state`,
-  `/api/agent/mode`, `/api/agent/goal`, `/api/agent/chat`, `/api/agent/errors`,
-  `/api/agent/actions`, `/api/agent/context`, `/api/agent/act`,
-  `/api/agent/dialogue`, `/api/agent/menu`), spatial (3 routes — `/api/spatial/position`,
-  `/api/spatial/minimap`, `/api/spatial/npcs`), strategy (`/api/spatial/strategy`,
-  `/api/agent/strategy`), and ROM management (`/api/load_rom`,
-  `/api/game/state`, `/api/party`, `/api/inventory`, `/api/memory/watch`,
-  `/api/upload-rom`, `/api/rom/load`) into blueprints (Stage 3 cont.)
+- Stage 3 refactor is **complete** — every route lives in a blueprint. The
+  remaining work is product features, not refactor.
 - Frontend: Grid map view (uses `/api/spatial/grid`), 3-tier objectives panel,
   party belt (all 6 slots compact), RAG over memory
 - PyBoy 2.x API audit (verify we're using `screen.image`, `pyboy.memory` correctly)

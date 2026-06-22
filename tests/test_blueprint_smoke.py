@@ -168,7 +168,104 @@ r = _hit("get", "/api/tetris/status")
 check("/api/tetris/status 200", r.status_code == 200, f"got {r.status_code}")
 
 
-# --- 8. Original /api/status (still in server.py) ---
+# --- 8. Agent blueprint (Stage 3 cont. round 2) ---
+section("Agent blueprint")
+for ep in (
+    "/api/agent/state",
+    "/api/agent/status",
+    "/api/agent/errors",
+    "/api/agent/actions",
+    "/api/agent/context",
+    "/api/agent/mode",
+    "/api/agent/dialogue",
+    "/api/agent/menu",
+    "/api/agent/strategy",
+):
+    r = _hit("get", ep)
+    check(f"{ep} 200", r.status_code == 200, f"got {r.status_code}")
+
+r = _hit("get", "/api/agent/goal")
+check("/api/agent/goal GET 200", r.status_code == 200, f"got {r.status_code}")
+data = r.get_json() or {}
+check("/api/agent/goal has 'goal' key", "goal" in data)
+
+# POST without ROM should 400 (chat needs ROM); POST without message should 400 too
+r = _hit("post", "/api/agent/chat", json={"message": "test"})
+check("/api/agent/chat returns 400 without ROM", r.status_code in {400, 503},
+      f"got {r.status_code} body={r.data[:200]!r}")
+
+r = _hit("post", "/api/agent/goal", json={"goal": "test goal"})
+check("/api/agent/goal POST 200", r.status_code == 200, f"got {r.status_code}")
+
+r = _hit("post", "/api/agent/mode", json={"mode": "manual"})
+check("/api/agent/mode POST 200", r.status_code == 200, f"got {r.status_code}")
+
+r = _hit("post", "/api/agent/act", json={"action": "A"})
+check("/api/agent/act returns 400 without ROM", r.status_code == 400,
+      f"got {r.status_code}")
+
+
+# --- 9. Spatial blueprint (Stage 3 cont. round 2) ---
+section("Spatial blueprint")
+for ep in (
+    "/api/spatial/position",
+    "/api/spatial/minimap",
+    "/api/spatial/npcs",
+    "/api/spatial/strategy",
+):
+    r = _hit("get", ep)
+    check(f"{ep} 200 (empty without ROM)", r.status_code == 200,
+          f"got {r.status_code} body={r.data[:200]!r}")
+
+r = _hit("get", "/api/spatial/position")
+data = r.get_json() or {}
+check("/api/spatial/position has 'loaded' key", "loaded" in data)
+check("/api/spatial/position has empty 'loaded=False'", data.get("loaded") is False,
+      detail=f"loaded={data.get('loaded')}")
+
+
+# --- 10. ROM blueprint (Stage 3 cont. round 2) ---
+section("ROM blueprint")
+# Read-only endpoints — work without ROM
+r = _hit("get", "/api/game/state")
+check("/api/game/state 200", r.status_code == 200, f"got {r.status_code}")
+data = r.get_json() or {}
+check("/api/game/state has 'rom_loaded'", "rom_loaded" in data)
+check("/api/game/state has 'active_emulator'", "active_emulator" in data)
+
+r = _hit("get", "/api/party")
+check("/api/party 200", r.status_code == 200, f"got {r.status_code}")
+data = r.get_json() or {}
+check("/api/party has 'party' key", "party" in data)
+check("/api/party has 'party_count'", "party_count" in data)
+
+r = _hit("get", "/api/inventory")
+check("/api/inventory 200", r.status_code == 200, f"got {r.status_code}")
+data = r.get_json() or {}
+check("/api/inventory has 'money'", "money" in data)
+check("/api/inventory has 'items'", "items" in data)
+
+r = _hit("get", "/api/memory/watch")
+check("/api/memory/watch 200", r.status_code == 200, f"got {r.status_code}")
+data = r.get_json() or {}
+check("/api/memory/watch has 'addresses'", "addresses" in data)
+
+# ROM upload without file → 400
+r = _hit("post", "/api/upload-rom")
+check("/api/upload-rom 400 without file", r.status_code == 400, f"got {r.status_code}")
+
+# Legacy load_rom without body → 400
+r = _hit("post", "/api/load_rom", json={})
+check("/api/load_rom 400 without path or file", r.status_code == 400,
+      f"got {r.status_code} body={r.data[:200]!r}")
+
+# Modern /api/rom/load alias → same handler
+r = _hit("post", "/api/rom/load", json={})
+check("/api/rom/load 400 without path or file", r.status_code == 400,
+      f"got {r.status_code}")
+
+
+# --- 11. Original /api/status (still in server.py) ---
 section("Server.py-resident routes")
 r = _hit("get", "/api/status")
 check("/api/status 200", r.status_code == 200, f"got {r.status_code}")

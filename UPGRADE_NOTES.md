@@ -248,9 +248,9 @@ Built 5 new feature modules under `ai-game-server/src/backend/agent_features/`:
 
 **Total: 33 new routes, all smoke-tested, all syntax-clean, no breakage to legacy.**
 
-### Stage 3: Refactor server.py → Blueprints — IN PROGRESS
+### Stage 3: Refactor server.py → Blueprints — DONE
 
-The new modules are already self-contained and additive. The legacy 6,778-line `server.py` still works and is now augmented with 33 new endpoints. Full blueprint split is the next step.
+The new modules are self-contained and additive. `server.py` is now 1,678 lines (down from the original 6,778), every route lives in a blueprint module under `backend/routes/`, and the only thing `server.py` keeps is app construction, global state, helpers, the `register_all` call, the `/api/status` rollup, and `main()`.
 
 #### Stage 3 cont. (2026-06-22) — five more blueprints shipped
 
@@ -270,6 +270,24 @@ returned. **5 passed** in the local pytest run; no regressions.
 
 Server-resident routes remaining for Stage 3 cont. round 2:
 agent (10), spatial (3), strategy (2), ROM management (7) — see CHANGELOG "Future".
+
+#### Stage 3 cont. round 2 (2026-06-22) — refactor complete
+
+`server.py` shrank from **3,337 → 1,678 lines** (−1,659, −50%) by extracting:
+
+| Blueprint             | Routes                                                                                                       | ~LOC moved |
+| ---                   | ---                                                                                                          | ---         |
+| `routes/agent.py`     | `/api/agent/{state,status,goal,errors,actions,context,act,dialogue,menu,strategy}`, `/api/agent/chat`, `/api/agent/mode` (GET+POST) | 800         |
+| `routes/spatial.py`   | `/api/spatial/{position,minimap,npcs,strategy}`, `/api/agent/strategy` alias                                  | 320         |
+| `routes/rom.py`       | `/api/upload-rom`, `/api/load_rom`, `/api/rom/load`, `/api/game/state`, `/api/party`, `/api/inventory`, `/api/memory/watch` | 540         |
+
+**Stage 3 refactor is complete.** `server.py` now contains only app construction,
+global state, helper functions, one `register_all` call, the `/api/status` rollup,
+and `main()`.
+
+Smoke test grew to **78/78 checks** (43 from round 1 + 35 from round 2).
+`pytest tests/test_all.py tests/test_blueprint_smoke.py` — **5 passed**.
+`npx tsc --noEmit` in `ai-game-assistant/` — clean, no frontend breakage.
 
 ### Stage 4: Frontend Updates — PENDING
 - Field Log panel (reasoning stream)

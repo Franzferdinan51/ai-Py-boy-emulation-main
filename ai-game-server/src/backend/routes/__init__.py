@@ -23,16 +23,19 @@ from __future__ import annotations
 import multiprocessing
 import os
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from . import (
+    agent,
     ai_models,
     ai_runtime,
     config,
     health,
     input,
+    rom,
     save_load,
     screen,
+    spatial,
     ui,
     ws,
     tetris,
@@ -40,13 +43,16 @@ from . import (
 )
 
 __all__ = [
+    "agent",
     "ai_models",
     "ai_runtime",
     "config",
     "health",
     "input",
+    "rom",
     "save_load",
     "screen",
+    "spatial",
     "ui",
     "ws",
     "tetris",
@@ -107,6 +113,20 @@ def register_all(
     input_validate_json_data: Optional[Callable[..., Any]] = None,
     input_timeout_handler: Optional[Callable[[float], Any]] = None,
     input_ai_request_timeout: float = 30.0,
+    # agent() deps
+    agent_state_getter: Optional[Callable[[], Dict[str, Any]]] = None,
+    agent_state_mutate: Optional[Callable[[Dict[str, Any]], None]] = None,
+    agent_ai_apis_getter: Optional[Callable[[], Dict[str, Any]]] = None,
+    agent_get_action_history: Optional[Callable[[], List[Any]]] = None,
+    # rom() deps
+    rom_validate_file_upload: Optional[Callable[..., Any]] = None,
+    rom_validate_string_input: Optional[Callable[..., Any]] = None,
+    rom_sanitize_filename: Optional[Callable[[str], str]] = None,
+    rom_max_rom_size: int = 8 * 1024 * 1024,
+    rom_allowed_extensions: Optional[List[str]] = None,
+    rom_configure_emulator_launch_ui: Optional[Callable[..., Any]] = None,
+    rom_sync_loaded_rom_state: Optional[Callable[..., Any]] = None,
+    rom_ensure_emulation_loop_running: Optional[Callable[[], Any]] = None,
 ) -> Dict[str, int]:
     """Register all blueprint routes on the given Flask app.
 
@@ -230,6 +250,45 @@ def register_all(
             optimization_system_manager=screen_optimization_system_manager,
             optimization_system_available=screen_optimization_system_available,
             ai_request_timeout=input_ai_request_timeout,
+        ),
+    )
+
+    _step(
+        "agent",
+        lambda: agent.register_agent_routes(
+            app,
+            game_state_getter=game_state_getter,
+            emulators_getter=emulators_getter,
+            agent_state_getter=agent_state_getter or (lambda: {}),
+            agent_state_mutate=agent_state_mutate,
+            ai_apis_getter=agent_ai_apis_getter,
+            get_action_history=agent_get_action_history or (lambda: []),
+        ),
+    )
+
+    _step(
+        "spatial",
+        lambda: spatial.register_spatial_routes(
+            app,
+            game_state_getter=game_state_getter,
+            emulators_getter=emulators_getter,
+        ),
+    )
+
+    _step(
+        "rom",
+        lambda: rom.register_rom_routes(
+            app,
+            game_state_getter=game_state_getter,
+            emulators_getter=emulators_getter,
+            validate_file_upload=rom_validate_file_upload,
+            validate_string_input=rom_validate_string_input,
+            sanitize_filename=rom_sanitize_filename,
+            max_rom_size=rom_max_rom_size,
+            allowed_rom_extensions=rom_allowed_extensions,
+            configure_emulator_launch_ui=rom_configure_emulator_launch_ui,
+            sync_loaded_rom_state=rom_sync_loaded_rom_state,
+            ensure_emulation_loop_running=rom_ensure_emulation_loop_running,
         ),
     )
 
