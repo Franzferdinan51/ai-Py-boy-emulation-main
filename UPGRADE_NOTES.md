@@ -267,3 +267,72 @@ The new modules are already self-contained and additive. The legacy 6,778-line `
 
 
 
+
+---
+
+## 📡 X / Twitter Research (added 2026-06-21)
+
+Duckets asked me to also search X — "seen some enhancement programs on their as well for emulators on the web."
+
+### Direct Adjacent Projects (from X)
+
+**1. @jhhuang96 — Pokemon Crystal companion (March 2026)**
+- PyBoy emulator + browser streaming + Claude-via-OpenClaw AI narrator
+- Gives **real-time battle advice and commentary as you play**
+- "Vibe coded in a day" — minimal harness
+- Tweet: https://x.com/jhhuang96/status/2038153559574032657
+- **Insight:** this is exactly the pattern of our project (PyBoy + browser + AI). Our **Field Log / events stream** is the next evolution — a full live broadcast with reasoning stream, not just narration.
+- **Apply:** our existing `events.py` SSE stream + future Field Log UI already does this better.
+
+**2. Mechanize GBA Eval (2026)**
+- Frontier coding agents (Claude Fable 5 etc.) given 24h to write a complete GBA emulator from scratch
+- Claude Fable 5 SOTA at 74.5% ROM compatibility
+- Eval benchmark for emulator construction
+- **Insight:** validation methodology we could borrow for "does our PyBoy agent still work after refactor?"
+- **Apply:** write a small `eval_suite.py` with known PyBoy ROMs + known expected behavior (load → A → A → walk → dialog text appears).
+
+**3. @skirano — Claude-built Game Boy emulator (Nov 2025)**
+- GPT/Claude generated a fully functional Game Boy emulator (including SVG rendering of the hardware)
+- **Insight:** shows LLM capability for emulator layer generation
+- **Apply:** not directly applicable, but supports the case that "AI tooling for emulators" is a hot 2025-26 trend.
+
+**4. @OdinLovis — Photo → playable Game Boy ROM tool (Jan 2026)**
+- Open-source Windows tool that uses AI (via fal) to convert any photo → functional .gb/.gbc ROM
+- Handles pixel art, animation, scrolling, music, sound effects
+- **Insight:** demonstrates "AI gen content for retro emulators" as a category
+- **Apply:** could add a "Generate Pokemon ROM" panel as a stretch feature.
+
+### Adjacent / General AI Agent Dashboards (from X)
+
+**5. AgentCommand by @MattPRD (Matt Schlicht)**
+- Live dashboard showing 1000+ AI agents spawning, communicating, executing in real time
+- Tracks revenue, deploys, code diffs, inter-agent conversations
+- **Apply:** pattern reference for "mission control" UI for our multi-agent future
+
+**6. OpenClaw Studio (open-source)**
+- "Mission control center" for local AI agents
+- Live WebSocket streaming, chat with agents, approval gates, job scheduling
+- **Apply:** we're already targeting OpenClaw — this is a competitor/peer reference; we should check what UI patterns they use.
+
+**7. agentcanvas (59★ GitHub)**
+- Agent traces (Pydantic + Logfire) → interactive HTML diagrams
+- Shows tools, nested agents, costs
+- **Apply:** could be a stretch feature for our project — visualize the agent's decision tree from events.jsonl.
+
+**8. LangSmith / Galileo / Langfuse / Arize AI** (top agent observability tools 2026)
+- Real-time trace visualization, latency/cost breakdowns, error tracking
+- Langfuse is open-source
+- **Apply:** rather than build our own, we could optionally add Langfuse integration to the existing event stream for production observability.
+
+### Architectural Insights from X
+
+> "Success is ~90% harness/scaffolding and ~10% raw model capability."
+> — common quote across multiple agent gameplay threads on X (e.g. @deforestpeg)
+
+**Implication for our project:** the **agent_features** harness we just built (sessions, memory, events, telemetry, collision) is exactly the right scaffolding. The next 10x improvement comes from making the harness tighter (memory retrieval quality, event timing, stuck detection thresholds) — not from swapping models.
+
+### Common Patterns Mentioned on X
+- **SSE or WebSocket** for token-by-token + tool-result delivery (we do this in `events.py` ✅)
+- **Progressive commit / preview mode** — show intermediate agent decisions immediately while buffering side-effects
+- **Real-time UI elements** — live reasoning traces, slot streams, bundle tables, approval queues, cost tracking
+- **Streaming architecture** — emit structured events from agent, stream via SSE/WS, render in React
