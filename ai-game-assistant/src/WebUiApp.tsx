@@ -41,7 +41,7 @@ import apiService, {
   type ScreenResponse,
   type UiStatusResponse,
 } from '../services/apiService';
-import { FloatingChat } from './components';
+import { FloatingChat, SessionsPanel, FieldLog, TelemetryWidget } from './components';
 
 type ConnectionState = 'checking' | 'online' | 'offline';
 type ActivityLevel = 'info' | 'success' | 'warning' | 'error';
@@ -1447,6 +1447,25 @@ const WebUiApp: React.FC = () => {
                 </div>
               </div>
             )}
+          </Panel>
+        </section>
+
+        <section className="dashboard-column dashboard-column--agent-features">
+          <Panel
+            title="Agent Features"
+            subtitle="Sessions, reasoning stream, and stuck-meter from agent_features v1."
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              <div className="lg:col-span-1 min-h-[260px]">
+                <SessionsPanel className="h-full" />
+              </div>
+              <div className="lg:col-span-1 min-h-[260px]">
+                <TelemetryWidget className="h-full" />
+              </div>
+              <div className="lg:col-span-1 min-h-[260px]">
+                <FieldLog liveStream maxEntries={150} className="h-full" />
+              </div>
+            </div>
           </Panel>
         </section>
       </main>

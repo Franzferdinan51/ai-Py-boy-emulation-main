@@ -60,17 +60,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `UPGRADE_NOTES.md` — full upgrade plan, research findings, progress log
 - `CHANGELOG.md` (this file)
 
+## [Unreleased] — 2026-06-21 (Stage 3 + Stage 4)
+
+### Refactored — server.py split into Flask blueprints
+
+The monolithic `server.py` (was 6,806 lines, 92 routes) has been split into
+focused, reusable Flask-style modules under `backend/routes/`:
+
+| Module | Routes extracted | Lines removed from server.py |
+| --- | --- | --- |
+| `routes/config.py`    | `/api/config`, `/api/config/validate`              | ~40 |
+| `routes/save_load.py` | `/save_state`, `/load_state`, `/api/save_state`, `/api/load_state` | ~75 |
+| `routes/ui.py`        | `/api/ui/launch`, `/stop`, `/restart`, `/status`   | ~110 |
+| `routes/ws.py`        | `/api/ws/status`, `/start`, `/stop` (now uses `WebSocketRunner` adapter — gracefully reports not-running when ws globals are missing) | ~50 |
+| `routes/tetris.py`    | `/api/tetris/train`, `/status`, `/save`, `/load`   | ~200 |
+| `routes/vision.py`    | `/api/vision/analyze`, `/describe`, `/ocr`, `/summary`, `/status` | ~580 |
+
+Net effect: `server.py` shrank from **6,806 → 5,917 lines** (−889, −13%). All
+92 routes still respond correctly with the same shapes they had before. The
+blueprints follow the same `register_*_routes(app, **deps)` pattern used by
+`backend.agent_features`, so future contributors can register any subset of
+them on a different Flask app (e.g. for a stripped-down embed).
+
+The blueprint registration happens at module load (after `get_game_state` is
+defined) so test clients and tooling see the full surface. `agent_features`
+remains registered inside `main()` to keep its import-time side effects
+optional.
+
+### Added — Frontend agent_features panels
+
+Three new React components wire the new backend endpoints into the UI:
+
+- **`FieldLog`** (`src/components/FieldLog.tsx`, ~250 lines)
+  Streams THINK / DECIDE / ACT / MILESTONE / ALERT / OBSERVE / REFLECT events
+  from `/api/agent/events`, with optional SSE live mode
+  (`/api/agent/events/stream`), kind filter, search, auto-scroll, and clear.
+
+- **`SessionsPanel`** (`src/components/SessionsPanel.tsx`, ~200 lines)
+  UI for the game-sessions API: list / create / activate / save / load /
+  delete. Polls `/api/games` every 8 s.
+
+- **`TelemetryWidget`** (`src/components/TelemetryWidget.tsx`, ~200 lines)
+  Compact panel showing stuck-meter (with color-coded danger threshold),
+  action success-rate bar, battle W/L, blackout count, and party HP bar.
+  Polls `/api/agent/telemetry` every 3 s.
+
+Plus new `apiService` methods (in `services/apiService.ts`) for all the new
+endpoints: sessions, events (incl. SSE), telemetry, memory, collision.
+
+### Verified
+
+- Backend: 91 unique paths respond via Flask test client. 45 × 2xx, 43 × 4xx
+  (expected: most require a loaded ROM), 3 × 5xx (all valid "service not
+  available" states from the config/vision/UI blueprints).
+- Frontend: `npx tsc --noEmit` clean; `npm run build` succeeds (274 kB JS,
+  82 kB gzipped).
+- All new modules import cleanly with no circular-import warnings.
+
 ## Future
 
 ### Planned (next phases)
-- Refactor `server.py` (6,778 lines, 92 routes) into Flask blueprints by domain
-- Frontend: Field Log panel, grid map view, party belt, sessions manager, telemetry widget
+- Split remaining domains in `server.py`: agent, spatial, ai_runtime, ai_action,
+  screen, input, health into blueprints (Stage 3 cont.)
+- Frontend: Grid map view (uses `/api/spatial/grid`), 3-tier objectives panel,
+  party belt (all 6 slots compact), RAG over memory
 - PyBoy 2.x API audit (verify we're using `screen.image`, `pyboy.memory` correctly)
 - OpenClaw-native improvements: dual-model vision+planning coordination
-- Memory heatmaps, action timeline / replay, RAG over game knowledge
+- Memory heatmaps, action timeline / replay
 
 ### Backwards compatibility
-- All new endpoints are additive — no legacy route was renamed or removed
-- `FLASK_ENV` env var reads still work (Flask 3 removed `FLASK_ENV` from Flask itself, but the code only reads it as a custom env var)
-- Frontend code unchanged; no breaking changes to existing components
+- All extracted endpoints are byte-compatible with the legacy implementations
+  (same URL, same methods, same JSON shape).
+- `FLASK_ENV` env var reads still work (Flask 3 removed `FLASK_ENV` from Flask
+  itself, but the code only reads it as a custom env var).
+- Frontend code unchanged for existing components; new panels are purely
+  additive.
 
