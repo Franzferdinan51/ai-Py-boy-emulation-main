@@ -1,6 +1,6 @@
 # API Contract - Model Discovery & Settings
 
-**Last Updated:** March 19, 2026 20:30 EST
+**Last Updated:** June 21, 2026 (added Game Sessions, Memory, Events, Telemetry, Collision Map sections)
 
 This document describes the backend routes that power settings/model selection in the AI-Py-Boy platform.
 
@@ -1184,3 +1184,112 @@ result = mcp_tool("analyze_screen", {"goal": "find the next gym"})
 - OpenClaw model discovery caches results for 5 minutes
 - Use `?refresh=true` to force refresh
 - Check `cached` field in response to know if data is from cache
+
+---
+
+## Game Sessions API (added 2026-06-21)
+
+**Module:** `backend.agent_features.sessions`
+**Persistence:** `~/.ai-py-boy/data/games/<session_id>/manifest.json` (override with `PYBOY_DATA_DIR`)
+
+A *game session* binds together an emulator save-state, the agent brain (LLM session id), objectives, milestones, and stats for one named playthrough. Sessions can be created, listed, activated, updated, and deleted. The active session is what all memory/events/telemetry endpoints default to.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/games/new` | POST | Create a new session. Body: `{"name": "Run-1", "rom_path": "...", "brain_session_id": "..."}` |
+| `/api/games` | GET | List all persisted sessions (most recent first) |
+| `/api/games/current` | GET | Get the active session, or `{active: false}` if none |
+| `/api/games/<id>` | GET | Get a session by id |
+| `/api/games/<id>` | POST | Update session fields (current_goal, tags, etc.) |
+| `/api/games/<id>` | DELETE | Delete the session and all its data |
+| `/api/games/<id>/activate` | POST | Set as the active session |
+| `/api/games/<id>/save_state` | POST | Save emulator state bytes (raw or `{"bytes_b64": "..."}`) |
+| `/api/games/<id>/save_state` | GET | Get saved state as `{"bytes": N, "bytes_b64": "..."}` |
+
+---
+
+## Agent Memory / KnowledgeBase API (added 2026-06-21)
+
+**Module:** `backend.agent_features.memory`
+**Storage:** `~/.ai-py-boy/data/games/<session_id>/memory/knowledge.jsonl` (JSONL, append-only)
+
+Structured episodic memory. All write endpoints require `session_id` in the body. All read endpoints take `session_id` as a query param.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/agent/memory` | GET | Get all memory records (filterable by `?type=location\|note\|fact\|...`) |
+| `/api/agent/memory/search` | GET | Text search across all records (`?q=...`) — RAG-lite |
+| `/api/agent/memory/summary` | GET | Counts and latest of each type |
+| `/api/agent/memory/note` | POST | Add a free-form note (with `tags`) |
+| `/api/agent/memory/location` | POST | Record a visited location |
+| `/api/agent/memory/party_event` | POST | Record a Pokémon event (caught/leveled/fainted/healed/evolved) |
+| `/api/agent/memory/objective_complete` | POST | Mark an objective done (also adds a milestone) |
+| `/api/agent/memory/fact` | POST | Add a structured `key: value` fact |
+| `/api/agent/memory/control_pattern` | POST | Record a learned button sequence → outcome |
+
+---
+
+## Reasoning Event Stream API (added 2026-06-21)
+
+**Module:** `backend.agent_features.events`
+**Buffer:** 1000-event ring buffer (override with `PYBOY_EVENT_BUFFER`)
+**Per-session field log:** `~/.ai-py-boy/data/games/<session_id>/events/field.log.jsonl`
+
+Used for the "Field Log" — a live broadcast of the agent's reasoning.
+
+**Event kinds:** `THINK`, `DECIDE`, `ACT`, `MILESTONE`, `ALERT`, `OBSERVE`, `REFLECT`
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/agent/events` | GET | List recent events (`?kind=...&session_id=...&limit=...`) |
+| `/api/agent/events` | POST | Emit an event `{kind, message, session_id, metadata}` |
+| `/api/agent/events/clear` | POST | Clear the ring buffer |
+| `/api/agent/events/stats` | GET | Counts by kind and session |
+| `/api/agent/events/stream` | GET | **SSE** live stream of new events (`?kinds=THINK,ACT&session_id=...`) |
+
+---
+
+## Telemetry API (added 2026-06-21)
+
+**Module:** `backend.agent_features.telemetry`
+
+Tracks stuck-meter, action metrics, battle outcomes, blackouts, party HP.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/agent/telemetry` | GET | Full telemetry snapshot for a session |
+| `/api/agent/telemetry/position` | POST | Report position; auto-updates stuck-meter |
+| `/api/agent/telemetry/action` | POST | Record action result (success/error) |
+| `/api/agent/telemetry/battle` | POST | Record battle outcome (won/lost) |
+| `/api/agent/telemetry/blackout` | POST | Record "all Pokemon fainted" event |
+| `/api/agent/telemetry/health` | POST | Report lowest party HP + in_battle status |
+| `/api/agent/telemetry/reset` | POST | Reset stuck-meter and errors |
+
+**Stuck detection:** 12+ consecutive identical positions → stuck_meter climbs by 5 per report (max 100). When stuck_meter hits 100, an `ALERT` event is auto-emitted.
+
+---
+
+## Collision Map API (added 2026-06-21)
+
+**Module:** `backend.agent_features.collision`
+
+RAM-derived walkability grid for navigation. Per-game providers (Pokemon Red registered by default).
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/spatial/collision` | GET | Full 2D grid: `{grid, tilemap, ascii, labeled}` |
+| `/api/spatial/grid` | GET | Shorter grid (default 20x18) for screenshot overlay |
+| `/api/spatial/grid/text` | GET | Plain-text labeled grid (for prompt injection) |
+
+**Add a new game provider:**
+
+```python
+from backend.agent_features.collision import CollisionMapProvider, register_collision_provider
+
+class MyGameProvider(CollisionMapProvider):
+    name = "my_game"
+    def get_walkable_tile_ids(self):
+        return [0x00, 0x10, 0x20, ...]
+
+register_collision_provider(MyGameProvider())
+```

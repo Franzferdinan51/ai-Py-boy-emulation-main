@@ -233,6 +233,46 @@ curl http://localhost:5002/api/screen -o screen.png
 
 ---
 
+## 🆕 New Agent Features (2026-06-21)
+
+When the backend starts, it now auto-registers **33 new routes** under `backend.agent_features/`:
+
+```bash
+# Start a new game session
+SID=$(curl -s -X POST http://localhost:5002/api/games/new \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Nuzlocke Run 1","rom_path":"pokemon_red.gb"}' | jq -r .session.id)
+
+# Activate the session
+curl -X POST http://localhost:5002/api/games/$SID/activate
+
+# Save the emulator state to this session
+curl -X POST http://localhost:5002/api/games/$SID/save_state \
+  --data-binary @save.state
+
+# Record a knowledge note
+curl -X POST http://localhost:5002/api/agent/memory/note \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":\"$SID\",\"text\":\"Brock uses Rock types — bring water moves\"}"
+
+# Emit a reasoning event
+curl -X POST http://localhost:5002/api/agent/events \
+  -H 'Content-Type: application/json' \
+  -d "{\"kind\":\"DECIDE\",\"message\":\"Heal at Pokemon Center first\",\"session_id\":\"$SID\"}"
+
+# Live event stream (SSE) — open in a separate terminal
+curl -N http://localhost:5002/api/agent/events/stream?session_id=$SID
+
+# Get collision grid for navigation
+curl http://localhost:5002/api/spatial/grid/text
+```
+
+All new endpoints are documented in `ai-game-server/API-CONTRACT.md` and `CHANGELOG.md`.
+
+Data is persisted under `~/.ai-py-boy/data/games/<session_id>/` (override with `PYBOY_DATA_DIR`).
+
+---
+
 **Need help?** Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md) or open an issue on GitHub.
 
 **Happy gaming!** 🎮
