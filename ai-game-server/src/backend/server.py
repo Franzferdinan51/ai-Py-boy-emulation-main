@@ -2,6 +2,7 @@
 Enhanced AI Game Boy Server with Stream Stability Fixes
 """
 import os
+import sys
 import signal
 import threading
 import io
@@ -440,6 +441,76 @@ def update_game_state(updates):
     """Thread-safe updater for game state"""
     with game_state_lock:
         game_state.update(updates)
+
+# ------------------------------------------------------------------
+# Register refactored route blueprints (config, save_load, ui, ws, tetris, vision)
+# ------------------------------------------------------------------
+# Done at module load so test clients and IDE tooling see the full surface.
+# agent_features is registered separately inside main() to avoid an
+# import-time side-effect that pulls the OpenClaw provider.
+try:
+    from backend.routes import register_all as _register_route_blueprints
+    from backend.routes.ws import WebSocketRunner as _WebSocketRunner
+
+    def _ws_is_running():
+        return bool(getattr(sys.modules[__name__], "ws_server_running", False))
+
+    def _ws_port():
+        return int(getattr(sys.modules[__name__], "WS_PORT", 5003) or 5003)
+
+    def _ws_clients():
+        ws_clients = getattr(sys.modules[__name__], "ws_clients", None)
+        if ws_clients is None:
+            return 0
+        try:
+            return len(ws_clients)
+        except TypeError:
+            return 0
+
+    def _ws_start():
+        fn = getattr(sys.modules[__name__], "start_websocket_server", None)
+        if fn is None:
+            raise RuntimeError("WebSocket server start function not available")
+        return fn()
+
+    def _ws_stop():
+        fn = getattr(sys.modules[__name__], "stop_websocket_server", None)
+        if fn is None:
+            return None
+        return fn()
+
+    _ws_runner = _WebSocketRunner(
+        is_running=_ws_is_running,
+        get_port=_ws_port,
+        get_clients=_ws_clients,
+        start_fn=_ws_start,
+        stop_fn=_ws_stop,
+    )
+
+    _route_counts = _register_route_blueprints(
+        app,
+        emulators_getter=lambda: emulators,
+        game_state_getter=get_game_state,
+        ai_provider_manager=ai_provider_manager,
+        secure_config=secure_config if SECURE_CONFIG_AVAILABLE else None,
+        secure_config_available=SECURE_CONFIG_AVAILABLE,
+        host=HOST,
+        port=PORT,
+        debug=DEBUG,
+        saved_states=saved_states,
+        websocket_runner=_ws_runner,
+    )
+    logger.info(
+        f"[routes] Registered — "
+        f"config:{_route_counts.get('config',0)} "
+        f"save_load:{_route_counts.get('save_load',0)} "
+        f"ui:{_route_counts.get('ui',0)} "
+        f"ws:{_route_counts.get('ws',0)} "
+        f"tetris:{_route_counts.get('tetris',0)} "
+        f"vision:{_route_counts.get('vision',0)}"
+    )
+except Exception as _route_exc:  # noqa: BLE001
+    logger.error(f"[routes] Failed to register blueprints: {_route_exc}", exc_info=True)
 
 def get_action_history():
     """Thread-safe getter for action history"""
@@ -1337,46 +1408,9 @@ def health_check():
     }
     return jsonify(health_data), 200
 
-@app.route('/api/config/validate', methods=['GET'])
-def validate_configuration():
-    """Validate system configuration and environment variables"""
-    if SECURE_CONFIG_AVAILABLE:
-        validation = secure_config.validate_environment_variables()
-        safe_config = secure_config.get_safe_config()
-
-        response_data = {
-            "validation": validation,
-            "configuration": safe_config,
-            "timestamp": time.time()
-        }
-
-        if not validation['valid']:
-            return jsonify(response_data), 400
-        elif validation['warnings']:
-            return jsonify(response_data), 200  # OK but with warnings
-        else:
-            return jsonify(response_data), 200
-    else:
-        return jsonify({
-            "error": "Configuration validation not available",
-            "fallback": os.environ.get('FLASK_ENV', 'development')
-        }), 503
-
-@app.route('/api/config', methods=['GET'])
-def get_configuration():
-    """Get safe configuration information"""
-    if SECURE_CONFIG_AVAILABLE:
-        return jsonify(secure_config.get_safe_config()), 200
-    else:
-        return jsonify({
-            "error": "Configuration manager not available",
-            "basic_config": {
-                "host": HOST,
-                "port": PORT,
-                "debug": DEBUG,
-                "environment": os.environ.get('FLASK_ENV', 'development')
-            }
-        }), 503
+# /api/config and /api/config/validate have been extracted to
+# backend/routes/config.py and are now registered via the routes blueprint
+# in main().
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
@@ -2404,583 +2438,9 @@ def api_memory_watch():
 # - analyze_screen/describe_screen/ocr_screen: Returns text analysis (for AI agents)
 # =========================================
 
-@app.route('/api/vision/analyze', methods=['POST'])
-def api_vision_analyze():
-    """
-    Analyze the current game screen using the configured vision model.
-    
-    This endpoint captures the screen and returns STRUCTURED TEXT ANALYSIS,
-    not just an attached image. This is designed for AI agents that cannot
-    process attached images in their interface.
-    
-    Request body (optional):
-    {
-        "prompt": "Custom analysis prompt (optional)",
-        "context": {"goal": "...", "game_type": "..."} // Optional context
-    }
-    
-    Response shape:
-    {
-        "success": true,
-        "analysis": {
-            "game_state": "exploration",  // exploration, battle, menu, dialog, title
-            "description": "Player is in a grassy area near a building...",
-            "player_position": "center of screen",
-            "nearby_entities": ["npc", "building", "grass"],
-            "ui_elements": ["health_bar", "menu_indicator"],
-            "danger_level": "low",  // low, medium, high
-            "opportunities": ["talk to npc", "enter building"],
-            "text_visible": false,
-            "raw_response": "Full vision model response..."
-        },
-        "model_used": "bailian/kimi-k2.5",
-        "timestamp": "2026-03-19T20:00:00Z"
-    }
-    
-    Note: This is DIFFERENT from /api/screen which returns raw image bytes.
-    Use this endpoint when you need TEXT ANALYSIS of the screen, not the image itself.
-    """
-    try:
-        current_state = get_game_state()
-        if not current_state.get("rom_loaded") or not current_state.get("active_emulator"):
-            return jsonify({
-                "success": False,
-                "error": "No ROM loaded",
-                "analysis": None,
-                "timestamp": datetime.now().isoformat()
-            }), 400
-        
-        emulator = emulators[current_state["active_emulator"]]
-        
-        # Get screen bytes
-        screen_array = emulator.get_screen()
-        if screen_array is None or screen_array.size == 0:
-            return jsonify({
-                "success": False,
-                "error": "Failed to capture screen",
-                "timestamp": datetime.now().isoformat()
-            }), 500
-        
-        # Convert to bytes for vision model
-        img_bytes = emulator.get_screen_bytes()
-        if not img_bytes:
-            return jsonify({
-                "success": False,
-                "error": "Failed to encode screen",
-                "timestamp": datetime.now().isoformat()
-            }), 500
-        
-        # Get request data
-        data = request.get_json(silent=True) or {}
-        custom_prompt = data.get('prompt')
-        context = data.get('context', {})
-        context.setdefault('goal', current_state.get('current_goal', 'explore and progress'))
-        context.setdefault('game_type', 'Game Boy')
-        
-        # Build vision prompt
-        prompt = custom_prompt or f"""Analyze this Game Boy game screen. Provide:
+# /api/vision/* endpoints have been extracted to backend/routes/vision.py
+# and are registered via the routes blueprint at server startup.
 
-1. **Game State**: What's happening? (exploration, battle, menu, dialog, title screen)
-2. **Description**: Brief visual description of what you see
-3. **Player Position**: Where is the player on screen?
-4. **Nearby Entities**: NPCs, enemies, items, obstacles (list what you can identify)
-5. **UI Elements**: Menus, text boxes, health bars, indicators
-6. **Danger Level**: Is there immediate danger? (low/medium/high)
-7. **Opportunities**: What could the player do next?
-
-Current objective: {context.get('goal')}
-
-Be concise but specific. Focus on actionable information for gameplay."""
-
-        # Use dual-model provider for vision analysis
-        if ai_provider_manager.use_dual_model and ai_provider_manager.dual_model_provider:
-            analysis = ai_provider_manager.dual_model_provider.analyze_screen(img_bytes, context)
-            
-            return jsonify({
-                "success": True,
-                "analysis": {
-                    "game_state": analysis.game_state,
-                    "description": analysis.raw_description,
-                    "player_position": analysis.player_position,
-                    "nearby_entities": analysis.nearby_entities,
-                    "ui_elements": analysis.ui_elements,
-                    "danger_level": analysis.danger_level,
-                    "opportunities": analysis.opportunities,
-                    "raw_response": analysis.raw_description
-                },
-                "model_used": f"vision:{ai_provider_manager.vision_model}",
-                "timestamp": datetime.now().isoformat()
-            }), 200
-        
-        # Fallback: use single provider with vision capability
-        vision_model = os.environ.get('LM_STUDIO_VISION_MODEL', 'qwen3-vl-8b')
-        provider_name = os.environ.get('VISION_PROVIDER', 'lmstudio')
-        
-        connector = ai_provider_manager.get_provider(provider_name)
-        if connector:
-            # Call the vision-capable model
-            import base64
-            image_base64 = base64.b64encode(img_bytes).decode('utf-8')
-            
-            # Most providers have a method to analyze images
-            if hasattr(connector, 'analyze_image'):
-                result = connector.analyze_image(image_base64, prompt)
-            elif hasattr(connector, 'chat_with_image'):
-                result = connector.chat_with_image(prompt, image_base64, context)
-            else:
-                # Generic fallback - construct a message with image context
-                result = connector.chat_with_ai(
-                    f"[Image attached - screen capture]\n\n{prompt}",
-                    img_bytes,
-                    context
-                )
-            
-            return jsonify({
-                "success": True,
-                "analysis": {
-                    "game_state": "unknown",
-                    "description": result if isinstance(result, str) else str(result),
-                    "raw_response": result if isinstance(result, str) else str(result)
-                },
-                "model_used": f"{provider_name}:{vision_model}",
-                "timestamp": datetime.now().isoformat()
-            }), 200
-        
-        return jsonify({
-            "success": False,
-            "error": "No vision-capable AI provider available",
-            "hint": "Configure LM_STUDIO_VISION_MODEL or enable dual-model mode",
-            "timestamp": datetime.now().isoformat()
-        }), 503
-        
-    except Exception as e:
-        logger.error(f"Error in vision analysis: {e}", exc_info=True)
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }), 500
-
-
-@app.route('/api/vision/describe', methods=['GET', 'POST'])
-def api_vision_describe():
-    """
-    Get a simple human-readable description of the current screen.
-    
-    This is a lightweight alternative to /api/vision/analyze for quick
-    screen understanding. Returns just a text description.
-    
-    GET: Use default description prompt
-    POST body: {"prompt": "Custom prompt (optional)"}
-    
-    Response shape:
-    {
-        "success": true,
-        "description": "The player is standing in a town square...",
-        "model_used": "bailian/kimi-k2.5",
-        "timestamp": "..."
-    }
-    
-    Difference from /api/screen:
-    - /api/screen returns raw image bytes (for display)
-    - /api/vision/describe returns TEXT describing the image (for understanding)
-    """
-    try:
-        current_state = get_game_state()
-        if not current_state.get("rom_loaded") or not current_state.get("active_emulator"):
-            return jsonify({
-                "success": False,
-                "error": "No ROM loaded",
-                "description": None,
-                "timestamp": datetime.now().isoformat()
-            }), 400
-        
-        emulator = emulators[current_state["active_emulator"]]
-        img_bytes = emulator.get_screen_bytes()
-        
-        if not img_bytes:
-            return jsonify({
-                "success": False,
-                "error": "Failed to capture screen",
-                "timestamp": datetime.now().isoformat()
-            }), 500
-        
-        # Get custom prompt if provided
-        data = request.get_json(silent=True) or {}
-        custom_prompt = data.get('prompt', 'Describe what you see on this Game Boy screen in 2-3 sentences.')
-        
-        # Use dual-model provider
-        if ai_provider_manager.use_dual_model and ai_provider_manager.dual_model_provider:
-            analysis = ai_provider_manager.dual_model_provider.analyze_screen(
-                img_bytes, 
-                {"goal": "describe the screen"}
-            )
-            return jsonify({
-                "success": True,
-                "description": analysis.raw_description,
-                "model_used": f"vision:{ai_provider_manager.vision_model}",
-                "timestamp": datetime.now().isoformat()
-            }), 200
-        
-        # Fallback to single provider
-        connector = ai_provider_manager.get_provider()
-        if connector:
-            result = connector.chat_with_ai(
-                custom_prompt,
-                img_bytes,
-                {"goal": "describe screen"}
-            )
-            return jsonify({
-                "success": True,
-                "description": result,
-                "model_used": ai_provider_manager.default_provider,
-                "timestamp": datetime.now().isoformat()
-            }), 200
-        
-        return jsonify({
-            "success": False,
-            "error": "No AI provider available",
-            "timestamp": datetime.now().isoformat()
-        }), 503
-        
-    except Exception as e:
-        logger.error(f"Error in vision describe: {e}")
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }), 500
-
-
-@app.route('/api/vision/ocr', methods=['GET'])
-def api_vision_ocr():
-    """
-    Extract visible text from the current screen using OCR.
-    
-    This endpoint focuses specifically on text extraction, useful for:
-    - Reading dialogue boxes
-    - Extracting menu options
-    - Reading in-game text (signs, items, etc.)
-    
-    Response shape:
-    {
-        "success": true,
-        "text": {
-            "raw": "All extracted text...",
-            "lines": ["Line 1", "Line 2", ...],
-            "has_text": true,
-            "dialogue_active": false
-        },
-        "model_used": "...",
-        "timestamp": "..."
-    }
-    
-    Note: This returns EXTRACTED TEXT, not the screen image.
-    For the raw screen, use /api/screen.
-    """
-    try:
-        current_state = get_game_state()
-        if not current_state.get("rom_loaded") or not current_state.get("active_emulator"):
-            return jsonify({
-                "success": False,
-                "error": "No ROM loaded",
-                "text": {"raw": "", "lines": [], "has_text": False},
-                "timestamp": datetime.now().isoformat()
-            }), 400
-        
-        emulator = emulators[current_state["active_emulator"]]
-        img_bytes = emulator.get_screen_bytes()
-        
-        if not img_bytes:
-            return jsonify({
-                "success": False,
-                "error": "Failed to capture screen",
-                "text": {"raw": "", "lines": [], "has_text": False},
-                "timestamp": datetime.now().isoformat()
-            }), 500
-        
-        # OCR-focused prompt
-        ocr_prompt = """Extract all visible text from this Game Boy screen.
-
-List each distinct text element you can see:
-- Dialogue text
-- Menu options
-- Item names
-- Numbers (HP, level, money, etc.)
-- Any other readable text
-
-Format your response as:
-TEXT_FOUND: [yes/no]
-LINES:
-- Line 1 text
-- Line 2 text
-...
-
-If no text is visible, respond with:
-TEXT_FOUND: no
-LINES: (none)"""
-
-        # Use vision model for OCR
-        if ai_provider_manager.use_dual_model and ai_provider_manager.dual_model_provider:
-            analysis = ai_provider_manager.dual_model_provider.analyze_screen(
-                img_bytes,
-                {"goal": "extract text"}
-            )
-            
-            # Parse OCR response
-            raw_text = analysis.raw_description
-            lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
-            has_text = bool(lines) and 'no text' not in raw_text.lower()
-            
-            return jsonify({
-                "success": True,
-                "text": {
-                    "raw": raw_text,
-                    "lines": lines,
-                    "has_text": has_text,
-                    "dialogue_active": any('dialogue' in line.lower() for line in lines)
-                },
-                "model_used": f"vision:{ai_provider_manager.vision_model}",
-                "timestamp": datetime.now().isoformat()
-            }), 200
-        
-        # Fallback
-        connector = ai_provider_manager.get_provider()
-        if connector:
-            result = connector.chat_with_ai(ocr_prompt, img_bytes, {"goal": "ocr"})
-            
-            lines = [line.strip() for line in result.split('\n') if line.strip()]
-            has_text = bool(lines)
-            
-            return jsonify({
-                "success": True,
-                "text": {
-                    "raw": result,
-                    "lines": lines,
-                    "has_text": has_text
-                },
-                "model_used": ai_provider_manager.default_provider,
-                "timestamp": datetime.now().isoformat()
-            }), 200
-        
-        return jsonify({
-            "success": False,
-            "error": "No vision-capable AI provider available for OCR",
-            "text": {"raw": "", "lines": [], "has_text": False},
-            "timestamp": datetime.now().isoformat()
-        }), 503
-        
-    except Exception as e:
-        logger.error(f"Error in OCR: {e}")
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "text": {"raw": "", "lines": [], "has_text": False},
-            "timestamp": datetime.now().isoformat()
-        }), 500
-
-
-@app.route('/api/vision/summary', methods=['GET'])
-def api_vision_summary():
-    """
-    Get a quick summary of the current screen state.
-    
-    This is the fastest vision endpoint, designed for rapid state checks.
-    Returns minimal but actionable information.
-    
-    Response shape:
-    {
-        "success": true,
-        "summary": {
-            "state": "exploration",  // exploration, battle, menu, dialog
-            "safe_to_act": true,
-            "recommended_action": "explore",
-            "urgency": "low"  // low, medium, high
-        },
-        "model_used": "...",
-        "timestamp": "..."
-    }
-    
-    Use this for quick checks when you don't need full analysis.
-    For detailed analysis, use /api/vision/analyze.
-    For raw image, use /api/screen.
-    """
-    try:
-        current_state = get_game_state()
-        if not current_state.get("rom_loaded") or not current_state.get("active_emulator"):
-            return jsonify({
-                "success": False,
-                "error": "No ROM loaded",
-                "summary": None,
-                "timestamp": datetime.now().isoformat()
-            }), 400
-        
-        emulator = emulators[current_state["active_emulator"]]
-        img_bytes = emulator.get_screen_bytes()
-        
-        if not img_bytes:
-            return jsonify({
-                "success": False,
-                "error": "Failed to capture screen",
-                "summary": None,
-                "timestamp": datetime.now().isoformat()
-            }), 500
-        
-        # Quick summary prompt
-        summary_prompt = """Quick screen analysis. Respond in this EXACT format:
-
-STATE: [exploration/battle/menu/dialog/title]
-SAFE_TO_ACT: [yes/no]
-URGENCY: [low/medium/high]
-RECOMMENDED: [one action: UP/DOWN/LEFT/RIGHT/A/B/WAIT]
-
-Only respond with those 4 lines. No other text."""
-
-        # Use vision model
-        if ai_provider_manager.use_dual_model and ai_provider_manager.dual_model_provider:
-            analysis = ai_provider_manager.dual_model_provider.analyze_screen(
-                img_bytes,
-                {"goal": "quick summary"}
-            )
-            
-            # Parse summary
-            raw = analysis.raw_description.lower()
-            
-            state = "unknown"
-            if "battle" in raw:
-                state = "battle"
-            elif "menu" in raw:
-                state = "menu"
-            elif "dialog" in raw:
-                state = "dialog"
-            elif "explor" in raw or "overworld" in raw:
-                state = "exploration"
-            
-            safe = "battle" not in raw and "danger" not in raw
-            urgency = "high" if "danger" in raw or "critical" in raw else "medium" if "battle" in raw else "low"
-            
-            return jsonify({
-                "success": True,
-                "summary": {
-                    "state": state,
-                    "safe_to_act": safe,
-                    "recommended_action": analysis.opportunities[0] if analysis.opportunities else "explore",
-                    "urgency": urgency
-                },
-                "model_used": f"vision:{ai_provider_manager.vision_model}",
-                "timestamp": datetime.now().isoformat()
-            }), 200
-        
-        # Fallback
-        connector = ai_provider_manager.get_provider()
-        if connector:
-            result = connector.chat_with_ai(summary_prompt, img_bytes, {"goal": "summary"})
-            
-            # Parse the structured response
-            lines = result.strip().split('\n')
-            summary_data = {}
-            for line in lines:
-                if ':' in line:
-                    key, value = line.split(':', 1)
-                    summary_data[key.strip().lower().replace(' ', '_')] = value.strip()
-            
-            return jsonify({
-                "success": True,
-                "summary": {
-                    "state": summary_data.get('state', 'unknown'),
-                    "safe_to_act": summary_data.get('safe_to_act', 'yes').lower() == 'yes',
-                    "recommended_action": summary_data.get('recommended', 'wait'),
-                    "urgency": summary_data.get('urgency', 'low')
-                },
-                "model_used": ai_provider_manager.default_provider,
-                "timestamp": datetime.now().isoformat()
-            }), 200
-        
-        return jsonify({
-            "success": False,
-            "error": "No AI provider available",
-            "summary": None,
-            "timestamp": datetime.now().isoformat()
-        }), 503
-        
-    except Exception as e:
-        logger.error(f"Error in vision summary: {e}")
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "summary": None,
-            "timestamp": datetime.now().isoformat()
-        }), 500
-
-
-@app.route('/api/vision/status', methods=['GET'])
-def api_vision_status():
-    """
-    Get the current vision analysis configuration and status.
-    
-    Response shape:
-    {
-        "vision_available": true,
-        "dual_model_enabled": true,
-        "vision_model": "bailian/kimi-k2.5",
-        "planning_model": "bailian/glm-5",
-        "providers": {
-            "openclaw": {"available": true, "vision_capable": true},
-            "lmstudio": {"available": true, "vision_capable": true}
-        },
-        "endpoints": {
-            "analyze": "/api/vision/analyze",
-            "describe": "/api/vision/describe",
-            "ocr": "/api/vision/ocr",
-            "summary": "/api/vision/summary"
-        },
-        "difference_from_screenshot": {
-            "screenshot_endpoints": ["/api/screen", "/screenshot"],
-            "screenshot_returns": "Raw image bytes (base64 JPEG)",
-            "vision_endpoints": ["/api/vision/analyze", "/api/vision/describe", ...],
-            "vision_returns": "Structured text analysis (JSON)"
-        },
-        "timestamp": "..."
-    }
-    """
-    provider_status = ai_provider_manager.get_provider_status()
-    dual_model_status = ai_provider_manager.get_dual_model_status()
-    
-    return jsonify({
-        "vision_available": dual_model_status.get("available", False),
-        "dual_model_enabled": dual_model_status.get("enabled", False),
-        "vision_model": dual_model_status.get("vision_model", "not configured"),
-        "planning_model": dual_model_status.get("planning_model", "not configured"),
-        "providers": {
-            name: {
-                "available": info.get("available", False),
-                "vision_capable": name in ["openclaw", "lmstudio", "gemini"]
-            }
-            for name, info in provider_status.items()
-        },
-        "endpoints": {
-            "analyze": "/api/vision/analyze",
-            "describe": "/api/vision/describe",
-            "ocr": "/api/vision/ocr",
-            "summary": "/api/vision/summary"
-        },
-        "usage_guide": {
-            "when_to_use_screenshot": [
-                "Displaying the game to a human user",
-                "Recording gameplay footage",
-                "Visual debugging",
-                "Frontend needs raw pixels"
-            ],
-            "when_to_use_vision_analysis": [
-                "AI agent needs to understand the screen",
-                "Making gameplay decisions without human",
-                "Extracting text (OCR)",
-                "Detecting game state changes",
-                "LM Studio / MCP agents that can't process images"
-            ]
-        },
-        "timestamp": datetime.now().isoformat()
-    }), 200
 
 # =========================================
 # Spatial Endpoints (MCP/UI Contract)
@@ -5475,316 +4935,12 @@ def ai_chat():
         logger.error(f"Error in AI chat: {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
 
-@app.route('/api/ui/launch', methods=['POST'])
-def launch_ui():
-    """Launch UI process for the current ROM"""
-    try:
-        current_state = get_game_state()
-        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
-            return jsonify({"error": "No ROM loaded"}), 400
+# /api/ui/launch, /api/ui/stop, /api/ui/restart, /api/ui/status have been
+# extracted to backend/routes/ui.py and are registered via the routes blueprint.
 
-        emulator = emulators[current_state["active_emulator"]]
-
-        if not hasattr(emulator, 'launch_ui'):
-            return jsonify({"error": "UI control not supported by this emulator"}), 400
-
-        success = emulator.launch_ui()
-
-        if success:
-            ui_status = emulator.get_ui_status()
-            logger.info("UI process launched successfully")
-            return jsonify({
-                "message": "UI launched successfully",
-                "ui_status": ui_status
-            }), 200
-        else:
-            logger.error("Failed to launch UI process")
-            return jsonify({"error": "Failed to launch UI"}), 500
-
-    except Exception as e:
-        logger.error(f"Error launching UI: {e}")
-        return jsonify({"error": "Internal server error"}), 500
-
-@app.route('/api/ui/stop', methods=['POST'])
-def stop_ui():
-    """Stop the UI process"""
-    try:
-        current_state = get_game_state()
-        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
-            return jsonify({"error": "No ROM loaded"}), 400
-
-        emulator = emulators[current_state["active_emulator"]]
-
-        if not hasattr(emulator, 'stop_ui'):
-            return jsonify({"error": "UI control not supported by this emulator"}), 400
-
-        success = emulator.stop_ui()
-
-        if success:
-            logger.info("UI process stopped successfully")
-            return jsonify({"message": "UI stopped successfully"}), 200
-        else:
-            logger.error("Failed to stop UI process")
-            return jsonify({"error": "Failed to stop UI"}), 500
-
-    except Exception as e:
-        logger.error(f"Error stopping UI: {e}")
-        return jsonify({"error": "Internal server error"}), 500
-
-@app.route('/api/ui/restart', methods=['POST'])
-def restart_ui():
-    """Restart the UI process"""
-    try:
-        current_state = get_game_state()
-        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
-            return jsonify({"error": "No ROM loaded"}), 400
-
-        emulator = emulators[current_state["active_emulator"]]
-
-        if not hasattr(emulator, 'restart_ui'):
-            return jsonify({"error": "UI control not supported by this emulator"}), 400
-
-        success = emulator.restart_ui()
-
-        if success:
-            ui_status = emulator.get_ui_status()
-            logger.info("UI process restarted successfully")
-            return jsonify({
-                "message": "UI restarted successfully",
-                "ui_status": ui_status
-            }), 200
-        else:
-            logger.error("Failed to restart UI process")
-            return jsonify({"error": "Failed to restart UI"}), 500
-
-    except Exception as e:
-        logger.error(f"Error restarting UI: {e}")
-        return jsonify({"error": "Internal server error"}), 500
-
-@app.route('/api/ui/status', methods=['GET'])
-def get_ui_status():
-    """Get UI process status"""
-    try:
-        current_state = get_game_state()
-        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
-            return jsonify({"error": "No ROM loaded"}), 400
-
-        emulator = emulators[current_state["active_emulator"]]
-
-        if not hasattr(emulator, 'get_ui_status'):
-            return jsonify({"error": "UI control not supported by this emulator"}), 400
-
-        ui_status = emulator.get_ui_status()
-
-        return jsonify({
-            "ui_status": ui_status,
-            "rom_loaded": current_state["rom_loaded"],
-            "active_emulator": current_state["active_emulator"]
-        }), 200
-
-    except Exception as e:
-        logger.error(f"Error getting UI status: {e}")
-        return jsonify({"error": "Internal server error"}), 500
-
-@app.route('/api/tetris/train', methods=['POST'])
-def train_tetris_ai():
-    """Train the Tetris genetic AI"""
-    try:
-        data = request.get_json()
-        population_size = data.get('population_size', 20)
-        generations = data.get('generations', 5)
-
-        # Get Tetris AI provider
-        tetris_ai = ai_provider_manager.providers.get('tetris-genetic', {}).get('connector')
-
-        if not tetris_ai:
-            return jsonify({
-                'success': False,
-                'error': 'Tetris genetic AI not available'
-            }), 400
-
-        # Check if ROM is loaded and emulator is available
-        current_state = get_game_state()
-        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
-            return jsonify({
-                'success': False,
-                'error': 'No ROM loaded'
-            }), 400
-
-        emulator = emulators[current_state["active_emulator"]]
-
-        # Start training
-        logger.info(f"Starting Tetris AI training: population_size={population_size}, generations={generations}")
-
-        # Train in a separate thread to avoid blocking
-        def train_async():
-            try:
-                results = tetris_ai.train_generation(emulator, population_size, generations)
-                logger.info(f"Tetris AI training completed: {results}")
-            except Exception as e:
-                logger.error(f"Tetris AI training failed: {e}")
-
-        import threading
-        training_thread = threading.Thread(target=train_async)
-        training_thread.daemon = True
-        training_thread.start()
-
-        return jsonify({
-            'success': True,
-            'message': 'Tetris AI training started',
-            'population_size': population_size,
-            'generations': generations,
-            'provider_status': tetris_ai.get_status()
-        })
-
-    except Exception as e:
-        logger.error(f"Error starting Tetris AI training: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/tetris/status', methods=['GET'])
-def get_tetris_status():
-    """Get Tetris genetic AI status"""
-    try:
-        tetris_ai = ai_provider_manager.providers.get('tetris-genetic', {}).get('connector')
-
-        if not tetris_ai:
-            return jsonify({
-                'available': False,
-                'error': 'Tetris genetic AI not available'
-            })
-
-        return jsonify({
-            'success': True,
-            'status': tetris_ai.get_status()
-        })
-
-    except Exception as e:
-        logger.error(f"Error getting Tetris AI status: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/tetris/save', methods=['POST'])
-def save_tetris_model():
-    """Save Tetris AI model"""
-    try:
-        # Validate and parse JSON data
-        data = validate_json_data(request.get_data(as_text=True), "tetris save request")
-
-        filepath = data.get('filepath')
-
-        if not filepath:
-            return jsonify({
-                'success': False,
-                'error': 'Filepath required'
-            }), 400
-
-        # Validate filepath for security
-        try:
-            filepath = validate_string_input(
-                filepath,
-                "filepath",
-                min_length=1,
-                max_length=500
-            )
-
-            # Additional path validation
-            filepath = sanitize_filename(filepath)
-
-            # Ensure filepath has proper extension
-            if not filepath.endswith(('.pkl', '.model', '.dat')):
-                raise ValueError("Filepath must have a valid model extension (.pkl, .model, .dat)")
-
-        except ValueError as e:
-            return jsonify({
-                'success': False,
-                'error': str(e)
-            }), 400
-
-        tetris_ai = ai_provider_manager.providers.get('tetris-genetic', {}).get('connector')
-
-        if not tetris_ai:
-            return jsonify({
-                'success': False,
-                'error': 'Tetris genetic AI not available'
-            }), 400
-
-        success = tetris_ai.save_training_state(filepath)
-
-        return jsonify({
-            'success': success,
-            'message': 'Model saved successfully' if success else 'Failed to save model'
-        })
-
-    except Exception as e:
-        logger.error(f"Error saving Tetris model: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/tetris/load', methods=['POST'])
-def load_tetris_model():
-    """Load Tetris AI model"""
-    try:
-        # Validate and parse JSON data
-        data = validate_json_data(request.get_data(as_text=True), "tetris load request")
-
-        filepath = data.get('filepath')
-
-        if not filepath:
-            return jsonify({
-                'success': False,
-                'error': 'Filepath required'
-            }), 400
-
-        # Validate filepath for security
-        try:
-            filepath = validate_string_input(
-                filepath,
-                "filepath",
-                min_length=1,
-                max_length=500
-            )
-
-            # Additional path validation
-            filepath = sanitize_filename(filepath)
-
-            # Ensure filepath has proper extension
-            if not filepath.endswith(('.pkl', '.model', '.dat')):
-                raise ValueError("Filepath must have a valid model extension (.pkl, .model, .dat)")
-
-        except ValueError as e:
-            return jsonify({
-                'success': False,
-                'error': str(e)
-            }), 400
-
-        tetris_ai = ai_provider_manager.providers.get('tetris-genetic', {}).get('connector')
-
-        if not tetris_ai:
-            return jsonify({
-                'success': False,
-                'error': 'Tetris genetic AI not available'
-            }), 400
-
-        success = tetris_ai.load_training_state(filepath)
-
-        return jsonify({
-            'success': success,
-            'message': 'Model loaded successfully' if success else 'Failed to load model'
-        })
-
-    except Exception as e:
-        logger.error(f"Error loading Tetris model: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+# /api/tetris/train, /api/tetris/status, /api/tetris/save, /api/tetris/load
+# have been extracted to backend/routes/tetris.py and are registered via the
+# routes blueprint.
 
 @app.route('/api/screen', methods=['GET'])
 def get_screen():
@@ -5983,82 +5139,8 @@ def get_memory():
         logger.error(f"Error getting memory: {e}")
         return jsonify({"values": []}), 200
 
-@app.route('/save_state', methods=['POST'])
-def save_state():
-    """Save game state (placeholder for GLM4.5-UI compatibility)"""
-    try:
-        current_state = get_game_state()
-        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
-            return jsonify({"error": "No ROM loaded"}), 400
-
-        emulator = emulators[current_state["active_emulator"]]
-
-        # Placeholder implementation
-        return jsonify({"success": True, "message": "State saved"}), 200
-    except Exception as e:
-        logger.error(f"Error saving state: {e}")
-        return jsonify({"error": "Failed to save state"}), 500
-
-@app.route('/load_state', methods=['POST'])
-def load_state():
-    """Load game state (placeholder for GLM4.5-UI compatibility)"""
-    try:
-        current_state = get_game_state()
-        if not current_state["rom_loaded"] or not current_state["active_emulator"]:
-            return jsonify({"error": "No ROM loaded"}), 400
-
-        emulator = emulators[current_state["active_emulator"]]
-
-        # Placeholder implementation
-        return jsonify({"success": True, "message": "State loaded"}), 200
-    except Exception as e:
-        logger.error(f"Error loading state: {e}")
-        return jsonify({"error": "Failed to load state"}), 500
-
-@app.route('/api/save_state', methods=['POST'])
-def api_save_state():
-    """Save game state API endpoint for frontend compatibility"""
-    try:
-        current_state = get_game_state()
-        active = current_state.get("active_emulator")
-        if not current_state.get("rom_loaded") or not active:
-            return jsonify({"error": "No ROM loaded"}), 400
-
-        emulator = emulators[active]
-        if hasattr(emulator, 'save_state'):
-            state_data = emulator.save_state()
-            if state_data:
-                saved_states[active] = state_data
-                return jsonify({"success": True, "message": "State saved successfully", "bytes": len(state_data)}), 200
-            return jsonify({"error": "Failed to save state data"}), 500
-        return jsonify({"error": "Emulator does not support save state"}), 400
-
-    except Exception as e:
-        logger.error(f"Error saving state: {e}")
-        return jsonify({"error": "Failed to save state", "details": str(e)}), 500
-
-@app.route('/api/load_state', methods=['POST'])
-def api_load_state():
-    """Load game state API endpoint for frontend compatibility"""
-    try:
-        current_state = get_game_state()
-        active = current_state.get("active_emulator")
-        if not current_state.get("rom_loaded") or not active:
-            return jsonify({"error": "No ROM loaded"}), 400
-        if active not in saved_states:
-            return jsonify({"error": "No saved state available"}), 400
-
-        emulator = emulators[active]
-        if hasattr(emulator, 'load_state'):
-            ok = emulator.load_state(saved_states[active])
-            if ok:
-                return jsonify({"success": True, "message": "State loaded successfully", "bytes": len(saved_states[active])}), 200
-            return jsonify({"error": "Emulator failed to load saved state"}), 500
-        return jsonify({"error": "Emulator does not support load state"}), 400
-
-    except Exception as e:
-        logger.error(f"Error loading state: {e}")
-        return jsonify({"error": "Failed to load state", "details": str(e)}), 500
+# /save_state, /load_state, /api/save_state, /api/load_state have been extracted
+# to backend/routes/save_load.py and are registered via the routes blueprint.
 
 @app.route('/tilemap', methods=['GET'])
 def get_tilemap():
@@ -6630,50 +5712,11 @@ def stream_screen():
         }
     )
 
-@app.route('/api/ws/status', methods=['GET'])
-def get_websocket_status():
-    """Get WebSocket server status."""
-    return jsonify({
-        "running": ws_server_running,
-        "port": WS_PORT,
-        "url": f"ws://localhost:{WS_PORT}/api/ws/stream",
-        "clients": len(ws_clients),
-        "timestamp": datetime.now().isoformat()
-    }), 200
-
-
-# WebSocket control endpoint
-@app.route('/api/ws/start', methods=['POST'])
-def start_websocket_endpoint():
-    """Start the WebSocket server."""
-    try:
-        start_websocket_server()
-        return jsonify({
-            "success": True,
-            "message": "WebSocket server started",
-            "url": f"ws://localhost:{WS_PORT}/api/ws/stream",
-            "port": WS_PORT,
-            "timestamp": datetime.now().isoformat()
-        }), 200
-    except Exception as e:
-        logger.error(f"Failed to start WebSocket server: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/ws/stop', methods=['POST'])
-def stop_websocket_endpoint():
-    """Stop the WebSocket server."""
-    try:
-        stop_websocket_server()
-        return jsonify({
-            "success": True,
-            "message": "WebSocket server stopped",
-            "timestamp": datetime.now().isoformat()
-        }), 200
-    except Exception as e:
-        logger.error(f"Failed to stop WebSocket server: {e}")
-        return jsonify({"error": str(e)}), 500
-
+# /api/ws/status, /api/ws/start, /api/ws/stop have been extracted to
+# backend/routes/ws.py and are registered via the routes blueprint (which
+# uses a WebSocketRunner adapter — if the original ws_* globals are not
+# defined in this module, the blueprint returns 503-ish not-running state
+# instead of NameError-crashing).
 
 def signal_handler(sig, frame):
     """Handle shutdown signals gracefully"""
@@ -6792,6 +5835,74 @@ def main():
         )
     except Exception as e:  # noqa: BLE001
         logger.error(f"[agent_features] Failed to register: {e}", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Wire refactored route blueprints (config, save_load, ui, ws, tetris, vision)
+    # ------------------------------------------------------------------
+    try:
+        from backend.routes import register_all as register_route_blueprints
+        from backend.routes.ws import WebSocketRunner
+
+        # Build a WebSocketRunner from the (currently-undefined) ws globals.
+        # If they're not defined (most common case), the blueprint uses a stub.
+        def _ws_is_running():
+            return bool(getattr(sys.modules[__name__], "ws_server_running", False))
+
+        def _ws_port():
+            return int(getattr(sys.modules[__name__], "WS_PORT", 5003) or 5003)
+
+        def _ws_clients():
+            ws_clients = getattr(sys.modules[__name__], "ws_clients", None)
+            if ws_clients is None:
+                return 0
+            try:
+                return len(ws_clients)
+            except TypeError:
+                return 0
+
+        def _ws_start():
+            fn = getattr(sys.modules[__name__], "start_websocket_server", None)
+            if fn is None:
+                raise RuntimeError(
+                    "WebSocket server start function not available in this build"
+                )
+            return fn()
+
+        def _ws_stop():
+            fn = getattr(sys.modules[__name__], "stop_websocket_server", None)
+            if fn is None:
+                return None
+            return fn()
+
+        ws_runner = WebSocketRunner(
+            is_running=_ws_is_running,
+            get_port=_ws_port,
+            get_clients=_ws_clients,
+            start_fn=_ws_start,
+            stop_fn=_ws_stop,
+        )
+
+        counts = register_route_blueprints(
+            app,
+            emulators_getter=lambda: emulators,
+            game_state_getter=get_game_state,
+            ai_provider_manager=ai_provider_manager,
+            secure_config=secure_config if SECURE_CONFIG_AVAILABLE else None,
+            secure_config_available=SECURE_CONFIG_AVAILABLE,
+            host=HOST,
+            port=PORT,
+            debug=DEBUG,
+            saved_states=saved_states,
+            websocket_runner=ws_runner,
+        )
+        logger.info(
+            f"[routes] Registered routes — "
+            f"config:{counts.get('config',0)} save_load:{counts.get('save_load',0)} "
+            f"ui:{counts.get('ui',0)} ws:{counts.get('ws',0)} "
+            f"tetris:{counts.get('tetris',0)} vision:{counts.get('vision',0)}"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"[routes] Failed to register: {e}", exc_info=True)
 
     try:
         app.run(host=HOST, port=PORT, debug=DEBUG, threaded=True, use_reloader=False)
