@@ -19,6 +19,8 @@ import {
   WandSparkles,
 } from 'lucide-react';
 import apiService, {
+  type AgentCapabilityRoutinesSnapshot,
+  type AgentCapabilityToolbeltSnapshot,
   type AgentGoalResponse,
   type AgentAutonomy,
   type AgentModeResponse,
@@ -43,7 +45,7 @@ import apiService, {
   type ScreenResponse,
   type UiStatusResponse,
 } from '../services/apiService';
-import { AgentRunPanel, FloatingChat, SessionsPanel, FieldLog, TelemetryWidget } from './components';
+import { AgentCapabilityPanel, AgentRunPanel, FloatingChat, SessionsPanel, FieldLog, TelemetryWidget } from './components';
 
 type ConnectionState = 'checking' | 'online' | 'offline';
 type ActivityLevel = 'info' | 'success' | 'warning' | 'error';
@@ -248,6 +250,8 @@ const WebUiApp: React.FC = () => {
   const [agentGoal, setAgentGoal] = useState<AgentGoalResponse | null>(null);
   const [agentRunEvents, setAgentRunEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunError, setAgentRunError] = useState<string | null>(null);
+  const [agentToolbelt, setAgentToolbelt] = useState<AgentCapabilityToolbeltSnapshot | null>(null);
+  const [agentRoutines, setAgentRoutines] = useState<AgentCapabilityRoutinesSnapshot | null>(null);
   const [agentMode, setAgentMode] = useState<AgentModeResponse | null>(null);
   const [agentDraft, setAgentDraft] = useState<AgentDraft>({
     mode: 'manual',
@@ -412,6 +416,8 @@ const WebUiApp: React.FC = () => {
       performanceResult,
       goalResult,
       runEventsResult,
+      toolbeltResult,
+      routinesResult,
     ] = await Promise.allSettled([
       apiService.getGameState(),
       apiService.getAgentStatus(),
@@ -419,6 +425,8 @@ const WebUiApp: React.FC = () => {
       apiService.getPerformance(),
       apiService.getAgentGoal(),
       apiService.getAgentRunEvents(12),
+      apiService.getAgentToolbelt(),
+      apiService.getAgentRoutines(),
     ]);
 
     if (gameResult.status === 'fulfilled') {
@@ -447,6 +455,9 @@ const WebUiApp: React.FC = () => {
       runErrors.push(runEventsResult.reason instanceof Error ? runEventsResult.reason.message : 'Failed to load run events');
     }
     setAgentRunError(runErrors.length ? runErrors.join(' · ') : null);
+
+    setAgentToolbelt(toolbeltResult.status === 'fulfilled' ? toolbeltResult.value : null);
+    setAgentRoutines(routinesResult.status === 'fulfilled' ? routinesResult.value : null);
 
     if (agentModeResult.status === 'fulfilled') {
       setAgentMode(agentModeResult.value);
@@ -1044,6 +1055,10 @@ const WebUiApp: React.FC = () => {
             } : null}
             events={agentRunEvents}
             error={agentRunError}
+          />
+          <AgentCapabilityPanel
+            toolbelt={agentToolbelt}
+            routines={agentRoutines}
           />
 
           <Panel

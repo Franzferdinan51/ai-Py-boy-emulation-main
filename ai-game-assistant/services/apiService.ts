@@ -150,6 +150,94 @@ export interface AgentRunEvent {
   data?: Record<string, unknown>;
 }
 
+export interface AgentCapabilityTool {
+  name: string;
+  access: string;
+  category: string;
+  backend_route: string;
+  mcp_tool: string;
+  description: string;
+}
+
+export interface AgentCapabilityMemoryPattern {
+  sequence?: string[];
+  outcome?: string;
+  note?: string;
+  timestamp?: string;
+}
+
+export interface AgentCapabilityMemorySummary {
+  total_records: number;
+  by_type: Record<string, number>;
+  latest_by_type: Record<string, unknown>;
+  recent_notes: Array<{ type?: string; text?: string }>;
+  learned_control_patterns: AgentCapabilityMemoryPattern[];
+}
+
+export interface AgentCapabilityNextAction {
+  action: string;
+  reason: string;
+  source?: string;
+  target?: string;
+}
+
+export interface AgentCapabilityAutoLearningSignals {
+  control_patterns_observed: number;
+  suggested_routine_count: number;
+  skill_draft_count: number;
+}
+
+export interface AgentCapabilityToolbeltSnapshot {
+  active_session_id: string | null;
+  active_routine: string | null;
+  available_tools: AgentCapabilityTool[];
+  tool_groups: Record<string, string[]>;
+  memory_summary: AgentCapabilityMemorySummary;
+  next_recommended_action: AgentCapabilityNextAction;
+  planner_hint?: AgentCapabilityNextAction;
+  auto_learning_signals?: AgentCapabilityAutoLearningSignals;
+  timestamp: string;
+}
+
+export interface AgentCapabilityRoutineStep {
+  action?: string;
+  frames?: number;
+  notes?: string;
+}
+
+export interface AgentCapabilitySkillDraft {
+  id: string;
+  name: string;
+  source: string;
+  status: string;
+  summary?: string;
+  sequence?: string[];
+  outcome?: string;
+}
+
+export interface AgentCapabilityRoutine {
+  id: string;
+  name: string;
+  description?: string;
+  kind: string;
+  origin: string;
+  status: string;
+  tags?: string[];
+  steps: AgentCapabilityRoutineStep[];
+  updated_at?: string;
+  skill_draft?: AgentCapabilitySkillDraft;
+  summary?: string;
+}
+
+export interface AgentCapabilityRoutinesSnapshot {
+  active_session_id: string | null;
+  active_routine: string | null;
+  routines: AgentCapabilityRoutine[];
+  suggested_routines: AgentCapabilityRoutine[];
+  skill_drafts: AgentCapabilitySkillDraft[];
+  timestamp: string;
+}
+
 export interface AgentRunEventsResponse {
   ok?: boolean;
   events: AgentRunEvent[];
@@ -404,6 +492,14 @@ class ApiService {
     }
     const query = params.toString();
     return this.request<AgentRunEventsResponse>(`/api/agent/runs/events${query ? `?${query}` : ''}`);
+  }
+
+  getAgentToolbelt() {
+    return this.request<AgentCapabilityToolbeltSnapshot>('/api/agent/toolbelt');
+  }
+
+  getAgentRoutines() {
+    return this.request<AgentCapabilityRoutinesSnapshot>('/api/agent/routines');
   }
 
   setAgentMode(payload: {

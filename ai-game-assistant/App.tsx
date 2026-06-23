@@ -16,6 +16,8 @@ import {
   Users,
 } from 'lucide-react';
 import apiService, {
+  type AgentCapabilityRoutinesSnapshot,
+  type AgentCapabilityToolbeltSnapshot,
   type AgentStatus,
   type AgentGoalResponse,
   type AgentRunEvent,
@@ -30,6 +32,7 @@ import apiService, {
   type PartyData,
 } from './services/apiService';
 import {
+  AgentCapabilityPanel,
   AgentRunPanel,
   InventoryPanel,
   MemoryInspector,
@@ -172,6 +175,8 @@ const App: React.FC = () => {
   const [agentGoal, setAgentGoal] = useState<AgentGoalResponse | null>(null);
   const [agentRunEvents, setAgentRunEvents] = useState<AgentRunEvent[]>([]);
   const [agentRunError, setAgentRunError] = useState<string | null>(null);
+  const [agentToolbelt, setAgentToolbelt] = useState<AgentCapabilityToolbeltSnapshot | null>(null);
+  const [agentRoutines, setAgentRoutines] = useState<AgentCapabilityRoutinesSnapshot | null>(null);
   const [memoryState, setMemoryState] = useState<MemoryWatch>(EMPTY_MEMORY_STATE);
   const [gameScreenUrl, setGameScreenUrl] = useState<string | null>(null);
   const [streamingStatus, setStreamingStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
@@ -431,9 +436,11 @@ const App: React.FC = () => {
         setMemoryState(EMPTY_MEMORY_STATE);
       }
 
-      const [goalResult, runEventsResult] = await Promise.allSettled([
+      const [goalResult, runEventsResult, toolbeltResult, routinesResult] = await Promise.allSettled([
         apiService.getAgentGoal(),
         apiService.getAgentRunEvents(12),
+        apiService.getAgentToolbelt(),
+        apiService.getAgentRoutines(),
       ]);
 
       const runErrors: string[] = [];
@@ -451,6 +458,8 @@ const App: React.FC = () => {
         runErrors.push(runEventsResult.reason instanceof Error ? runEventsResult.reason.message : 'Failed to load run events');
       }
 
+      setAgentToolbelt(toolbeltResult.status === 'fulfilled' ? toolbeltResult.value : null);
+      setAgentRoutines(routinesResult.status === 'fulfilled' ? routinesResult.value : null);
       setAgentRunError(runErrors.length ? runErrors.join(' · ') : null);
     } catch (error) {
       const wasDisconnected = connectionStatusRef.current === 'disconnected';
@@ -461,6 +470,8 @@ const App: React.FC = () => {
       setAgentGoal(null);
       setAgentRunEvents([]);
       setAgentRunError(null);
+      setAgentToolbelt(null);
+      setAgentRoutines(null);
       setMemoryState(EMPTY_MEMORY_STATE);
       setGameScreenUrl(null);
       lastDecisionRef.current = EMPTY_AGENT_STATE.last_decision;
@@ -922,6 +933,12 @@ const App: React.FC = () => {
             agentState={agentRunSnapshot}
             events={agentRunEvents}
             error={agentRunError}
+            className="mt-3"
+          />
+
+          <AgentCapabilityPanel
+            toolbelt={agentToolbelt}
+            routines={agentRoutines}
             className="mt-3"
           />
 
