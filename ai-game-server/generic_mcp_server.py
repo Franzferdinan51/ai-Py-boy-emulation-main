@@ -580,7 +580,23 @@ def api_get(endpoint: str) -> Dict[str, Any]:
     url = f"{DEFAULT_BACKEND_URL}{endpoint}"
     try:
         r = requests.get(url, timeout=10)
-        return r.json() if r.status_code == 200 else {"error": f"HTTP {r.status_code}"}
+        if r.status_code == 200:
+            return r.json()
+        try:
+            payload = r.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            if "status_code" not in payload:
+                payload = {**payload, "status_code": r.status_code}
+            return payload
+        if payload is not None:
+            return {"error": payload, "status_code": r.status_code}
+        fallback: Dict[str, Any] = {"error": f"HTTP {r.status_code}", "status_code": r.status_code}
+        response_text = getattr(r, "text", "")
+        if response_text:
+            fallback["details"] = response_text
+        return fallback
     except Exception as e:
         return {"error": str(e)}
 
@@ -589,7 +605,23 @@ def api_post(endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{DEFAULT_BACKEND_URL}{endpoint}"
     try:
         r = requests.post(url, json=data, timeout=10)
-        return r.json() if r.status_code == 200 else {"error": f"HTTP {r.status_code}"}
+        if r.status_code == 200:
+            return r.json()
+        try:
+            payload = r.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            if "status_code" not in payload:
+                payload = {**payload, "status_code": r.status_code}
+            return payload
+        if payload is not None:
+            return {"error": payload, "status_code": r.status_code}
+        fallback: Dict[str, Any] = {"error": f"HTTP {r.status_code}", "status_code": r.status_code}
+        response_text = getattr(r, "text", "")
+        if response_text:
+            fallback["details"] = response_text
+        return fallback
     except Exception as e:
         return {"error": str(e)}
 

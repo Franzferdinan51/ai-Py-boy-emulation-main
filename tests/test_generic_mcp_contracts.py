@@ -166,4 +166,7 @@ def test_backend_error_text_is_returned(monkeypatch, generic_mcp_module):
     monkeypatch.setattr(generic_mcp_module, "DEFAULT_BACKEND_URL", "http://backend.test")
 
     result = asyncio.run(generic_mcp_module.call_tool("save_state", {"name": "slot-1"}))
-    assert result[0].text == json.dumps({"error": "HTTP 500"})
+    assert json.loads(result[0].text) == {
+        "error": "backend failed",
+        "status_code": 500,
+    }
