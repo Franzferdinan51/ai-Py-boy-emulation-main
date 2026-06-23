@@ -19,9 +19,11 @@ import {
   WandSparkles,
 } from 'lucide-react';
 import apiService, {
+  type AgentGoalResponse,
   type AgentAutonomy,
   type AgentModeResponse,
   type AgentStatus,
+  type AgentRunEvent,
   type AiActionResponse,
   type ChatResponse,
   type ConfigValidationResponse,
@@ -41,7 +43,7 @@ import apiService, {
   type ScreenResponse,
   type UiStatusResponse,
 } from '../services/apiService';
-import { FloatingChat, SessionsPanel, FieldLog, TelemetryWidget } from './components';
+import { AgentRunPanel, FloatingChat, SessionsPanel, FieldLog, TelemetryWidget } from './components';
 
 type ConnectionState = 'checking' | 'online' | 'offline';
 type ActivityLevel = 'info' | 'success' | 'warning' | 'error';
@@ -243,6 +245,9 @@ const WebUiApp: React.FC = () => {
 
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+  const [agentGoal, setAgentGoal] = useState<AgentGoalResponse | null>(null);
+  const [agentRunEvents, setAgentRunEvents] = useState<AgentRunEvent[]>([]);
+  const [agentRunError, setAgentRunError] = useState<string | null>(null);
   const [agentMode, setAgentMode] = useState<AgentModeResponse | null>(null);
   const [agentDraft, setAgentDraft] = useState<AgentDraft>({
     mode: 'manual',
@@ -405,11 +410,15 @@ const WebUiApp: React.FC = () => {
       agentResult,
       agentModeResult,
       performanceResult,
+      goalResult,
+      runEventsResult,
     ] = await Promise.allSettled([
       apiService.getGameState(),
       apiService.getAgentStatus(),
       apiService.getAgentMode(),
       apiService.getPerformance(),
+      apiService.getAgentGoal(),
+      apiService.getAgentRunEvents(12),
     ]);
 
     if (gameResult.status === 'fulfilled') {
@@ -422,6 +431,22 @@ const WebUiApp: React.FC = () => {
 
     setAgentStatus(agentResult.status === 'fulfilled' ? agentResult.value : null);
     setPerformance(performanceResult.status === 'fulfilled' ? performanceResult.value : null);
+
+    const runErrors: string[] = [];
+    if (goalResult.status === 'fulfilled') {
+      setAgentGoal(goalResult.value);
+    } else {
+      setAgentGoal(null);
+      runErrors.push(goalResult.reason instanceof Error ? goalResult.reason.message : 'Failed to load agent goal');
+    }
+
+    if (runEventsResult.status === 'fulfilled') {
+      setAgentRunEvents(runEventsResult.value.events || []);
+    } else {
+      setAgentRunEvents([]);
+      runErrors.push(runEventsResult.reason instanceof Error ? runEventsResult.reason.message : 'Failed to load run events');
+    }
+    setAgentRunError(runErrors.length ? runErrors.join(' · ') : null);
 
     if (agentModeResult.status === 'fulfilled') {
       setAgentMode(agentModeResult.value);
@@ -1007,6 +1032,20 @@ const WebUiApp: React.FC = () => {
         </section>
 
         <section className="dashboard-column">
+          <AgentRunPanel
+            agentState={agentStatus ? {
+              mode: agentStatus.mode,
+              enabled: agentStatus.enabled,
+              current_goal: agentGoal?.goal || '',
+              current_task: agentGoal?.task || '',
+              current_action: agentStatus.current_action || '',
+              last_decision: agentStatus.last_decision || '',
+              timestamp: agentGoal?.timestamp || agentStatus.timestamp,
+            } : null}
+            events={agentRunEvents}
+            error={agentRunError}
+          />
+
           <Panel
             title="AI Assistant"
             subtitle="One place for provider selection results, single-step planning, and in-context chat."

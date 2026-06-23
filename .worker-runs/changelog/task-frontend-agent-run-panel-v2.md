@@ -1,0 +1,3 @@
+- Added a shared, read-only AgentRunPanel to both frontend surfaces.
+- Exposed the canonical `/api/agent/runs/events` feed alongside current goal, task, mode, and enabled state.
+- Kept the panel compact and null-safe with explicit empty and error states.

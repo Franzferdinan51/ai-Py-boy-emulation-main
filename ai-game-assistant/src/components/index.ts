@@ -14,6 +14,7 @@ export { default as TelemetryWidget } from './TelemetryWidget';
 
 // Pre-existing panels not yet on the barrel but used by WebUiApp
 export { default as ActionLog } from './ActionLog';
+export { default as AgentRunPanel } from './AgentRunPanel';
 export { default as AgentStatusPanel } from './AgentStatusPanel';
 export { default as Controller } from './Controller';
 export { default as GameCanvas } from './GameCanvas';

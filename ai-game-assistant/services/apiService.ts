@@ -131,6 +131,47 @@ export interface AgentStatus {
   timestamp: string;
 }
 
+export interface AgentGoalResponse {
+  goal: string;
+  task: string;
+  timestamp: string;
+}
+
+export interface AgentRunEvent {
+  version?: string;
+  kind: string;
+  timestamp: string;
+  source?: string;
+  session_id?: string | null;
+  success?: boolean;
+  action?: unknown;
+  observation?: unknown;
+  changes?: unknown;
+  data?: Record<string, unknown>;
+}
+
+export interface AgentRunEventsResponse {
+  ok?: boolean;
+  events: AgentRunEvent[];
+  count: number;
+  limit?: number;
+  session_id?: string | null;
+  loaded?: boolean;
+  active_emulator?: string | null;
+  rom_loaded?: boolean;
+  timestamp: string;
+}
+
+export interface AgentStateSnapshot {
+  mode: string;
+  enabled: boolean;
+  current_goal?: string | null;
+  current_task?: string | null;
+  current_action?: string | null;
+  last_decision?: string | null;
+  timestamp?: string | null;
+}
+
 export interface AgentModeResponse {
   success?: boolean;
   message?: string;
@@ -345,8 +386,24 @@ class ApiService {
     return this.request<AgentStatus>('/api/agent/status');
   }
 
+  getAgentGoal() {
+    return this.request<AgentGoalResponse>('/api/agent/goal');
+  }
+
   getAgentMode() {
     return this.request<AgentModeResponse>('/api/agent/mode');
+  }
+
+  getAgentRunEvents(limit = 20, sessionId?: string) {
+    const params = new URLSearchParams();
+    if (typeof limit === 'number' && Number.isFinite(limit)) {
+      params.set('limit', String(limit));
+    }
+    if (sessionId) {
+      params.set('session_id', sessionId);
+    }
+    const query = params.toString();
+    return this.request<AgentRunEventsResponse>(`/api/agent/runs/events${query ? `?${query}` : ''}`);
   }
 
   setAgentMode(payload: {

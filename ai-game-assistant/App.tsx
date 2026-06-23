@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import apiService, {
   type AgentStatus,
+  type AgentGoalResponse,
+  type AgentRunEvent,
   type AppSettings,
   type GameButton,
   type GameState,
@@ -28,6 +30,7 @@ import apiService, {
   type PartyData,
 } from './services/apiService';
 import {
+  AgentRunPanel,
   InventoryPanel,
   MemoryInspector,
   Minimap,
@@ -166,6 +169,9 @@ const App: React.FC = () => {
   const [openClawHealth, setOpenClawHealth] = useState<OpenClawHealthResponse | null>(null);
   const [gameState, setGameState] = useState<GameState>(EMPTY_GAME_STATE);
   const [agentState, setAgentState] = useState<AgentStatus>(EMPTY_AGENT_STATE);
+  const [agentGoal, setAgentGoal] = useState<AgentGoalResponse | null>(null);
+  const [agentRunEvents, setAgentRunEvents] = useState<AgentRunEvent[]>([]);
+  const [agentRunError, setAgentRunError] = useState<string | null>(null);
   const [memoryState, setMemoryState] = useState<MemoryWatch>(EMPTY_MEMORY_STATE);
   const [gameScreenUrl, setGameScreenUrl] = useState<string | null>(null);
   const [streamingStatus, setStreamingStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
@@ -424,12 +430,37 @@ const App: React.FC = () => {
         setGameScreenUrl(null);
         setMemoryState(EMPTY_MEMORY_STATE);
       }
+
+      const [goalResult, runEventsResult] = await Promise.allSettled([
+        apiService.getAgentGoal(),
+        apiService.getAgentRunEvents(12),
+      ]);
+
+      const runErrors: string[] = [];
+      if (goalResult.status === 'fulfilled') {
+        setAgentGoal(goalResult.value);
+      } else {
+        setAgentGoal(null);
+        runErrors.push(goalResult.reason instanceof Error ? goalResult.reason.message : 'Failed to load agent goal');
+      }
+
+      if (runEventsResult.status === 'fulfilled') {
+        setAgentRunEvents(runEventsResult.value.events || []);
+      } else {
+        setAgentRunEvents([]);
+        runErrors.push(runEventsResult.reason instanceof Error ? runEventsResult.reason.message : 'Failed to load run events');
+      }
+
+      setAgentRunError(runErrors.length ? runErrors.join(' · ') : null);
     } catch (error) {
       const wasDisconnected = connectionStatusRef.current === 'disconnected';
       setConnection('disconnected');
       setBackendHealth(null);
       setGameState(EMPTY_GAME_STATE);
       setAgentState(EMPTY_AGENT_STATE);
+      setAgentGoal(null);
+      setAgentRunEvents([]);
+      setAgentRunError(null);
       setMemoryState(EMPTY_MEMORY_STATE);
       setGameScreenUrl(null);
       lastDecisionRef.current = EMPTY_AGENT_STATE.last_decision;
@@ -734,6 +765,15 @@ const App: React.FC = () => {
     : lastSyncedAt
       ? formatClock(lastSyncedAt)
       : 'Pending';
+  const agentRunSnapshot = {
+    mode: agentState.mode,
+    enabled: agentState.enabled,
+    current_goal: agentGoal?.goal || '',
+    current_task: agentGoal?.task || '',
+    current_action: agentState.current_action || '',
+    last_decision: agentState.last_decision || '',
+    timestamp: agentGoal?.timestamp || agentState.timestamp,
+  };
 
   return (
     <div className="app">
@@ -869,14 +909,21 @@ const App: React.FC = () => {
               </button>
             </div>
 
-            <div className="decision-callout">
-              <span className="decision-callout__label">Latest runtime decision</span>
-              <p>{latestDecision}</p>
-              <span className="decision-callout__meta">
-                {lastSyncedAt ? `Last sync ${formatClock(lastSyncedAt)}` : 'Runtime sync happens after save or resume'}
-              </span>
-            </div>
-          </PanelCard>
+              <div className="decision-callout">
+                <span className="decision-callout__label">Latest runtime decision</span>
+                <p>{latestDecision}</p>
+                <span className="decision-callout__meta">
+                  {lastSyncedAt ? `Last sync ${formatClock(lastSyncedAt)}` : 'Runtime sync happens after save or resume'}
+                </span>
+              </div>
+            </PanelCard>
+
+          <AgentRunPanel
+            agentState={agentRunSnapshot}
+            events={agentRunEvents}
+            error={agentRunError}
+            className="mt-3"
+          />
 
           <PanelCard
             eyebrow="Decision Feed"
