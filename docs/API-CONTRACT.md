@@ -7,6 +7,25 @@ This document describes the OpenClaw-compatible agent, health, and status endpoi
 
 ---
 
+## Canonical HTTP / MCP Contract Matrix
+
+The canonical routes below are the preferred contract for new web and MCP
+callers. Legacy aliases remain available for compatibility, but they should not
+be treated as the primary surface.
+
+| Canonical HTTP route | Supported aliases | High-level payload fields | No-ROM behavior | Matching generic MCP tools |
+| --- | --- | --- | --- | --- |
+| `GET /api/game/state` | none | `rom_loaded`, `active_emulator`, `rom_path`, `rom_name`, `frame_count`, `ai_running`, `current_goal`, `fps`, `speed_multiplier`, `current_provider`, `current_model` | Returns `200` with the current in-memory game-state snapshot | `get_state` |
+| `GET /api/agent/context` | none | `loaded`, `rom_name`, `frame`, `game_mode`, `position`, `party`, `inventory`, `battle`, `health_summary`, `recommendations`, `timestamp` | Returns `200` with a safe empty snapshot | `get_agent_context` |
+| `POST /api/agent/act` | none | request: `action`, `frames`; response: `success`, `action`, `frames`, `observation`, `changes`, `timestamp` | Returns `400` with `error: "No ROM loaded"` | `act_and_observe` |
+| `POST /api/save_state` | `POST /save_state` | request body accepted; current route stores one slot per active emulator in memory | Returns `400` with `error: "No ROM loaded"` | `save_state`, `quick_save` |
+| `POST /api/load_state` | `POST /load_state` | request body accepted; current route restores the active emulator slot from memory | Returns `400` with `error: "No ROM loaded"` or `error: "No saved state available"` | `load_state`, `quick_load` |
+| `GET /api/screen` | none | `image`, `shape`, `timestamp`, `pyboy_frame`, `performance`, optional `optimization` | Returns `400` with `error: "No ROM loaded"` | `get_screen`, `screenshot` |
+| `GET /api/stream` | none | SSE prelude: `status`, `fps`; frame event: `image`, `timestamp`, `frame`, `fps`; error event: `error`, `recoverable`, `consecutive_errors` | Returns `200` and emits a single SSE error event when no ROM is loaded | `get_screen`, `screenshot` |
+| `POST /api/game/button` | `POST /api/game/action`, `POST /api/action` | request: `button` or `action`, optional `frames`; success: `message`, `action`, `frames`, `history_length` | Returns `400` with `error: "No ROM loaded"` | `press_a`, `press_b`, `press_up`, `press_down`, `press_left`, `press_right`, `press_start`, `press_select`, `press_button`, `press_button_combo`, `hold_button` |
+
+---
+
 ## Overview
 
 These endpoints follow OpenClaw conventions for:
