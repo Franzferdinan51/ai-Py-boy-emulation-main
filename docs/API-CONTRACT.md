@@ -16,8 +16,11 @@ be treated as the primary surface.
 | Canonical HTTP route | Supported aliases | High-level payload fields | No-ROM behavior | Matching generic MCP tools |
 | --- | --- | --- | --- | --- |
 | `GET /api/game/state` | none | `rom_loaded`, `active_emulator`, `rom_path`, `rom_name`, `frame_count`, `ai_running`, `current_goal`, `fps`, `speed_multiplier`, `current_provider`, `current_model` | Returns `200` with the current in-memory game-state snapshot | `get_state` |
-| `GET /api/agent/context` | none | `loaded`, `rom_name`, `frame`, `game_mode`, `position`, `party`, `inventory`, `battle`, `health_summary`, `recommendations`, `timestamp` | Returns `200` with a safe empty snapshot | `get_agent_context` |
+| `GET /api/agent/context` | none | `loaded`, `rom_name`, `frame`, `game_mode`, `position`, `party`, `inventory`, `battle`, `health_summary`, `recommendations`, `active_session_id`, `active_routine`, `available_tools`, `memory_summary`, `next_recommended_action`, `timestamp` | Returns `200` with a safe empty snapshot | `get_agent_context` |
 | `POST /api/agent/act` | none | request: `action`, `frames`; response: `success`, `action`, `frames`, `observation`, `changes`, `timestamp` | Returns `400` with `error: "No ROM loaded"` | `act_and_observe` |
+| `GET /api/agent/toolbelt` | none | `active_session_id`, `active_routine`, `available_tools`, `tool_groups`, `memory_summary`, `next_recommended_action`, `auto_learning_signals`, `timestamp` | Returns `200` with safe empty/default metadata | `get_agent_toolbelt` |
+| `GET /api/agent/routines` | none | `active_session_id`, `active_routine`, `routines`, `suggested_routines`, `skill_drafts`, `timestamp` | Returns `200` even if no session is active | `get_agent_routines` |
+| `POST /api/agent/routines` | none | request: `name`, `steps`, optional `description`, `tags`, `session_id`; response: `routine`, `active_routine`, `timestamp` | Returns `400` if no active or supplied session exists | none |
 | `POST /api/save_state` | `POST /save_state` | request body accepted; current route stores one slot per active emulator in memory | Returns `400` with `error: "No ROM loaded"` | `save_state`, `quick_save` |
 | `POST /api/load_state` | `POST /load_state` | request body accepted; current route restores the active emulator slot from memory | Returns `400` with `error: "No ROM loaded"` or `error: "No saved state available"` | `load_state`, `quick_load` |
 | `GET /api/screen` | none | `image`, `shape`, `timestamp`, `pyboy_frame`, `performance`, optional `optimization` | Returns `400` with `error: "No ROM loaded"` | `get_screen`, `screenshot` |
@@ -229,6 +232,32 @@ Comprehensive agent state (OpenClaw-style).
     "total_decisions": 56,
     "total_errors": 3
   },
+  "active_session_id": "019e1f3e-4f61-7d7b-bdd0-78ceaf0b86de",
+  "active_routine": "heal_party",
+  "available_tools": [
+    {
+      "name": "get_agent_context",
+      "access": "read-only",
+      "category": "context",
+      "backend_route": "/api/agent/context",
+      "mcp_tool": "get_agent_context",
+      "description": "Get a full structured gameplay snapshot for planning."
+    }
+  ],
+  "memory_summary": {
+    "total_records": 4,
+    "by_type": {"note": 2, "control_pattern": 2},
+    "latest_by_type": {"note": {"type": "note"}, "control_pattern": {"type": "control_pattern"}},
+    "recent_notes": [{"type": "note", "text": "Pokemon Center is north of the mart."}],
+    "learned_control_patterns": [
+      {"sequence": ["UP", "A"], "outcome": "Enter a doorway from the overworld"}
+    ]
+  },
+  "next_recommended_action": {
+    "action": "HEAL",
+    "reason": "Heal party at Pokemon Center",
+    "source": "context.health_summary"
+  },
   "started_at": "2026-03-19T19:00:00.000Z",
   "timestamp": "2026-03-19T20:00:00.000Z"
 }
@@ -251,6 +280,157 @@ Agent status summary (OpenClaw-style).
   "action_count": 1234,
   "error_count": 3,
   "timestamp": "2026-03-19T20:00:00.000Z"
+}
+```
+
+---
+
+### `GET /api/agent/toolbelt`
+
+Hermes-inspired adapter metadata for planners and operator UIs. This endpoint is
+read-only and derives its state from the existing agent state, active session,
+and structured memory records.
+
+**Response Shape:**
+```json
+{
+  "active_session_id": "019e1f3e-4f61-7d7b-bdd0-78ceaf0b86de",
+  "active_routine": "heal_party",
+  "available_tools": [
+    {
+      "name": "get_agent_context",
+      "access": "read-only",
+      "category": "context",
+      "backend_route": "/api/agent/context",
+      "mcp_tool": "get_agent_context"
+    },
+    {
+      "name": "act_and_observe",
+      "access": "mutating",
+      "category": "actions",
+      "backend_route": "/api/agent/act",
+      "mcp_tool": "act_and_observe"
+    }
+  ],
+  "tool_groups": {
+    "context": ["get_agent_context", "get_game_mode"],
+    "capabilities": ["get_agent_toolbelt", "get_agent_routines"],
+    "actions": ["act_and_observe"]
+  },
+  "memory_summary": {
+    "total_records": 4,
+    "by_type": {"note": 2, "control_pattern": 2},
+    "recent_notes": [{"type": "note", "text": "Pokemon Center is north of the mart."}],
+    "learned_control_patterns": [
+      {"sequence": ["UP", "A"], "outcome": "Enter a doorway from the overworld"}
+    ]
+  },
+  "next_recommended_action": {
+    "action": "HEAL",
+    "reason": "Heal party at Pokemon Center",
+    "source": "context.health_summary"
+  },
+  "planner_hint": {
+    "action": "HEAL",
+    "reason": "Heal party at Pokemon Center",
+    "source": "context.health_summary"
+  },
+  "auto_learning_signals": {
+    "control_patterns_observed": 2,
+    "suggested_routine_count": 1,
+    "skill_draft_count": 2
+  },
+  "timestamp": "2026-06-23T20:00:00.000Z"
+}
+```
+
+---
+
+### `GET /api/agent/routines`
+
+Lists operator-authored routines plus generated playbook suggestions derived
+from learned control patterns. The route is read-only and does not advance the
+emulator.
+
+**Response Shape:**
+```json
+{
+  "active_session_id": "019e1f3e-4f61-7d7b-bdd0-78ceaf0b86de",
+  "active_routine": "heal_party",
+  "routines": [
+    {
+      "id": "d2a67ce727f0",
+      "name": "heal_party",
+      "kind": "playbook",
+      "origin": "operator",
+      "status": "ready",
+      "steps": [{"action": "UP", "frames": 1}]
+    }
+  ],
+  "suggested_routines": [
+    {
+      "id": "learned-f1396fd95444",
+      "name": "enter_a_doorway_from_the_overworld",
+      "kind": "generated_playbook",
+      "origin": "memory",
+      "status": "suggested",
+      "steps": [{"action": "UP", "frames": 1}, {"action": "A", "frames": 1}],
+      "summary": "Enter a doorway from the overworld"
+    }
+  ],
+  "skill_drafts": [
+    {
+      "id": "skill-f1396fd95444",
+      "name": "Enter a doorway from the overworld",
+      "source": "memory.control_pattern",
+      "status": "draft"
+    }
+  ],
+  "timestamp": "2026-06-23T20:00:00.000Z"
+}
+```
+
+---
+
+### `POST /api/agent/routines`
+
+Creates or updates a reusable routine in the active or supplied session. This
+persists session metadata only; it does not press buttons, tick frames, or
+write emulator save-state.
+
+**Request Shape:**
+```json
+{
+  "session_id": "019e1f3e-4f61-7d7b-bdd0-78ceaf0b86de",
+  "name": "pewter_entry",
+  "description": "Line up on the city gate and walk north.",
+  "steps": [{"action": "UP", "frames": 4}],
+  "tags": ["navigation"],
+  "activate": true
+}
+```
+
+**Response Shape:**
+```json
+{
+  "ok": true,
+  "session_id": "019e1f3e-4f61-7d7b-bdd0-78ceaf0b86de",
+  "active_routine": "pewter_entry",
+  "routine": {
+    "id": "2606eb59de50",
+    "name": "pewter_entry",
+    "kind": "playbook",
+    "origin": "operator",
+    "status": "ready",
+    "steps": [{"action": "UP", "frames": 4}],
+    "skill_draft": {
+      "id": "skill-2606eb59de50",
+      "name": "pewter_entry",
+      "source": "routine.upsert",
+      "status": "draft"
+    }
+  },
+  "timestamp": "2026-06-23T20:00:00.000Z"
 }
 ```
 

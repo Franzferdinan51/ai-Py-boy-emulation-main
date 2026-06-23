@@ -515,6 +515,22 @@ async def list_tools() -> List[Tool]:
                 "properties": {}
             }
         ),
+        Tool(
+            name="get_agent_toolbelt",
+            description="[read-only] Get Hermes-inspired toolbelt metadata, planner hints, and memory-summary signals from the backend capability adapter.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
+        Tool(
+            name="get_agent_routines",
+            description="[read-only] List persisted agent routines, learned playbook suggestions, and skill-draft metadata from the backend capability adapter.",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ),
         # === SERVER-SIDE VISION ANALYSIS TOOLS ===
         # These tools capture the screen and return TEXT ANALYSIS, not images.
         # Use these when you need to UNDERSTAND the screen, not just see it.
@@ -920,7 +936,15 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
         elif name == "get_menu_state":
             result = api_get("/api/agent/menu")
             return [TextContent(type="text", text=json.dumps(result))]
-        
+
+        elif name == "get_agent_toolbelt":
+            result = api_get("/api/agent/toolbelt")
+            return [TextContent(type="text", text=json.dumps(result))]
+
+        elif name == "get_agent_routines":
+            result = api_get("/api/agent/routines")
+            return [TextContent(type="text", text=json.dumps(result))]
+
         # === SERVER-SIDE VISION ANALYSIS TOOL HANDLERS ===
         # These capture the screen and return TEXT ANALYSIS, not images.
         # This allows AI agents to understand the screen even when their

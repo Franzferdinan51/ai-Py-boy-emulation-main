@@ -24,7 +24,19 @@ def test_canonical_game_agent_contract_matrix():
             "get",
             "/api/agent/context",
             200,
-            ("loaded", "game_mode", "position", "party", "inventory", "battle"),
+            (
+                "loaded",
+                "game_mode",
+                "position",
+                "party",
+                "inventory",
+                "battle",
+                "active_session_id",
+                "active_routine",
+                "available_tools",
+                "memory_summary",
+                "next_recommended_action",
+            ),
         ),
         ("post", "/api/agent/act", 400, ("error", "timestamp")),
         ("post", "/api/save_state", 400, ("error",)),
@@ -32,6 +44,20 @@ def test_canonical_game_agent_contract_matrix():
         ("get", "/api/screen", 400, ("error",)),
         ("get", "/api/stream", 200, ()),
         ("post", "/api/game/button", 400, ("error",)),
+        (
+            "get",
+            "/api/agent/state",
+            200,
+            (
+                "active_session_id",
+                "active_routine",
+                "available_tools",
+                "memory_summary",
+                "next_recommended_action",
+            ),
+        ),
+        ("get", "/api/agent/toolbelt", 200, ("available_tools", "tool_groups", "active_session_id")),
+        ("get", "/api/agent/routines", 200, ("routines", "active_routine", "active_session_id")),
     ]
 
     for method, path, expected_status, required_keys in canonical_routes:
@@ -59,3 +85,18 @@ def test_supported_legacy_aliases_remain_registered():
     for method, path, expected_status in alias_routes:
         response = _request(method, path, json={} if method == "post" else None)
         assert response.status_code == expected_status, (path, response.status_code)
+
+
+def test_agent_routines_post_is_registered_and_uses_safe_defaults():
+    response = _request(
+        "post",
+        "/api/agent/routines",
+        json={"name": "Viridian setup", "steps": [{"action": "UP", "frames": 1}]},
+    )
+    assert response.status_code in {200, 400}, response.get_data(as_text=True)
+    data = response.get_json() or {}
+    assert "timestamp" in data
+    if response.status_code == 400:
+        assert "error" in data
+    else:
+        assert "routine" in data

@@ -36,6 +36,13 @@ from backend.agent_features.run_ledger import (
     get_run_events,
     record_run_event,
 )
+from backend.agent_features.agent_capabilities import (
+    build_capability_snapshot,
+    get_routines_snapshot,
+    get_toolbelt_snapshot,
+    upsert_session_routine,
+)
+from backend.agent_features.sessions import get_current_session
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +82,17 @@ def register_agent_routes(
 
     def _emulators():
         return emulators_getter() or {}
+
+    def _active_session_id() -> Optional[str]:
+        session = get_current_session()
+        return session.get("id") if session else None
+
+    def _capabilities(game_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return build_capability_snapshot(
+            agent_state=_state(),
+            game_context=game_context or {},
+            session_id=_active_session_id(),
+        )
 
     # ------------------------------------------------------------------
     # Local helpers (were module-level in server.py)
@@ -127,6 +145,7 @@ def register_agent_routes(
         """Comprehensive agent state (OpenClaw-style)."""
         state = _state()
         now = datetime.now().isoformat()
+        capabilities = _capabilities()
         return jsonify(
             {
                 "mode": state.get("mode", "manual"),
@@ -143,6 +162,11 @@ def register_agent_routes(
                     {"total_actions": 0, "total_decisions": 0, "total_errors": 0},
                 ),
                 "started_at": state.get("started_at"),
+                "active_session_id": capabilities["active_session_id"],
+                "active_routine": capabilities["active_routine"],
+                "available_tools": capabilities["available_tools"],
+                "memory_summary": capabilities["memory_summary"],
+                "next_recommended_action": capabilities["next_recommended_action"],
                 "timestamp": now,
             }
         ), 200
@@ -411,6 +435,40 @@ def register_agent_routes(
         payload["rom_loaded"] = bool(current_state.get("rom_loaded"))
         return jsonify(payload), 200
 
+    @app.route("/api/agent/toolbelt", methods=["GET"])
+    def api_agent_toolbelt():
+        payload = get_toolbelt_snapshot(
+            agent_state=_state(),
+            game_context={"loaded": bool((game_state_getter() or {}).get("rom_loaded"))},
+            session_id=_active_session_id(),
+        )
+        return jsonify(payload), 200
+
+    @app.route("/api/agent/routines", methods=["GET"])
+    def api_agent_routines():
+        payload = get_routines_snapshot(
+            agent_state=_state(),
+            game_context={"loaded": bool((game_state_getter() or {}).get("rom_loaded"))},
+            session_id=_active_session_id(),
+        )
+        return jsonify(payload), 200
+
+    @app.route("/api/agent/routines", methods=["POST"])
+    def api_agent_routines_upsert():
+        payload = request.get_json(silent=True) or {}
+        session_id = payload.get("session_id") or _active_session_id()
+        if not session_id:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "No active session. Create or activate a session before saving routines.",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            ), 400
+        result = upsert_session_routine(session_id=session_id, payload=payload)
+        status = 200 if result.get("ok") else 400
+        return jsonify(result), status
+
     @app.route("/api/agent/context", methods=["GET"])
     def api_agent_context():
         """Composite snapshot: position + party + inventory + battle + health."""
@@ -432,11 +490,27 @@ def register_agent_routes(
                 "needs_healing": False,
             },
             "recommendations": [],
+            "active_session_id": None,
+            "active_routine": None,
+            "available_tools": [],
+            "memory_summary": {
+                "total_records": 0,
+                "by_type": {},
+                "latest_by_type": {},
+                "recent_notes": [],
+                "learned_control_patterns": [],
+            },
+            "next_recommended_action": {
+                "action": "OBSERVE",
+                "reason": "No ROM loaded",
+                "source": "fallback",
+            },
             "timestamp": datetime.now().isoformat(),
         }
 
         emulators = _emulators()
         if not current_state.get("rom_loaded") or not active or active not in emulators:
+            empty_response.update(_capabilities(empty_response))
             return jsonify(empty_response), 200
 
         try:
@@ -490,28 +564,29 @@ def register_agent_routes(
                     f'Consider spending money: ¥{inventory["money"]:,}'
                 )
 
-            return jsonify(
-                {
-                    "loaded": True,
-                    "rom_name": current_state.get("rom_name", current_state.get("rom_path", "Unknown")),
-                    "frame": emulator.get_frame_count() if hasattr(emulator, "get_frame_count") else 0,
-                    "game_mode": game_mode,
-                    "position": position,
-                    "party": party,
-                    "inventory": inventory,
-                    "battle": battle,
-                    "health_summary": {
-                        "party_healthy": not needs_healing,
-                        "lowest_hp_percent": round(lowest_hp, 1),
-                        "needs_healing": needs_healing,
-                    },
-                    "recommendations": recommendations,
-                    "timestamp": datetime.now().isoformat(),
-                }
-            ), 200
+            response = {
+                "loaded": True,
+                "rom_name": current_state.get("rom_name", current_state.get("rom_path", "Unknown")),
+                "frame": emulator.get_frame_count() if hasattr(emulator, "get_frame_count") else 0,
+                "game_mode": game_mode,
+                "position": position,
+                "party": party,
+                "inventory": inventory,
+                "battle": battle,
+                "health_summary": {
+                    "party_healthy": not needs_healing,
+                    "lowest_hp_percent": round(lowest_hp, 1),
+                    "needs_healing": needs_healing,
+                },
+                "recommendations": recommendations,
+                "timestamp": datetime.now().isoformat(),
+            }
+            response.update(_capabilities(response))
+            return jsonify(response), 200
         except Exception as e:
             logger.debug(f"Error getting agent context: {e}")
             empty_response["error"] = str(e)
+            empty_response.update(_capabilities(empty_response))
             return jsonify(empty_response), 200
 
     @app.route("/api/agent/mode", methods=["GET"])
