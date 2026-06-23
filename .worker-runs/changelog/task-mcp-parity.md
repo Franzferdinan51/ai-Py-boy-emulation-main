@@ -1,0 +1,3 @@
+- Aligned `generic_mcp_server.py` core tool calls with canonical backend routes.
+- Added contract tests for route mapping, save/load payloads, `tick`, and access-level labels.
+- Verified with `uv run --with pytest --with-requirements ai-game-server/requirements.txt python -m pytest tests/test_generic_mcp_contracts.py -q`.

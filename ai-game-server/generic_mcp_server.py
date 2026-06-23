@@ -51,7 +51,7 @@ async def list_tools() -> List[Tool]:
     return [
         Tool(
             name="load_rom",
-            description="Load a ROM file via the backend API. Supports any GB/GBC/GBA game!",
+            description="[mutating] Load a ROM file via the backend API. Supports any GB/GBC/GBA game!",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -65,47 +65,47 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="press_a",
-            description="Press the A button",
+            description="[mutating] Press the A button",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="press_b",
-            description="Press the B button",
+            description="[mutating] Press the B button",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="press_up",
-            description="Press the UP button",
+            description="[mutating] Press the UP button",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="press_down",
-            description="Press the DOWN button",
+            description="[mutating] Press the DOWN button",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="press_left",
-            description="Press the LEFT button",
+            description="[mutating] Press the LEFT button",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="press_right",
-            description="Press the RIGHT button",
+            description="[mutating] Press the RIGHT button",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="press_start",
-            description="Press the START button",
+            description="[mutating] Press the START button",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="press_select",
-            description="Press the SELECT button",
+            description="[mutating] Press the SELECT button",
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
             name="get_screen",
-            description="Get the current game screen as an image",
+            description="[read-only] Get the current game screen as an image",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -113,7 +113,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="tick",
-            description="Advance the emulator by N frames",
+            description="[mutating] Advance the emulator by N frames",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -141,7 +141,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="get_state",
-            description="Get current emulator state from backend",
+            description="[read-only] Get current emulator state from backend",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -149,7 +149,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="save_state",
-            description="Save current game state",
+            description="[mutating] Save current game state",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -163,7 +163,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="load_state",
-            description="Load a previously saved game state",
+            description="[mutating] Load a previously saved game state",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -224,7 +224,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="screenshot",
-            description="Take a screenshot of the current game screen",
+            description="[read-only] Take a screenshot of the current game screen",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -240,7 +240,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="press_button_combo",
-            description="Press a button combo (e.g., UP+A for jump)",
+            description="[mutating] Press a button combo (e.g., UP+A for jump)",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -254,7 +254,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="hold_button",
-            description="Hold a button for N frames",
+            description="[mutating] Hold a button for N frames",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -273,7 +273,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="quick_save",
-            description="Quick save current game state",
+            description="[mutating] Quick save current game state",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -281,7 +281,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="quick_load",
-            description="Quick load saved game state",
+            description="[mutating] Quick load saved game state",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -465,7 +465,7 @@ async def list_tools() -> List[Tool]:
         # === AGENT TOOLS (High Impact for AI/LM Studio) ===
         Tool(
             name="get_agent_context",
-            description="Get comprehensive context for AI decision making. Returns party, inventory, position, battle state, health summary, and recommendations in one call. Ideal for agents needing full game state.",
+            description="[read-only] Get comprehensive context for AI decision making. Returns party, inventory, position, battle state, health summary, and recommendations in one call. Ideal for agents needing full game state.",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -473,7 +473,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="get_game_mode",
-            description="Determine the current game mode (exploration, battle, menu, dialogue, title). Helps agents understand what actions are appropriate.",
+            description="[read-only] Determine the current game mode (exploration, battle, menu, dialogue, title). Helps agents understand what actions are appropriate.",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -481,7 +481,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="act_and_observe",
-            description="Execute an action and return the new state observation. Combines button press with state update. Returns position, battle, and health changes.",
+            description="[mutating] Execute an action and return the new state observation. Combines button press with state update. Returns position, battle, and health changes.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -501,7 +501,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="get_dialogue_state",
-            description="Get current dialogue/text box state. Returns whether dialogue is active, text content, and menu options if present.",
+            description="[read-only] Get current dialogue/text box state. Returns whether dialogue is active, text content, and menu options if present.",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -509,7 +509,7 @@ async def list_tools() -> List[Tool]:
         ),
         Tool(
             name="get_menu_state",
-            description="Get current menu state. Returns menu type, selection index, and available options.",
+            description="[read-only] Get current menu state. Returns menu type, selection index, and available options.",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -580,7 +580,23 @@ def api_get(endpoint: str) -> Dict[str, Any]:
     url = f"{DEFAULT_BACKEND_URL}{endpoint}"
     try:
         r = requests.get(url, timeout=10)
-        return r.json() if r.status_code == 200 else {"error": f"HTTP {r.status_code}"}
+        if r.status_code == 200:
+            return r.json()
+        try:
+            payload = r.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            if "status_code" not in payload:
+                payload = {**payload, "status_code": r.status_code}
+            return payload
+        if payload is not None:
+            return {"error": payload, "status_code": r.status_code}
+        fallback: Dict[str, Any] = {"error": f"HTTP {r.status_code}", "status_code": r.status_code}
+        response_text = getattr(r, "text", "")
+        if response_text:
+            fallback["details"] = response_text
+        return fallback
     except Exception as e:
         return {"error": str(e)}
 
@@ -589,7 +605,23 @@ def api_post(endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
     url = f"{DEFAULT_BACKEND_URL}{endpoint}"
     try:
         r = requests.post(url, json=data, timeout=10)
-        return r.json() if r.status_code == 200 else {"error": f"HTTP {r.status_code}"}
+        if r.status_code == 200:
+            return r.json()
+        try:
+            payload = r.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, dict):
+            if "status_code" not in payload:
+                payload = {**payload, "status_code": r.status_code}
+            return payload
+        if payload is not None:
+            return {"error": payload, "status_code": r.status_code}
+        fallback: Dict[str, Any] = {"error": f"HTTP {r.status_code}", "status_code": r.status_code}
+        response_text = getattr(r, "text", "")
+        if response_text:
+            fallback["details"] = response_text
+        return fallback
     except Exception as e:
         return {"error": str(e)}
 
@@ -604,7 +636,7 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
     
     try:
         if name == "load_rom":
-            result = api_post("/api/rom/load", {"path": arguments.get("rom_path")})
+            result = api_post("/api/load_rom", {"path": arguments.get("rom_path")})
             return [TextContent(type="text", text=json.dumps(result))]
         
         elif name == "press_button":
@@ -658,8 +690,8 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
         
         elif name == "tick":
             frames = arguments.get("frames", 1)
-            # Tick by pressing no button but advancing frames
-            result = api_post("/api/game/tick", {"frames": frames})
+            # Advance frames through the canonical input endpoint.
+            result = api_post("/api/game/button", {"button": "NOOP", "frames": frames})
             return [TextContent(type="text", text=json.dumps(result))]
         
         elif name == "get_memory":
@@ -743,8 +775,7 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
         elif name == "hold_button":
             btn = arguments.get("button", "A").upper()
             frames = arguments.get("frames", 30)
-            for _ in range(frames):
-                api_post("/api/game/button", {"button": btn})
+            api_post("/api/game/button", {"button": btn, "frames": frames})
             return [TextContent(type="text", text=json.dumps({"success": True, "button": btn, "frames": frames}))]
         
         elif name == "quick_save":
