@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — 2026-06-22 (Contract matrix)
+
+### Added
+- Documented the canonical HTTP/MCP Game Boy agent contract matrix and added
+  Flask smoke coverage for the core aliases and SSE no-ROM behavior.
+
 ## [Unreleased] — 2026-06-21
 
 ### Added — New Feature Modules (additive, 33 new routes)
@@ -251,4 +257,3 @@ Extended from 43 → 78 checks to cover all three new blueprints:
   itself, but the code only reads it as a custom env var).
 - Frontend code unchanged for existing components; new panels are purely
   additive.
-

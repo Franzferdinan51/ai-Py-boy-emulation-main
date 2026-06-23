@@ -124,6 +124,13 @@ r = _hit("get", "/api/screen")
 check("/api/screen returns 400 without ROM", r.status_code in {400, 503},
       f"got {r.status_code} body={r.data[:200]!r}")
 
+r = _hit("get", "/api/stream")
+check("/api/stream returns SSE without ROM", r.status_code == 200,
+      f"got {r.status_code}")
+check("/api/stream is text/event-stream", "text/event-stream" in r.content_type,
+      detail=r.content_type)
+check("/api/stream emits no-ROM error", '"error": "No ROM loaded"' in r.get_data(as_text=True))
+
 r = _hit("get", "/api/screen/debug")
 check("/api/screen/debug 503 without ROM", r.status_code in {400, 503},
       f"got {r.status_code}")
@@ -143,6 +150,14 @@ check("/api/action returns 400 without ROM", r.status_code in {400, 503},
 
 r = _hit("post", "/api/game/button", json={"button": "A"})
 check("/api/game/button returns 400 without ROM", r.status_code in {400, 503},
+      f"got {r.status_code}")
+
+r = _hit("post", "/api/game/action", json={"action": "A"})
+check("/api/game/action returns 400 without ROM", r.status_code in {400, 503},
+      f"got {r.status_code}")
+
+r = _hit("post", "/api/action", json={"action": "A"})
+check("/api/action returns 400 without ROM", r.status_code in {400, 503},
       f"got {r.status_code}")
 
 # --- 7. Already-known good blueprints ---
@@ -258,6 +273,12 @@ check("/api/upload-rom 400 without file", r.status_code == 400, f"got {r.status_
 r = _hit("post", "/api/load_rom", json={})
 check("/api/load_rom 400 without path or file", r.status_code == 400,
       f"got {r.status_code} body={r.data[:200]!r}")
+
+r = _hit("post", "/save_state", json={})
+check("/save_state 400 without ROM", r.status_code == 400, f"got {r.status_code}")
+
+r = _hit("post", "/load_state", json={})
+check("/load_state 400 without ROM", r.status_code == 400, f"got {r.status_code}")
 
 # Modern /api/rom/load alias → same handler
 r = _hit("post", "/api/rom/load", json={})
