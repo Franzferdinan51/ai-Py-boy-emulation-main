@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 export type StreamingStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'failed';
 
@@ -16,6 +16,15 @@ interface StreamStats {
   lastUpdate: number;
 }
 
+interface StreamFramePayload {
+  image?: string;
+  timestamp?: number | string;
+  frame?: number;
+  fps?: number;
+}
+
+const RECONNECT_DELAY_MS = 3000;
+
 const GameCanvas: React.FC<GameCanvasProps> = ({
   backendUrl,
   onStatusChange,
@@ -24,6 +33,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const mountedRef = useRef(false);
+  const statusRef = useRef<StreamingStatus>('disconnected');
+  const onStatusChangeRef = useRef(onStatusChange);
+  const connectRef = useRef<() => void>(() => {});
+
   const [status, setStatus] = useState<StreamingStatus>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<StreamStats>({
@@ -33,169 +48,176 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     lastUpdate: Date.now(),
   });
 
-  const frameTimestamps = useRef<number[]>([]);
+  useEffect(() => {
+    onStatusChangeRef.current = onStatusChange;
+  }, [onStatusChange]);
 
-  const calculateFps = useCallback(() => {
-    const now = Date.now();
-    const timestamps = frameTimestamps.current;
-    const validTimestamps = timestamps.filter(ts => now - ts < 1000);
-    frameTimestamps.current = validTimestamps;
-    const fps = validTimestamps.length;
-    setStats(prev => ({
-      ...prev,
-      fps,
-      frameCount: prev.frameCount + 1,
-      lastUpdate: now,
-    }));
+  const setStreamingStatus = useCallback((nextStatus: StreamingStatus) => {
+    statusRef.current = nextStatus;
+    setStatus(nextStatus);
+    onStatusChangeRef.current?.(nextStatus);
   }, []);
 
-  const connectToStream = useCallback(() => {
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
+
+  const closeEventSource = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }, []);
+
+  const scheduleReconnect = useCallback((message: string) => {
+    if (!mountedRef.current || reconnectTimerRef.current !== null) {
+      return;
     }
 
-    setStatus('connecting');
+    setError(message);
+    setStreamingStatus('error');
+
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectTimerRef.current = null;
+      if (!mountedRef.current) {
+        return;
+      }
+      connectRef.current();
+    }, RECONNECT_DELAY_MS);
+  }, [setStreamingStatus]);
+
+  const connectToStream = useCallback(() => {
+    clearReconnectTimer();
+    closeEventSource();
+
     setError(null);
-    onStatusChange?.('connecting');
+    setStreamingStatus('connecting');
 
     const eventSource = new EventSource(`${backendUrl}/api/stream`);
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
-      setStatus('connected');
-      onStatusChange?.('connected');
+      if (eventSourceRef.current !== eventSource || !mountedRef.current) {
+        return;
+      }
+
+      setError(null);
+      setStreamingStatus('connected');
       console.log('[GameCanvas] Stream connected');
     };
 
     eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'screen') {
-          const canvas = canvasRef.current;
-          if (!canvas) return;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return;
+      if (eventSourceRef.current !== eventSource || !mountedRef.current) {
+        return;
+      }
 
-          const img = new Image();
-          img.onload = () => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0);
-            calculateFps();
-          };
-          img.src = `data:image/png;base64,${data.image}`;
+      try {
+        const payload = JSON.parse(event.data) as StreamFramePayload;
+        if (typeof payload?.image !== 'string' || !payload.image) {
+          return;
         }
-      } catch (err) {
-        console.error('[GameCanvas] Error parsing message:', err);
+
+        const canvas = canvasRef.current;
+        if (!canvas) {
+          return;
+        }
+
+        const context = canvas.getContext('2d');
+        if (!context) {
+          return;
+        }
+
+        const image = new Image();
+        image.onload = () => {
+          if (eventSourceRef.current !== eventSource || !mountedRef.current) {
+            return;
+          }
+
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          setError(null);
+          setStats((previous) => ({
+            fps: typeof payload.fps === 'number' ? payload.fps : previous.fps,
+            frameCount: typeof payload.frame === 'number' ? payload.frame : previous.frameCount + 1,
+            bytesReceived: previous.bytesReceived + event.data.length,
+            lastUpdate: Date.now(),
+          }));
+
+          if (statusRef.current !== 'connected') {
+            setStreamingStatus('connected');
+          }
+        };
+
+        image.onerror = () => {
+          if (eventSourceRef.current !== eventSource || !mountedRef.current) {
+            return;
+          }
+
+          scheduleReconnect('Received an unreadable frame. Retrying...');
+        };
+
+        image.src = `data:image/jpeg;base64,${payload.image}`;
+      } catch (parseError) {
+        console.error('[GameCanvas] Error parsing message:', parseError);
+        scheduleReconnect('Received malformed stream data. Retrying...');
       }
     };
 
     eventSource.onerror = () => {
-      console.error('[GameCanvas] Stream error');
-      setStatus('error');
-      setError('Connection lost. Attempting to reconnect...');
-      onStatusChange?.('error');
-      eventSource.close();
-      setTimeout(() => {
-        if (status !== 'connected') {
-          connectToStream();
-        }
-      }, 3000);
-    };
-  }, [backendUrl, calculateFps, onStatusChange, status]);
-
-  const disconnect = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-    setStatus('disconnected');
-    onStatusChange?.('disconnected');
-  }, [onStatusChange]);
-
-  // Fallback polling
-  const startPolling = useCallback(async () => {
-    setStatus('connecting');
-    onStatusChange?.('connecting');
-
-    const poll = async () => {
-      if (status === 'disconnected') return;
-
-      try {
-        const response = await fetch(`${backendUrl}/api/screen`);
-        if (response.ok) {
-          const blob = await response.blob();
-          const arrayBuffer = await blob.arrayBuffer();
-          
-          const canvas = canvasRef.current;
-          if (!canvas) return;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) return;
-
-          const img = new Image();
-          img.onload = () => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0);
-            calculateFps();
-            setStats(prev => ({
-              ...prev,
-              bytesReceived: prev.bytesReceived + arrayBuffer.byteLength,
-            }));
-            
-            if (status !== 'connected') {
-              setStatus('connected');
-              onStatusChange?.('connected');
-            }
-          };
-          img.onerror = () => {
-            setStatus('error');
-            onStatusChange?.('error');
-          };
-
-          const url = URL.createObjectURL(blob);
-          img.src = url;
-        } else if (response.status === 400) {
-          setStatus('connected');
-          onStatusChange?.('connected');
-        }
-      } catch (err) {
-        console.error('[GameCanvas] Polling error:', err);
-        setStatus('failed');
-        onStatusChange?.('failed');
+      if (eventSourceRef.current !== eventSource || !mountedRef.current) {
+        return;
       }
-    };
 
-    const intervalId = setInterval(poll, 100);
-    poll();
-    return () => clearInterval(intervalId);
-  }, [backendUrl, calculateFps, onStatusChange, status]);
+      console.error('[GameCanvas] Stream error');
+      closeEventSource();
+      scheduleReconnect('Connection lost. Retrying...');
+    };
+  }, [backendUrl, clearReconnectTimer, closeEventSource, scheduleReconnect, setStreamingStatus]);
 
   useEffect(() => {
-    try {
-      connectToStream();
-    } catch {
-      startPolling();
-    }
-    return () => disconnect();
-  }, [backendUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+    connectRef.current = connectToStream;
+  }, [connectToStream]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    connectToStream();
+
+    return () => {
+      mountedRef.current = false;
+      clearReconnectTimer();
+      closeEventSource();
+    };
+  }, [backendUrl, clearReconnectTimer, closeEventSource, connectToStream]);
 
   const getStatusColor = () => {
     switch (status) {
-      case 'connected': return '#00ff88';
-      case 'connecting': return '#fbbf24';
+      case 'connected':
+        return '#00ff88';
+      case 'connecting':
+        return '#fbbf24';
       case 'error':
-      case 'failed': return '#ef4444';
-      default: return '#6b7280';
+      case 'failed':
+        return '#ef4444';
+      default:
+        return '#6b7280';
     }
   };
 
   const getStatusText = () => {
     switch (status) {
-      case 'connected': return showStats ? `LIVE ${stats.fps} FPS` : 'LIVE';
-      case 'connecting': return 'Connecting...';
-      case 'error': return 'Connection Error';
-      case 'failed': return 'Stream Failed';
-      default: return 'Disconnected';
+      case 'connected':
+        return showStats ? `LIVE ${stats.fps} FPS` : 'LIVE';
+      case 'connecting':
+        return 'Connecting...';
+      case 'error':
+        return 'Connection Error';
+      case 'failed':
+        return 'Stream Failed';
+      default:
+        return 'Disconnected';
     }
   };
 
@@ -210,9 +232,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       />
 
       {status !== 'disconnected' && (
-        <div className="absolute top-2 right-2 bg-black/80 px-2 py-1 rounded">
+        <div className="absolute top-2 right-2 bg-black/80 px-2 py-1 rounded" role="status" aria-live="polite">
           <div className="flex items-center space-x-2">
-            <span className={`w-2 h-2 rounded-full ${status === 'connected' ? 'animate-pulse' : ''}`} style={{ backgroundColor: getStatusColor() }} />
+            <span
+              className={`w-2 h-2 rounded-full ${status === 'connected' ? 'animate-pulse' : ''}`}
+              style={{ backgroundColor: getStatusColor() }}
+            />
             <span className="font-mono text-xs font-bold" style={{ color: getStatusColor() }}>
               {getStatusText()}
             </span>
@@ -221,7 +246,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       )}
 
       {(status === 'connecting' || !stats.frameCount) && (
-        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/60 flex items-center justify-center" aria-live="polite">
           <div className="flex flex-col items-center space-y-2">
             <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
             <span className="text-cyan-400 text-sm">Waiting for game...</span>
@@ -230,7 +255,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       )}
 
       {error && status === 'error' && (
-        <div className="absolute inset-0 bg-black/80 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/80 flex items-center justify-center p-4" role="alert">
           <div className="text-center">
             <span className="text-red-400 text-lg">⚠️</span>
             <p className="text-red-400 text-sm mt-2">{error}</p>

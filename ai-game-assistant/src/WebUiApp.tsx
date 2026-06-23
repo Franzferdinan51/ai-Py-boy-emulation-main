@@ -142,7 +142,7 @@ const PROVIDER_META: Record<
 };
 
 const DEFAULT_SETTINGS: DashboardSettings = {
-  backendUrl: 'http://localhost:5000',
+  backendUrl: 'http://localhost:5002',
   provider: 'mock',
   model: '',
   apiEndpoint: 'http://localhost:1234/v1',
@@ -1490,7 +1490,7 @@ const WebUiApp: React.FC = () => {
                   <input
                     value={settingsDraft.backendUrl}
                     onChange={(event) => setSettingsDraft((current) => ({ ...current, backendUrl: event.target.value }))}
-                    placeholder="http://localhost:5000"
+                    placeholder="http://localhost:5002"
                   />
                 </div>
                 <div className="field">
