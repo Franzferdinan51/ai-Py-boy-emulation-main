@@ -1,60 +1,483 @@
-# Game Boy Agent API Contract
+# API Contract - OpenClaw-Style Agent/Health/Status Endpoints
 
-This document records the canonical HTTP and MCP surface for the agent platform.
-The canonical paths below are the ones new callers should target. Legacy aliases
-remain available for compatibility, but they are not the preferred contract.
+**Last Updated:** March 19, 2026
+**Version:** 3.0.0
 
-## Canonical HTTP Matrix
+This document describes the OpenClaw-compatible agent, health, and status endpoints for the AI Game Boy Server.
 
-| Canonical HTTP route | Supported aliases | High-level payload fields | No-ROM behavior | Related MCP tools |
+---
+
+## Canonical HTTP / MCP Contract Matrix
+
+The canonical routes below are the preferred contract for new web and MCP
+callers. Legacy aliases remain available for compatibility, but they should not
+be treated as the primary surface.
+
+| Canonical HTTP route | Supported aliases | High-level payload fields | No-ROM behavior | Matching generic MCP tools |
 | --- | --- | --- | --- | --- |
 | `GET /api/game/state` | none | `rom_loaded`, `active_emulator`, `rom_path`, `rom_name`, `frame_count`, `ai_running`, `current_goal`, `fps`, `speed_multiplier`, `current_provider`, `current_model` | Returns `200` with the current in-memory game-state snapshot | `get_state` |
-| `GET /api/agent/context` | none | `loaded`, `rom_name`, `frame`, `game_mode`, `position`, `party`, `inventory`, `battle`, `health_summary`, `recommendations`, `timestamp` | Returns `200` with an empty safe snapshot | `get_agent_context` |
+| `GET /api/agent/context` | none | `loaded`, `rom_name`, `frame`, `game_mode`, `position`, `party`, `inventory`, `battle`, `health_summary`, `recommendations`, `timestamp` | Returns `200` with a safe empty snapshot | `get_agent_context` |
 | `POST /api/agent/act` | none | request: `action`, `frames`; response: `success`, `action`, `frames`, `observation`, `changes`, `timestamp` | Returns `400` with `error: "No ROM loaded"` | `act_and_observe` |
-| `POST /api/save_state` | `POST /save_state` | request body is accepted; current route stores one slot per active emulator in memory | Returns `400` with `error: "No ROM loaded"` | `save_state`, `quick_save` |
-| `POST /api/load_state` | `POST /load_state` | request body is accepted; current route restores the active emulator slot from memory | Returns `400` with `error: "No ROM loaded"` or `error: "No saved state available"` | `load_state`, `quick_load` |
+| `POST /api/save_state` | `POST /save_state` | request body accepted; current route stores one slot per active emulator in memory | Returns `400` with `error: "No ROM loaded"` | `save_state`, `quick_save` |
+| `POST /api/load_state` | `POST /load_state` | request body accepted; current route restores the active emulator slot from memory | Returns `400` with `error: "No ROM loaded"` or `error: "No saved state available"` | `load_state`, `quick_load` |
 | `GET /api/screen` | none | `image`, `shape`, `timestamp`, `pyboy_frame`, `performance`, optional `optimization` | Returns `400` with `error: "No ROM loaded"` | `get_screen`, `screenshot` |
 | `GET /api/stream` | none | SSE prelude: `status`, `fps`; frame event: `image`, `timestamp`, `frame`, `fps`; error event: `error`, `recoverable`, `consecutive_errors` | Returns `200` and emits a single SSE error event when no ROM is loaded | `get_screen`, `screenshot` |
 | `POST /api/game/button` | `POST /api/game/action`, `POST /api/action` | request: `button` or `action`, optional `frames`; success: `message`, `action`, `frames`, `history_length` | Returns `400` with `error: "No ROM loaded"` | `press_a`, `press_b`, `press_up`, `press_down`, `press_left`, `press_right`, `press_start`, `press_select`, `press_button`, `press_button_combo`, `hold_button` |
 
-## Named Save Semantics
+---
 
-- The canonical save/load endpoints are the `/api/*` routes.
-- The backend currently keeps save-state bytes in memory, keyed by the active
-  emulator id. That means the effective slot is the active emulator, not an
-  arbitrary user-supplied name.
-- MCP tools may send a logical `name` such as `quick_save`, but the current HTTP
-  route implementation does not branch on the request name.
-- The bare `/save_state` and `/load_state` routes are legacy compatibility
-  shims. They return placeholder success bodies when a ROM is loaded, but they
-  are not the canonical persistence path.
+## Overview
 
-## Stream Contract
+These endpoints follow OpenClaw conventions for:
+- Agent state tracking (mode, goal, actions, errors)
+- Component health monitoring (runtime, emulator, stream)
+- Status summaries for dashboards and MCP tools
 
-`GET /api/stream` is server-sent events over `text/event-stream`.
+All endpoints return JSON with stable, agent-friendly shapes.
 
-- Startup event: `{"status":"stream_started","fps":30}`
-- Frame event: `{"image":"...","timestamp":..., "frame":..., "fps":30}`
-- Error event: `{"error":"...", "recoverable":true, "consecutive_errors":N}`
+---
 
-Without a ROM, the endpoint returns `200` and emits a single SSE error event
-with `error: "No ROM loaded"`.
+## Health Endpoints
 
-## MCP Mapping
+### `GET /health`
 
-The generic MCP wrapper in `ai-game-server/generic_mcp_server.py` routes the
-core tools to the HTTP contract above:
+Basic health check for monitoring and load balancers.
 
-- `get_state` -> `GET /api/game/state`
-- `get_agent_context` -> `GET /api/agent/context`
-- `act_and_observe` -> `POST /api/agent/act`
-- `save_state` -> `POST /api/save_state`
-- `load_state` -> `POST /api/load_state`
-- `quick_save` -> `POST /api/save_state` with `name="quick_save"`
-- `quick_load` -> `POST /api/load_state` with `name="quick_save"`
-- `get_screen` and `screenshot` -> `GET /api/screen`
-- `press_a`, `press_b`, `press_up`, `press_down`, `press_left`, `press_right`,
-  `press_start`, `press_select` -> `POST /api/game/button`
+**Response Shape:**
+```json
+{
+  "status": "healthy" | "degraded" | "unhealthy",
+  "service": "ai-game-server",
+  "version": "3.0.0",
+  "python_version": "3.11.0",
+  "platform": "macOS-14.0-arm64",
+  "uptime_seconds": 3600.5,
+  "timestamp": "2026-03-19T20:00:00.000Z",
+  "checks": {
+    "flask": "ok" | "error",
+    "pyboy": "ok" | "not_available" | "error",
+    "mcp": "ok" | "not_available" | "error"
+  }
+}
+```
 
-The MCP wrapper also exposes `press_button`, `press_button_combo`, and
-`hold_button`, which fan into the same canonical button route.
+---
+
+### `GET /api/health`
+
+Comprehensive health check for all components.
+
+**Response Shape:**
+```json
+{
+  "status": "healthy" | "degraded" | "unhealthy",
+  "components": {
+    "runtime": {
+      "status": "healthy",
+      "uptime_seconds": 3600.5,
+      "memory_mb": 256.3,
+      "checks": {
+        "flask": "ok",
+        "pyboy": "ok",
+        "mcp": "ok",
+        "memory": "ok"
+      }
+    },
+    "emulator": {
+      "status": "healthy" | "degraded" | "unhealthy" | "not_loaded",
+      "rom_loaded": true,
+      "rom_name": "Pokemon Red",
+      "active_emulator": "pyboy",
+      "frame_count": 12345
+    },
+    "stream": {
+      "status": "healthy" | "unhealthy",
+      "websocket_running": true,
+      "active_clients": 2
+    },
+    "agent": {
+      "status": "healthy" | "degraded",
+      "enabled": false,
+      "mode": "manual",
+      "recent_errors": 0
+    }
+  },
+  "summary": {
+    "healthy_count": 4,
+    "degraded_count": 0,
+    "unhealthy_count": 0,
+    "unknown_count": 0
+  },
+  "timestamp": "2026-03-19T20:00:00.000Z"
+}
+```
+
+---
+
+### `GET /api/health/runtime`
+
+Runtime component health.
+
+**Response Shape:**
+```json
+{
+  "status": "healthy" | "degraded" | "unhealthy",
+  "uptime_seconds": 3600.5,
+  "uptime_human": "1h 0m 0s",
+  "checks": {
+    "flask": "ok",
+    "pyboy": "ok",
+    "mcp": "ok",
+    "memory": "ok"
+  },
+  "memory_mb": 256.3,
+  "version": "3.0.0",
+  "python_version": "3.11.0",
+  "platform": "macOS-14.0-arm64",
+  "timestamp": "2026-03-19T20:00:00.000Z"
+}
+```
+
+---
+
+### `GET /api/health/emulator`
+
+Emulator component health.
+
+**Response Shape:**
+```json
+{
+  "status": "healthy" | "degraded" | "unhealthy" | "not_loaded",
+  "rom_loaded": true,
+  "rom_name": "Pokemon Red",
+  "active_emulator": "pyboy",
+  "frame_count": 12345,
+  "fps": 59.8,
+  "last_check": "2026-03-19T20:00:00.000Z",
+  "error": null,
+  "performance": {
+    "avg_frame_time_ms": 16.7,
+    "avg_encoding_time_ms": 5.2,
+    "adaptive_fps_target": 60
+  },
+  "timestamp": "2026-03-19T20:00:00.000Z"
+}
+```
+
+---
+
+### `GET /api/health/stream`
+
+Stream component health.
+
+**Response Shape:**
+```json
+{
+  "status": "healthy" | "unhealthy",
+  "websocket_running": true,
+  "websocket_port": 5003,
+  "websocket_url": "ws://localhost:5003/api/ws/stream",
+  "active_clients": 2,
+  "sse_endpoint": "/api/stream",
+  "last_check": "2026-03-19T20:00:00.000Z",
+  "error": null,
+  "timestamp": "2026-03-19T20:00:00.000Z"
+}
+```
+
+---
+
+## Agent State Endpoints
+
+### `GET /api/agent/state`
+
+Comprehensive agent state (OpenClaw-style).
+
+**Response Shape:**
+```json
+{
+  "mode": "manual" | "autonomous" | "ai_assisted",
+  "enabled": false,
+  "current_goal": "Defeat Brock",
+  "current_task": "Navigate to Pewter City",
+  "last_decision": {
+    "timestamp": "2026-03-19T20:00:00.000Z",
+    "decision": {"action": "UP", "goal": "Defeat Brock"},
+    "provider": "openclaw"
+  },
+  "last_action": "UP",
+  "last_action_time": "2026-03-19T20:00:00.000Z",
+  "recent_errors": [
+    {
+      "timestamp": "2026-03-19T19:55:00.000Z",
+      "type": "action_error",
+      "message": "Failed to execute action: A",
+      "context": {"action": "A", "frames": 1}
+    }
+  ],
+  "recent_actions": [
+    {
+      "timestamp": "2026-03-19T20:00:00.000Z",
+      "action": "UP",
+      "frames": 1,
+      "result": "success",
+      "source": "manual"
+    }
+  ],
+  "stats": {
+    "total_actions": 1234,
+    "total_decisions": 56,
+    "total_errors": 3
+  },
+  "started_at": "2026-03-19T19:00:00.000Z",
+  "timestamp": "2026-03-19T20:00:00.000Z"
+}
+```
+
+---
+
+### `GET /api/agent/status`
+
+Agent status summary (OpenClaw-style).
+
+**Response Shape:**
+```json
+{
+  "mode": "manual" | "autonomous" | "ai_assisted",
+  "enabled": false,
+  "goal": "Defeat Brock",
+  "last_action": "UP",
+  "last_error": null,
+  "action_count": 1234,
+  "error_count": 3,
+  "timestamp": "2026-03-19T20:00:00.000Z"
+}
+```
+
+---
+
+### `GET /api/agent/goal`
+
+Get current agent goal.
+
+**Response Shape:**
+```json
+{
+  "goal": "Defeat Brock",
+  "task": "Navigate to Pewter City",
+  "timestamp": "2026-03-19T20:00:00.000Z"
+}
+```
+
+---
+
+### `POST /api/agent/goal`
+
+Set agent goal.
+
+**Request Body:**
+```json
+{
+  "goal": "Defeat Brock",
+  "task": "Navigate to Pewter City"
+}
+```
+
+**Response Shape:**
+```json
+{
+  "ok": true,
+  "goal": "Defeat Brock",
+  "task": "Navigate to Pewter City",
+  "timestamp": "2026-03-19T20:00:00.000Z"
+}
+```
+
+---
+
+### `POST /api/agent/mode`
+
+Set agent mode.
+
+**Request Body:**
+```json
+{
+  "mode": "autonomous"
+}
+```
+
+**Response Shape:**
+```json
+{
+  "ok": true,
+  "mode": "autonomous"
+}
+```
+
+---
+
+### `GET /api/agent/errors`
+
+Get recent agent errors.
+
+**Query Parameters:**
+- `limit`: Number of errors to return (default: 10, max: 50)
+
+**Response Shape:**
+```json
+{
+  "errors": [
+    {
+      "timestamp": "2026-03-19T19:55:00.000Z",
+      "type": "action_error",
+      "message": "Failed to execute action: A",
+      "context": {"action": "A", "frames": 1}
+    }
+  ],
+  "count": 1,
+  "total_errors": 3,
+  "timestamp": "2026-03-19T20:00:00.000Z"
+}
+```
+
+---
+
+### `GET /api/agent/actions`
+
+Get recent agent actions.
+
+**Query Parameters:**
+- `limit`: Number of actions to return (default: 20, max: 100)
+
+**Response Shape:**
+```json
+{
+  "actions": [
+    {
+      "timestamp": "2026-03-19T20:00:00.000Z",
+      "action": "UP",
+      "frames": 1,
+      "result": "success",
+      "source": "manual"
+    }
+  ],
+  "count": 20,
+  "total_actions": 1234,
+  "timestamp": "2026-03-19T20:00:00.000Z"
+}
+```
+
+---
+
+## Status Endpoint
+
+### `GET /api/status`
+
+Comprehensive status of the server.
+
+**Response Shape:**
+```json
+{
+  "rom_loaded": true,
+  "active_emulator": "pyboy",
+  "rom_path": "/path/to/rom.gb",
+  "rom_name": "Pokemon Red",
+  "fps": 60,
+  "speed_multiplier": 1.0,
+  "current_goal": "Defeat Brock",
+  "current_provider": "openclaw",
+  "current_model": "bailian/kimi-k2.5",
+  "frame_count": 12345,
+  "ai_providers": {
+    "openclaw": {"available": true, "status": "available"},
+    "lmstudio": {"available": true, "status": "available"}
+  }
+}
+```
+
+---
+
+## Design Principles
+
+### Stable Shapes
+- All endpoints return consistent JSON structures
+- Empty/null values are explicit, not missing fields
+- Arrays default to `[]`, objects to `{}`, counts to `0`
+
+### Agent-Friendly
+- Timestamps in ISO 8601 format
+- Enums are lowercase strings (e.g., `"healthy"`, `"manual"`)
+- Counts are integers
+- Errors include context for debugging
+
+### OpenClaw Compatibility
+- Health status values: `"healthy"`, `"degraded"`, `"unhealthy"`
+- Agent modes: `"manual"`, `"autonomous"`, `"ai_assisted"`
+- Action sources: `"manual"`, `"ai"`, `"autonomous"`
+
+---
+
+## Usage Examples
+
+### Check if server is healthy:
+```bash
+curl http://localhost:5002/health
+```
+
+### Get full health status:
+```bash
+curl http://localhost:5002/api/health
+```
+
+### Get agent state:
+```bash
+curl http://localhost:5002/api/agent/state
+```
+
+### Set agent goal:
+```bash
+curl -X POST http://localhost:5002/api/agent/goal \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "Defeat Brock", "task": "Navigate to Pewter City"}'
+```
+
+### Get recent actions:
+```bash
+curl "http://localhost:5002/api/agent/actions?limit=10"
+```
+
+### Get recent errors:
+```bash
+curl "http://localhost:5002/api/agent/errors?limit=5"
+```
+
+---
+
+## Integration with MCP Tools
+
+These endpoints are designed for easy integration with MCP tools and LM Studio:
+
+```python
+# Example: Get health status
+health = mcp_call("http_get", {"url": "http://localhost:5002/api/health"})
+
+# Example: Get agent state
+state = mcp_call("http_get", {"url": "http://localhost:5002/api/agent/state"})
+
+# Example: Set goal
+result = mcp_call("http_post", {
+    "url": "http://localhost:5002/api/agent/goal",
+    "body": {"goal": "Defeat Brock"}
+})
+```
+
+---
+
+## Changelog
+
+### v3.0.0 (2026-03-19)
+- Added OpenClaw-style agent state endpoints
+- Added component health endpoints
+- Added action/error tracking
+- Normalized response shapes
+- Added API-CONTRACT.md documentation
