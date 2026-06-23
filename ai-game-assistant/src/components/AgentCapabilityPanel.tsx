@@ -4,12 +4,17 @@ import type {
   AgentCapabilityMemoryPattern,
   AgentCapabilityRoutine,
   AgentCapabilityRoutinesSnapshot,
+  AgentCapabilitySkillWorkshopSnapshot,
   AgentCapabilityToolbeltSnapshot,
 } from '../../services/apiService';
 
 interface AgentCapabilityPanelProps {
   toolbelt: AgentCapabilityToolbeltSnapshot | null;
   routines: AgentCapabilityRoutinesSnapshot | null;
+  workshop?: AgentCapabilitySkillWorkshopSnapshot | null;
+  onInstallSkillDraft?: (draftId: string) => void | Promise<void>;
+  installingDraftId?: string | null;
+  actionError?: string | null;
   className?: string;
 }
 
@@ -112,6 +117,10 @@ function SectionCard({
 const AgentCapabilityPanel: React.FC<AgentCapabilityPanelProps> = ({
   toolbelt,
   routines,
+  workshop = null,
+  onInstallSkillDraft,
+  installingDraftId = null,
+  actionError = null,
   className = '',
 }) => {
   const availableTools = toolbelt?.available_tools || [];
@@ -120,6 +129,7 @@ const AgentCapabilityPanel: React.FC<AgentCapabilityPanelProps> = ({
   const nextAction = toolbelt?.planner_hint || toolbelt?.next_recommended_action || null;
   const suggestedRoutines = routines?.suggested_routines || [];
   const skillDrafts = routines?.skill_drafts || [];
+  const workshopDrafts = workshop?.drafts || [];
   const learnedPatterns = toolbelt?.memory_summary?.learned_control_patterns || [];
   const learningSignals = toolbelt?.auto_learning_signals || null;
   const totalToolCount = availableTools.length;
@@ -265,6 +275,58 @@ const AgentCapabilityPanel: React.FC<AgentCapabilityPanelProps> = ({
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard
+        title="Skill workshop"
+        meta={workshop ? `${formatCount(workshop.draft_count)} draft${workshop.draft_count === 1 ? '' : 's'} · ${workshop.workspace_precedence}` : 'Waiting for workshop'}
+      >
+        {actionError ? (
+          <div className="mb-1.5 rounded border border-rose-900/70 bg-rose-950/30 px-2 py-1.5 text-[10px] text-rose-200">
+            {actionError}
+          </div>
+        ) : null}
+        {!workshop ? (
+          <div className="text-[10px] text-neutral-500">No workshop snapshot yet.</div>
+        ) : (
+          <div className="space-y-1.5">
+            <div className="rounded border border-neutral-800/80 bg-neutral-950/30 px-2 py-1.5 text-[10px] text-neutral-400">
+              <div className="truncate text-neutral-200">{workshop.workspace_skills_root}</div>
+              <div className="mt-0.5 truncate">{workshop.install_route}</div>
+            </div>
+
+            {workshopDrafts.length === 0 ? (
+              <div className="text-[10px] text-neutral-500">No generated skill artifacts yet.</div>
+            ) : (
+              workshopDrafts.slice(0, 3).map((draft) => {
+                const isInstalling = installingDraftId === draft.id;
+                return (
+                  <div key={draft.id} className="rounded border border-neutral-800/80 bg-neutral-950/30 px-2 py-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-[10px] font-semibold text-neutral-100">{draft.name}</div>
+                        <div className="truncate text-[10px] text-neutral-500">
+                          {draft.artifact.relative_install_dir}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onInstallSkillDraft?.(draft.id)}
+                        disabled={draft.installed || isInstalling || !onInstallSkillDraft}
+                        className="shrink-0 rounded border border-neutral-700 px-2 py-1 text-[10px] text-neutral-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {draft.installed ? 'Installed' : isInstalling ? 'Installing…' : 'Install'}
+                      </button>
+                    </div>
+                    <div className="mt-1 whitespace-pre-wrap text-[10px] leading-4 text-neutral-400">
+                      {compactText(draft.preview_excerpt) || compactText(draft.summary) || 'No preview available.'}
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         )}
       </SectionCard>

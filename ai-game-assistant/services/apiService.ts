@@ -215,6 +215,57 @@ export interface AgentCapabilitySkillDraft {
   outcome?: string;
 }
 
+export interface AgentCapabilitySkillArtifact {
+  frontmatter: {
+    name: string;
+    description: string;
+    metadata?: Record<string, unknown>;
+  };
+  content: string;
+  relative_install_dir: string;
+  install_path: string;
+  installed: boolean;
+}
+
+export interface AgentCapabilitySkillWorkshopDraft extends AgentCapabilitySkillDraft {
+  artifact: AgentCapabilitySkillArtifact;
+  preview_markdown: string;
+  preview_excerpt: string;
+  installed: boolean;
+}
+
+export interface AgentCapabilitySkillWorkshopSnapshot {
+  active_session_id: string | null;
+  active_routine: string | null;
+  workspace_precedence: string;
+  workspace_skills_root: string;
+  install_route: string;
+  draft_count: number;
+  drafts: AgentCapabilitySkillWorkshopDraft[];
+  timestamp: string;
+}
+
+export interface AgentCapabilitySkillWorkshopDetail {
+  ok: boolean;
+  active_session_id?: string | null;
+  active_routine?: string | null;
+  draft?: AgentCapabilitySkillDraft;
+  artifact?: AgentCapabilitySkillArtifact;
+  preview_markdown?: string;
+  preview_excerpt?: string;
+  error?: string;
+  timestamp: string;
+}
+
+export interface AgentCapabilitySkillInstallResponse {
+  ok: boolean;
+  installed?: boolean;
+  draft?: AgentCapabilitySkillDraft;
+  artifact?: AgentCapabilitySkillArtifact;
+  error?: string;
+  timestamp: string;
+}
+
 export interface AgentCapabilityRoutine {
   id: string;
   name: string;
@@ -500,6 +551,21 @@ class ApiService {
 
   getAgentRoutines() {
     return this.request<AgentCapabilityRoutinesSnapshot>('/api/agent/routines');
+  }
+
+  getAgentSkillWorkshop() {
+    return this.request<AgentCapabilitySkillWorkshopSnapshot>('/api/agent/skills/workshop');
+  }
+
+  getAgentSkillWorkshopDraft(draftId: string) {
+    return this.request<AgentCapabilitySkillWorkshopDetail>(`/api/agent/skills/workshop/${encodeURIComponent(draftId)}`);
+  }
+
+  installAgentSkillDraft(draftId: string, overwrite = false) {
+    return this.request<AgentCapabilitySkillInstallResponse>('/api/agent/skills/workshop/install', {
+      method: 'POST',
+      body: JSON.stringify({ draft_id: draftId, overwrite }),
+    });
   }
 
   setAgentMode(payload: {

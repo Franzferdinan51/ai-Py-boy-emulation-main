@@ -21,6 +21,9 @@ be treated as the primary surface.
 | `GET /api/agent/toolbelt` | none | `active_session_id`, `active_routine`, `available_tools`, `tool_groups`, `memory_summary`, `guardrails`, `next_recommended_action`, `auto_learning_signals`, `timestamp` | Returns `200` with safe empty/default metadata | `get_agent_toolbelt` |
 | `GET /api/agent/routines` | none | `active_session_id`, `active_routine`, `routines`, `suggested_routines`, `skill_drafts`, `timestamp` | Returns `200` even if no session is active | `get_agent_routines` |
 | `GET /api/agent/guardrails` | none | `active_session_id`, `active_routine`, `guardrails`, `recent_failure_reflections`, `timestamp` | Returns `200` with safe empty/default metadata | `get_agent_guardrails` |
+| `GET /api/agent/skills/workshop` | `GET /api/agent/skills` | `active_session_id`, `active_routine`, `drafts`, `workspace_skills_root`, `install_route`, `timestamp` | Returns `200` even if no session is active | `get_agent_skill_workshop` |
+| `GET /api/agent/skills/workshop/<draft_id>` | none | `ok`, `draft`, `artifact`, `preview_markdown`, `timestamp` | Returns `404` if the draft id is unknown | `get_agent_skill_workshop` with `draft_id` |
+| `POST /api/agent/skills/workshop/install` | `POST /api/agent/skills/install` | request: `draft_id`, optional `session_id`, `overwrite`; response: `installed`, `artifact`, `timestamp` | Returns `404` if the draft id is unknown, `409` if the target file already exists | none |
 | `POST /api/agent/routines` | none | request: `name`, `steps`, optional `description`, `tags`, `session_id`; response: `routine`, `active_routine`, `timestamp` | Returns `400` if no active or supplied session exists | none |
 | `POST /api/save_state` | `POST /save_state` | request body accepted; current route stores one slot per active emulator in memory | Returns `400` with `error: "No ROM loaded"` | `save_state`, `quick_save` |
 | `POST /api/load_state` | `POST /load_state` | request body accepted; current route restores the active emulator slot from memory | Returns `400` with `error: "No ROM loaded"` or `error: "No saved state available"` | `load_state`, `quick_load` |
@@ -61,6 +64,29 @@ Auto-learning remains conservative:
 - A failed `POST /api/agent/act` can append one `failure_reflection` record for the active session.
 - The reflection is metadata-only and does not trigger any extra emulator actions.
 - Guardrails are advisory planner context intended to reduce repeated mistakes, not enforce control flow.
+
+---
+
+## Skill Workshop
+
+The backend capability adapter now projects Hermes-style skill drafts into
+OpenClaw-compatible workspace skill artifacts.
+
+- Read-only listing:
+  - `GET /api/agent/skills/workshop`
+- Read-only per-draft preview:
+  - `GET /api/agent/skills/workshop/<draft_id>`
+- Explicit repo-local install:
+  - `POST /api/agent/skills/workshop/install`
+
+Design rules:
+
+- Generated artifacts install into the repo workspace `skills/` tree, which
+  matches OpenClaw's highest-precedence workspace skill loading order.
+- Draft previews are deterministic and derived from existing routines, learned
+  control patterns, memory notes, guardrails, and toolbelt metadata.
+- Installation writes a `SKILL.md` file only; it does not trigger emulator
+  actions or create a second runtime.
 
 ---
 

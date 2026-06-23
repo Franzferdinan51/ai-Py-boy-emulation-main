@@ -1,9 +1,10 @@
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test } from 'vitest';
 import AgentCapabilityPanel from './AgentCapabilityPanel';
 
 test('renders capability toolbelt, routines, drafts, and guardrails', () => {
+  const installs: string[] = [];
   render(
     <AgentCapabilityPanel
       toolbelt={{
@@ -96,6 +97,40 @@ test('renders capability toolbelt, routines, drafts, and guardrails', () => {
         ],
         timestamp: '2026-06-23T10:00:00.000Z',
       }}
+      workshop={{
+        active_session_id: 'session-123',
+        active_routine: 'heal_party',
+        workspace_precedence: 'repo-local',
+        workspace_skills_root: '/tmp/workspace/skills',
+        install_route: '/api/agent/skills/workshop/install',
+        draft_count: 1,
+        drafts: [
+          {
+            id: 'skill-1',
+            name: 'heal_party',
+            source: 'routine.upsert',
+            status: 'draft',
+            summary: 'Visit the Pokemon Center and restore the party.',
+            artifact: {
+              frontmatter: {
+                name: 'heal-party',
+                description: 'Visit the Pokemon Center and restore the party.',
+              },
+              content: '# heal_party',
+              relative_install_dir: 'generated/heal-party',
+              install_path: '/tmp/workspace/skills/generated/heal-party/SKILL.md',
+              installed: false,
+            },
+            preview_markdown: '# heal_party',
+            preview_excerpt: '# heal_party',
+            installed: false,
+          },
+        ],
+        timestamp: '2026-06-23T10:00:00.000Z',
+      }}
+      onInstallSkillDraft={(draftId) => {
+        installs.push(draftId);
+      }}
     />,
   );
 
@@ -107,14 +142,20 @@ test('renders capability toolbelt, routines, drafts, and guardrails', () => {
   expect(screen.getByText('Enter a doorway from the overworld')).toBeDefined();
   expect(screen.getByText('Guardrails')).toBeDefined();
   expect(screen.getByText('Use UP then A near entrances')).toBeDefined();
+  expect(screen.getByText('Skill workshop')).toBeDefined();
+  expect(screen.getByText('generated/heal-party')).toBeDefined();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Install' }));
+  expect(installs).toEqual(['skill-1']);
 });
 
 test('renders an empty state without crashing', () => {
-  render(<AgentCapabilityPanel toolbelt={null} routines={null} />);
+  render(<AgentCapabilityPanel toolbelt={null} routines={null} workshop={null} actionError="Install failed" />);
 
   expect(screen.getByText('Agent Capability')).toBeDefined();
   expect(screen.getByText('Waiting for capability snapshots.')).toBeDefined();
   expect(screen.getByText('No routines yet')).toBeDefined();
+  expect(screen.getByText('Install failed')).toBeDefined();
 });
 
 afterEach(() => {

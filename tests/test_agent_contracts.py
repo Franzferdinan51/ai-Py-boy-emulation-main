@@ -62,6 +62,12 @@ def test_canonical_game_agent_contract_matrix():
         ("get", "/api/agent/toolbelt", 200, ("available_tools", "tool_groups", "active_session_id")),
         ("get", "/api/agent/routines", 200, ("routines", "active_routine", "active_session_id")),
         ("get", "/api/agent/guardrails", 200, ("active_session_id", "guardrails", "recent_failure_reflections")),
+        (
+            "get",
+            "/api/agent/skills/workshop",
+            200,
+            ("active_session_id", "drafts", "workspace_skills_root", "install_route"),
+        ),
     ]
 
     for method, path, expected_status, required_keys in canonical_routes:
@@ -159,3 +165,68 @@ def test_failed_agent_action_persists_read_only_guardrail_metadata(tmp_path):
             srv.emulators["failure_learning_stub"] = original
         srv.game_state.clear()
         srv.game_state.update(original_game_state)
+
+
+def test_agent_skill_workshop_preview_and_install_routes(monkeypatch, tmp_path):
+    workspace_skills_dir = tmp_path / "skills"
+    monkeypatch.setenv("PYBOY_WORKSPACE_SKILLS_DIR", str(workspace_skills_dir))
+
+    created = create_session(name="Workshop Route Test", data_dir=str(tmp_path))
+    session_id = created["session"]["id"]
+    set_active_session(session_id, data_dir=str(tmp_path))
+
+    try:
+        upsert = _request(
+            "post",
+            "/api/agent/routines",
+            json={
+                "session_id": session_id,
+                "name": "Pewter Gate",
+                "description": "Walk north and confirm the gate transition.",
+                "steps": [{"action": "UP", "frames": 3}, {"action": "A", "frames": 1}],
+                "tags": ["navigation"],
+            },
+        )
+        assert upsert.status_code == 200, upsert.get_data(as_text=True)
+        draft_id = (upsert.get_json() or {})["routine"]["skill_draft"]["id"]
+
+        listing = _request("get", "/api/agent/skills/workshop")
+        assert listing.status_code == 200, listing.get_data(as_text=True)
+        listing_data = listing.get_json() or {}
+        assert listing_data["workspace_skills_root"] == str(workspace_skills_dir.resolve())
+        assert any(draft["id"] == draft_id for draft in listing_data["drafts"])
+
+        preview = _request("get", f"/api/agent/skills/workshop/{draft_id}")
+        assert preview.status_code == 200, preview.get_data(as_text=True)
+        preview_data = preview.get_json() or {}
+        assert preview_data["artifact"]["relative_install_dir"] == "generated/pewter-gate"
+        assert preview_data["artifact"]["install_path"].endswith("skills/generated/pewter-gate/SKILL.md")
+        assert preview_data["artifact"]["frontmatter"]["name"] == "pewter-gate"
+
+        install = _request(
+            "post",
+            "/api/agent/skills/workshop/install",
+            json={"draft_id": draft_id},
+        )
+        assert install.status_code == 200, install.get_data(as_text=True)
+        install_data = install.get_json() or {}
+        assert install_data["ok"] is True
+        assert install_data["installed"] is True
+        assert install_data["artifact"]["relative_install_dir"] == "generated/pewter-gate"
+        installed_path = workspace_skills_dir / "generated" / "pewter-gate" / "SKILL.md"
+        assert installed_path.exists()
+        contents = installed_path.read_text(encoding="utf-8")
+        assert "name: pewter-gate" in contents
+        assert "Walk north and confirm the gate transition." in contents
+
+        second_install = _request(
+            "post",
+            "/api/agent/skills/workshop/install",
+            json={"draft_id": draft_id},
+        )
+        assert second_install.status_code == 409, second_install.get_data(as_text=True)
+        conflict = second_install.get_json() or {}
+        assert conflict["ok"] is False
+        assert "already exists" in conflict["error"]
+    finally:
+        delete_session(session_id, data_dir=str(tmp_path))

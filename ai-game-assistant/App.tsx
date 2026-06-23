@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import apiService, {
   type AgentCapabilityRoutinesSnapshot,
+  type AgentCapabilitySkillWorkshopSnapshot,
   type AgentCapabilityToolbeltSnapshot,
   type AgentStatus,
   type AgentGoalResponse,
@@ -177,6 +178,9 @@ const App: React.FC = () => {
   const [agentRunError, setAgentRunError] = useState<string | null>(null);
   const [agentToolbelt, setAgentToolbelt] = useState<AgentCapabilityToolbeltSnapshot | null>(null);
   const [agentRoutines, setAgentRoutines] = useState<AgentCapabilityRoutinesSnapshot | null>(null);
+  const [agentSkillWorkshop, setAgentSkillWorkshop] = useState<AgentCapabilitySkillWorkshopSnapshot | null>(null);
+  const [agentSkillActionError, setAgentSkillActionError] = useState<string | null>(null);
+  const [installingSkillDraftId, setInstallingSkillDraftId] = useState<string | null>(null);
   const [memoryState, setMemoryState] = useState<MemoryWatch>(EMPTY_MEMORY_STATE);
   const [gameScreenUrl, setGameScreenUrl] = useState<string | null>(null);
   const [streamingStatus, setStreamingStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
@@ -436,11 +440,12 @@ const App: React.FC = () => {
         setMemoryState(EMPTY_MEMORY_STATE);
       }
 
-      const [goalResult, runEventsResult, toolbeltResult, routinesResult] = await Promise.allSettled([
+      const [goalResult, runEventsResult, toolbeltResult, routinesResult, workshopResult] = await Promise.allSettled([
         apiService.getAgentGoal(),
         apiService.getAgentRunEvents(12),
         apiService.getAgentToolbelt(),
         apiService.getAgentRoutines(),
+        apiService.getAgentSkillWorkshop(),
       ]);
 
       const runErrors: string[] = [];
@@ -460,6 +465,7 @@ const App: React.FC = () => {
 
       setAgentToolbelt(toolbeltResult.status === 'fulfilled' ? toolbeltResult.value : null);
       setAgentRoutines(routinesResult.status === 'fulfilled' ? routinesResult.value : null);
+      setAgentSkillWorkshop(workshopResult.status === 'fulfilled' ? workshopResult.value : null);
       setAgentRunError(runErrors.length ? runErrors.join(' · ') : null);
     } catch (error) {
       const wasDisconnected = connectionStatusRef.current === 'disconnected';
@@ -472,6 +478,8 @@ const App: React.FC = () => {
       setAgentRunError(null);
       setAgentToolbelt(null);
       setAgentRoutines(null);
+      setAgentSkillWorkshop(null);
+      setAgentSkillActionError(null);
       setMemoryState(EMPTY_MEMORY_STATE);
       setGameScreenUrl(null);
       lastDecisionRef.current = EMPTY_AGENT_STATE.last_decision;
@@ -495,6 +503,23 @@ const App: React.FC = () => {
       });
     }
   }, [appendDecisionLog, appendSystemLog, refreshMemory, refreshScreen, setConnection, settings.backendUrl, settings.openclawMcpEndpoint]);
+
+  const handleInstallSkillDraft = useCallback(async (draftId: string) => {
+    apiService.setBaseUrl(settings.backendUrl);
+    setInstallingSkillDraftId(draftId);
+    setAgentSkillActionError(null);
+    try {
+      await apiService.installAgentSkillDraft(draftId);
+      await refreshStatus();
+      appendSystemLog('system', `Installed skill draft: ${draftId}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to install skill draft';
+      setAgentSkillActionError(message);
+      appendSystemLog('error', message);
+    } finally {
+      setInstallingSkillDraftId(null);
+    }
+  }, [appendSystemLog, refreshStatus, settings.backendUrl]);
 
   useEffect(() => {
     if (!settings.autoConnect) {
@@ -939,6 +964,10 @@ const App: React.FC = () => {
           <AgentCapabilityPanel
             toolbelt={agentToolbelt}
             routines={agentRoutines}
+            workshop={agentSkillWorkshop}
+            onInstallSkillDraft={handleInstallSkillDraft}
+            installingDraftId={installingSkillDraftId}
+            actionError={agentSkillActionError}
             className="mt-3"
           />
 

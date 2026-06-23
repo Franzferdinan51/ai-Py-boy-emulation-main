@@ -539,6 +539,19 @@ async def list_tools() -> List[Tool]:
                 "properties": {}
             }
         ),
+        Tool(
+            name="get_agent_skill_workshop",
+            description="[read-only] Inspect generated OpenClaw-compatible skill drafts, markdown previews, and install metadata from the backend capability adapter.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "draft_id": {
+                        "type": "string",
+                        "description": "Optional draft id to fetch a single workshop preview."
+                    }
+                }
+            }
+        ),
         # === SERVER-SIDE VISION ANALYSIS TOOLS ===
         # These tools capture the screen and return TEXT ANALYSIS, not images.
         # Use these when you need to UNDERSTAND the screen, not just see it.
@@ -955,6 +968,12 @@ async def call_tool(name: str, arguments: Optional[Dict[str, Any]]) -> List[Text
 
         elif name == "get_agent_guardrails":
             result = api_get("/api/agent/guardrails")
+            return [TextContent(type="text", text=json.dumps(result))]
+
+        elif name == "get_agent_skill_workshop":
+            draft_id = arguments.get("draft_id") if arguments else None
+            endpoint = f"/api/agent/skills/workshop/{draft_id}" if draft_id else "/api/agent/skills/workshop"
+            result = api_get(endpoint)
             return [TextContent(type="text", text=json.dumps(result))]
 
         # === SERVER-SIDE VISION ANALYSIS TOOL HANDLERS ===

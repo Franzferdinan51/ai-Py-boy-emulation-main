@@ -8,7 +8,10 @@ introducing a second emulator authority.
 from __future__ import annotations
 
 import hashlib
+import os
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .memory import get_memory, summarize_memory
@@ -56,6 +59,14 @@ _TOOLBELT = [
         "description": "Review recent failure reflections and do-not-repeat guardrails before acting.",
     },
     {
+        "name": "get_agent_skill_workshop",
+        "access": "read-only",
+        "category": "capabilities",
+        "backend_route": "/api/agent/skills/workshop",
+        "mcp_tool": "get_agent_skill_workshop",
+        "description": "Inspect generated OpenClaw-compatible skill drafts, previews, and install metadata.",
+    },
+    {
         "name": "act_and_observe",
         "access": "mutating",
         "category": "actions",
@@ -67,9 +78,12 @@ _TOOLBELT = [
 
 _TOOL_GROUPS = {
     "context": ["get_agent_context", "get_game_mode"],
-    "capabilities": ["get_agent_toolbelt", "get_agent_routines", "get_agent_guardrails"],
+    "capabilities": ["get_agent_toolbelt", "get_agent_routines", "get_agent_guardrails", "get_agent_skill_workshop"],
     "actions": ["act_and_observe"],
 }
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_DEFAULT_WORKSPACE_SKILLS_DIR = _REPO_ROOT / "skills"
 
 
 def _now_iso() -> str:
@@ -79,6 +93,17 @@ def _now_iso() -> str:
 def _stable_id(*parts: Any) -> str:
     digest = hashlib.sha1("|".join(str(part) for part in parts).encode("utf-8")).hexdigest()
     return digest[:12]
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (value or "").strip().lower()).strip("-")
+    return slug or "generated-skill"
+
+
+def _workspace_skills_root(workspace_skills_dir: Optional[str] = None) -> Path:
+    configured = workspace_skills_dir or os.environ.get("PYBOY_WORKSPACE_SKILLS_DIR")
+    root = Path(configured).expanduser() if configured else _DEFAULT_WORKSPACE_SKILLS_DIR
+    return root.resolve()
 
 
 def _normalize_steps(steps: Any) -> List[Dict[str, Any]]:
@@ -201,6 +226,162 @@ def _skill_drafts(memory_summary: Dict[str, Any], routines: List[Dict[str, Any]]
     return drafts[:6]
 
 
+def _find_skill_draft(skill_drafts: List[Dict[str, Any]], draft_id: str) -> Optional[Dict[str, Any]]:
+    for draft in skill_drafts:
+        if draft.get("id") == draft_id:
+            return draft
+    return None
+
+
+def _draft_steps(
+    draft: Dict[str, Any],
+    routines: List[Dict[str, Any]],
+    memory_summary: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    draft_name = str(draft.get("name") or "").strip()
+    for routine in routines:
+        routine_name = str(routine.get("name") or "").strip()
+        skill_draft = routine.get("skill_draft") if isinstance(routine.get("skill_draft"), dict) else {}
+        if skill_draft.get("id") == draft.get("id") or routine_name == draft_name:
+            return _normalize_steps(routine.get("steps"))
+
+    sequence = draft.get("sequence")
+    if isinstance(sequence, list) and sequence:
+        return _normalize_steps([{"action": action, "frames": 1} for action in sequence])
+
+    for pattern in memory_summary.get("learned_control_patterns", []):
+        if str(pattern.get("outcome") or "").strip() == draft_name:
+            sequence = pattern.get("sequence") or []
+            return _normalize_steps([{"action": action, "frames": 1} for action in sequence])
+    return []
+
+
+def _build_skill_artifact(
+    draft: Dict[str, Any],
+    *,
+    session_id: Optional[str],
+    active_routine: Optional[str],
+    available_tools: List[Dict[str, Any]],
+    memory_summary: Dict[str, Any],
+    guardrails: List[Dict[str, Any]],
+    routines: List[Dict[str, Any]],
+    workspace_skills_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    skill_name = _slugify(str(draft.get("name") or draft.get("outcome") or draft.get("id") or "generated-skill"))
+    relative_install_dir = f"generated/{skill_name}"
+    install_path = _workspace_skills_root(workspace_skills_dir) / relative_install_dir / "SKILL.md"
+    steps = _draft_steps(draft, routines, memory_summary)
+    summary = str(draft.get("summary") or draft.get("outcome") or draft.get("name") or skill_name).strip()
+    recent_note = ""
+    for note in memory_summary.get("recent_notes", []):
+        text = str(note.get("text") or "").strip()
+        if text:
+            recent_note = text
+            break
+
+    frontmatter = {
+        "name": skill_name,
+        "description": summary or f"Generated gameplay skill for {skill_name}",
+        "metadata": {
+            "openclaw": {"emoji": "🎮", "os": ["darwin", "linux", "win32"]},
+            "source": {
+                "session_id": session_id,
+                "draft_id": draft.get("id"),
+                "active_routine": active_routine,
+            },
+        },
+    }
+
+    tool_names = [tool.get("name") for tool in available_tools[:5] if isinstance(tool, dict) and tool.get("name")]
+    lines = [
+        "---",
+        f"name: {frontmatter['name']}",
+        f"description: {frontmatter['description']}",
+        f"metadata: {frontmatter['metadata']}",
+        "---",
+        "",
+        f"# {draft.get('name') or skill_name}",
+        "",
+        "## Purpose",
+        summary or "Generated from learned gameplay patterns.",
+        "",
+        "## When To Use",
+        f"- Use when the active session is working toward: {summary or skill_name}",
+    ]
+    if active_routine:
+        lines.append(f"- Prefer this when the active routine is `{active_routine}` or a close match.")
+    if recent_note:
+        lines.extend(["", "## Session Note", recent_note])
+    lines.extend(["", "## Recommended Tools"])
+    if tool_names:
+        lines.extend([f"- `{tool_name}`" for tool_name in tool_names])
+    else:
+        lines.append("- `get_agent_context`")
+
+    lines.extend(["", "## Suggested Steps"])
+    if steps:
+        for index, step in enumerate(steps, start=1):
+            action = step.get("action") or "NOOP"
+            frames = step.get("frames") or 1
+            note = str(step.get("notes") or "").strip()
+            suffix = f" - {note}" if note else ""
+            lines.append(f"{index}. Press `{action}` for `{frames}` frame(s){suffix}")
+    else:
+        lines.append("1. Refresh `get_agent_context` before acting.")
+
+    if guardrails:
+        lines.extend(["", "## Guardrails"])
+        for guardrail in guardrails[:3]:
+            defense = str(guardrail.get("defense") or "").strip()
+            if defense:
+                lines.append(f"- {defense}")
+
+    lines.extend(
+        [
+            "",
+            "## Operator Notes",
+            "- This draft is generated from session memory and routines.",
+            "- Keep PyBoy actions on canonical backend routes such as `act_and_observe`.",
+            "- Re-check `get_agent_context` after any failed or ambiguous step.",
+            "",
+        ]
+    )
+
+    content = "\n".join(lines)
+    return {
+        "frontmatter": frontmatter,
+        "content": content,
+        "relative_install_dir": relative_install_dir,
+        "install_path": str(install_path),
+        "installed": install_path.exists(),
+    }
+
+
+def _skill_workshop_entry(
+    draft: Dict[str, Any],
+    *,
+    snapshot: Dict[str, Any],
+    workspace_skills_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    artifact = _build_skill_artifact(
+        draft,
+        session_id=snapshot.get("active_session_id"),
+        active_routine=snapshot.get("active_routine"),
+        available_tools=snapshot.get("available_tools", []),
+        memory_summary=snapshot.get("memory_summary", {}),
+        guardrails=snapshot.get("guardrails", []),
+        routines=snapshot.get("routines", []),
+        workspace_skills_dir=workspace_skills_dir,
+    )
+    return {
+        **draft,
+        "artifact": artifact,
+        "preview_markdown": artifact["content"],
+        "preview_excerpt": "\n".join(artifact["content"].splitlines()[:8]),
+        "installed": artifact["installed"],
+    }
+
+
 def _suggested_routines(memory_summary: Dict[str, Any]) -> List[Dict[str, Any]]:
     suggestions: List[Dict[str, Any]] = []
     for pattern in memory_summary.get("learned_control_patterns", []):
@@ -280,6 +461,7 @@ def build_capability_snapshot(
     game_context: Optional[Dict[str, Any]] = None,
     session_id: Optional[str] = None,
     data_dir: Optional[str] = None,
+    workspace_skills_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     state = dict(agent_state or {})
     context = dict(game_context or {})
@@ -309,6 +491,28 @@ def build_capability_snapshot(
         "routines": routines,
         "suggested_routines": suggested_routines,
         "skill_drafts": _skill_drafts(memory_summary, routines),
+        "skill_workshop": {
+            "active_session_id": active_session_id,
+            "workspace_precedence": "repo-local",
+            "workspace_skills_root": str(_workspace_skills_root(workspace_skills_dir)),
+            "install_route": "/api/agent/skills/workshop/install",
+            "draft_count": len(_skill_drafts(memory_summary, routines)),
+            "drafts": [
+                _skill_workshop_entry(
+                    draft,
+                    snapshot={
+                        "active_session_id": active_session_id,
+                        "active_routine": active_routine,
+                        "available_tools": list(_TOOLBELT),
+                        "memory_summary": memory_summary,
+                        "guardrails": guardrails,
+                        "routines": routines,
+                    },
+                    workspace_skills_dir=workspace_skills_dir,
+                )
+                for draft in _skill_drafts(memory_summary, routines)
+            ],
+        },
         "auto_learning_signals": {
             "control_patterns_observed": len(memory_summary.get("learned_control_patterns", [])),
             "failure_reflection_count": len(memory_summary.get("recent_failure_reflections", [])),
@@ -326,12 +530,14 @@ def get_toolbelt_snapshot(
     game_context: Optional[Dict[str, Any]] = None,
     session_id: Optional[str] = None,
     data_dir: Optional[str] = None,
+    workspace_skills_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     snapshot = build_capability_snapshot(
         agent_state=agent_state,
         game_context=game_context,
         session_id=session_id,
         data_dir=data_dir,
+        workspace_skills_dir=workspace_skills_dir,
     )
     return {
         "active_session_id": snapshot["active_session_id"],
@@ -353,12 +559,14 @@ def get_routines_snapshot(
     game_context: Optional[Dict[str, Any]] = None,
     session_id: Optional[str] = None,
     data_dir: Optional[str] = None,
+    workspace_skills_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     snapshot = build_capability_snapshot(
         agent_state=agent_state,
         game_context=game_context,
         session_id=session_id,
         data_dir=data_dir,
+        workspace_skills_dir=workspace_skills_dir,
     )
     return {
         "active_session_id": snapshot["active_session_id"],
@@ -376,12 +584,14 @@ def get_guardrails_snapshot(
     game_context: Optional[Dict[str, Any]] = None,
     session_id: Optional[str] = None,
     data_dir: Optional[str] = None,
+    workspace_skills_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     snapshot = build_capability_snapshot(
         agent_state=agent_state,
         game_context=game_context,
         session_id=session_id,
         data_dir=data_dir,
+        workspace_skills_dir=workspace_skills_dir,
     )
     return {
         "active_session_id": snapshot["active_session_id"],
@@ -389,6 +599,112 @@ def get_guardrails_snapshot(
         "guardrails": snapshot["guardrails"],
         "recent_failure_reflections": snapshot["memory_summary"]["recent_failure_reflections"],
         "timestamp": snapshot["timestamp"],
+    }
+
+
+def get_skill_workshop_snapshot(
+    *,
+    agent_state: Optional[Dict[str, Any]] = None,
+    game_context: Optional[Dict[str, Any]] = None,
+    session_id: Optional[str] = None,
+    data_dir: Optional[str] = None,
+    workspace_skills_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    snapshot = build_capability_snapshot(
+        agent_state=agent_state,
+        game_context=game_context,
+        session_id=session_id,
+        data_dir=data_dir,
+        workspace_skills_dir=workspace_skills_dir,
+    )
+    workshop = snapshot["skill_workshop"]
+    return {
+        "active_session_id": snapshot["active_session_id"],
+        "active_routine": snapshot["active_routine"],
+        "workspace_precedence": workshop["workspace_precedence"],
+        "workspace_skills_root": workshop["workspace_skills_root"],
+        "install_route": workshop["install_route"],
+        "draft_count": workshop["draft_count"],
+        "drafts": workshop["drafts"],
+        "timestamp": snapshot["timestamp"],
+    }
+
+
+def get_skill_workshop_draft(
+    *,
+    draft_id: str,
+    agent_state: Optional[Dict[str, Any]] = None,
+    game_context: Optional[Dict[str, Any]] = None,
+    session_id: Optional[str] = None,
+    data_dir: Optional[str] = None,
+    workspace_skills_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    snapshot = build_capability_snapshot(
+        agent_state=agent_state,
+        game_context=game_context,
+        session_id=session_id,
+        data_dir=data_dir,
+        workspace_skills_dir=workspace_skills_dir,
+    )
+    draft = _find_skill_draft(snapshot["skill_workshop"]["drafts"], draft_id)
+    if not draft:
+        return {
+            "ok": False,
+            "error": f"Skill draft {draft_id!r} not found",
+            "timestamp": snapshot["timestamp"],
+        }
+    return {
+        "ok": True,
+        "active_session_id": snapshot["active_session_id"],
+        "active_routine": snapshot["active_routine"],
+        "draft": {key: value for key, value in draft.items() if key not in {"artifact", "preview_markdown", "preview_excerpt", "installed"}},
+        "artifact": draft["artifact"],
+        "preview_markdown": draft["preview_markdown"],
+        "preview_excerpt": draft["preview_excerpt"],
+        "timestamp": snapshot["timestamp"],
+    }
+
+
+def install_skill_workshop_draft(
+    *,
+    draft_id: str,
+    agent_state: Optional[Dict[str, Any]] = None,
+    game_context: Optional[Dict[str, Any]] = None,
+    session_id: Optional[str] = None,
+    data_dir: Optional[str] = None,
+    workspace_skills_dir: Optional[str] = None,
+    overwrite: bool = False,
+) -> Dict[str, Any]:
+    detail = get_skill_workshop_draft(
+        draft_id=draft_id,
+        agent_state=agent_state,
+        game_context=game_context,
+        session_id=session_id,
+        data_dir=data_dir,
+        workspace_skills_dir=workspace_skills_dir,
+    )
+    if not detail.get("ok"):
+        return detail
+
+    artifact = dict(detail["artifact"])
+    install_path = Path(str(artifact["install_path"]))
+    if install_path.exists() and not overwrite:
+        return {
+            "ok": False,
+            "error": f"Skill artifact already exists at {install_path}",
+            "artifact": artifact,
+            "timestamp": _now_iso(),
+        }
+
+    install_path.parent.mkdir(parents=True, exist_ok=True)
+    install_path.write_text(str(artifact["content"]), encoding="utf-8")
+    artifact["installed"] = True
+    return {
+        "ok": True,
+        "installed": True,
+        "draft": detail["draft"],
+        "artifact": artifact,
+        "timestamp": _now_iso(),
     }
 
 

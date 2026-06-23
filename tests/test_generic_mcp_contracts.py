@@ -126,6 +126,8 @@ def test_core_tools_use_canonical_backend_routes(monkeypatch, generic_mcp_module
     asyncio.run(invoke("get_agent_toolbelt", {}))
     asyncio.run(invoke("get_agent_routines", {}))
     asyncio.run(invoke("get_agent_guardrails", {}))
+    asyncio.run(invoke("get_agent_skill_workshop", {}))
+    asyncio.run(invoke("get_agent_skill_workshop", {"draft_id": "skill-viridian-entry"}))
     asyncio.run(invoke("act_and_observe", {"action": "A", "frames": 3}))
     asyncio.run(invoke("get_screen", {}))
     asyncio.run(invoke("tick", {"frames": 5}))
@@ -141,6 +143,8 @@ def test_core_tools_use_canonical_backend_routes(monkeypatch, generic_mcp_module
         ("GET", "http://backend.test/api/agent/toolbelt", None, 10),
         ("GET", "http://backend.test/api/agent/routines", None, 10),
         ("GET", "http://backend.test/api/agent/guardrails", None, 10),
+        ("GET", "http://backend.test/api/agent/skills/workshop", None, 10),
+        ("GET", "http://backend.test/api/agent/skills/workshop/skill-viridian-entry", None, 10),
         ("POST", "http://backend.test/api/agent/act", {"action": "A", "frames": 3}, 10),
         ("GET", "http://backend.test/api/screen", None, 10),
         ("POST", "http://backend.test/api/game/button", {"button": "NOOP", "frames": 5}, 10),
@@ -159,6 +163,7 @@ def test_tool_descriptions_mark_access_level(generic_mcp_module):
     assert "[read-only]" in tools["get_agent_toolbelt"].description
     assert "[read-only]" in tools["get_agent_routines"].description
     assert "[read-only]" in tools["get_agent_guardrails"].description
+    assert "[read-only]" in tools["get_agent_skill_workshop"].description
     assert "[mutating]" in tools["load_rom"].description
     assert "[mutating]" in tools["save_state"].description
     assert "[mutating]" in tools["quick_save"].description

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import apiService, {
   type AgentCapabilityRoutinesSnapshot,
+  type AgentCapabilitySkillWorkshopSnapshot,
   type AgentCapabilityToolbeltSnapshot,
   type AgentGoalResponse,
   type AgentAutonomy,
@@ -252,6 +253,9 @@ const WebUiApp: React.FC = () => {
   const [agentRunError, setAgentRunError] = useState<string | null>(null);
   const [agentToolbelt, setAgentToolbelt] = useState<AgentCapabilityToolbeltSnapshot | null>(null);
   const [agentRoutines, setAgentRoutines] = useState<AgentCapabilityRoutinesSnapshot | null>(null);
+  const [agentSkillWorkshop, setAgentSkillWorkshop] = useState<AgentCapabilitySkillWorkshopSnapshot | null>(null);
+  const [agentSkillActionError, setAgentSkillActionError] = useState<string | null>(null);
+  const [installingSkillDraftId, setInstallingSkillDraftId] = useState<string | null>(null);
   const [agentMode, setAgentMode] = useState<AgentModeResponse | null>(null);
   const [agentDraft, setAgentDraft] = useState<AgentDraft>({
     mode: 'manual',
@@ -418,6 +422,7 @@ const WebUiApp: React.FC = () => {
       runEventsResult,
       toolbeltResult,
       routinesResult,
+      workshopResult,
     ] = await Promise.allSettled([
       apiService.getGameState(),
       apiService.getAgentStatus(),
@@ -427,6 +432,7 @@ const WebUiApp: React.FC = () => {
       apiService.getAgentRunEvents(12),
       apiService.getAgentToolbelt(),
       apiService.getAgentRoutines(),
+      apiService.getAgentSkillWorkshop(),
     ]);
 
     if (gameResult.status === 'fulfilled') {
@@ -458,6 +464,7 @@ const WebUiApp: React.FC = () => {
 
     setAgentToolbelt(toolbeltResult.status === 'fulfilled' ? toolbeltResult.value : null);
     setAgentRoutines(routinesResult.status === 'fulfilled' ? routinesResult.value : null);
+    setAgentSkillWorkshop(workshopResult.status === 'fulfilled' ? workshopResult.value : null);
 
     if (agentModeResult.status === 'fulfilled') {
       setAgentMode(agentModeResult.value);
@@ -472,6 +479,23 @@ const WebUiApp: React.FC = () => {
       }
     }
   }, [agentDraftDirty, settings.backendUrl, updateConnection]);
+
+  const handleInstallSkillDraft = useCallback(async (draftId: string) => {
+    apiService.setBaseUrl(settings.backendUrl);
+    setInstallingSkillDraftId(draftId);
+    setAgentSkillActionError(null);
+    try {
+      await apiService.installAgentSkillDraft(draftId);
+      await refreshLiveData();
+      pushActivity('success', 'skill-workshop', `Installed skill draft: ${draftId}`);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setAgentSkillActionError(message);
+      pushActivity('error', 'skill-workshop', message);
+    } finally {
+      setInstallingSkillDraftId(null);
+    }
+  }, [pushActivity, refreshLiveData, settings.backendUrl]);
 
   const refreshRomData = useCallback(async () => {
     apiService.setBaseUrl(settings.backendUrl);
@@ -1059,6 +1083,10 @@ const WebUiApp: React.FC = () => {
           <AgentCapabilityPanel
             toolbelt={agentToolbelt}
             routines={agentRoutines}
+            workshop={agentSkillWorkshop}
+            onInstallSkillDraft={handleInstallSkillDraft}
+            installingDraftId={installingSkillDraftId}
+            actionError={agentSkillActionError}
           />
 
           <Panel

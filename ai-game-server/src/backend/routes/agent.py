@@ -40,7 +40,10 @@ from backend.agent_features.agent_capabilities import (
     build_capability_snapshot,
     get_guardrails_snapshot,
     get_routines_snapshot,
+    get_skill_workshop_draft,
+    get_skill_workshop_snapshot,
     get_toolbelt_snapshot,
+    install_skill_workshop_draft,
     upsert_session_routine,
 )
 from backend.agent_features.memory import add_failure_reflection
@@ -464,6 +467,50 @@ def register_agent_routes(
             session_id=_active_session_id(),
         )
         return jsonify(payload), 200
+
+    @app.route("/api/agent/skills", methods=["GET"])
+    @app.route("/api/agent/skills/workshop", methods=["GET"])
+    def api_agent_skill_workshop():
+        payload = get_skill_workshop_snapshot(
+            agent_state=_state(),
+            game_context={"loaded": bool((game_state_getter() or {}).get("rom_loaded"))},
+            session_id=_active_session_id(),
+        )
+        return jsonify(payload), 200
+
+    @app.route("/api/agent/skills/workshop/<draft_id>", methods=["GET"])
+    def api_agent_skill_workshop_detail(draft_id: str):
+        payload = get_skill_workshop_draft(
+            draft_id=draft_id,
+            agent_state=_state(),
+            game_context={"loaded": bool((game_state_getter() or {}).get("rom_loaded"))},
+            session_id=_active_session_id(),
+        )
+        status = 200 if payload.get("ok") else 404
+        return jsonify(payload), status
+
+    @app.route("/api/agent/skills/install", methods=["POST"])
+    @app.route("/api/agent/skills/workshop/install", methods=["POST"])
+    def api_agent_skill_workshop_install():
+        payload = request.get_json(silent=True) or {}
+        draft_id = str(payload.get("draft_id") or "").strip()
+        if not draft_id:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "draft_id is required",
+                    "timestamp": datetime.now().isoformat(),
+                }
+            ), 400
+        result = install_skill_workshop_draft(
+            draft_id=draft_id,
+            agent_state=_state(),
+            game_context={"loaded": bool((game_state_getter() or {}).get("rom_loaded"))},
+            session_id=payload.get("session_id") or _active_session_id(),
+            overwrite=bool(payload.get("overwrite")),
+        )
+        status = 200 if result.get("ok") else 409 if "already exists" in str(result.get("error", "")) else 404
+        return jsonify(result), status
 
     @app.route("/api/agent/routines", methods=["POST"])
     def api_agent_routines_upsert():

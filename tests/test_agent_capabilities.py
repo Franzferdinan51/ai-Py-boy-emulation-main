@@ -138,3 +138,87 @@ def test_capability_snapshot_includes_recent_failure_guardrails(tmp_path):
     assert snapshot["guardrails"][0]["severity"] == "high"
     assert snapshot["auto_learning_signals"]["failure_reflection_count"] == 1
     assert any(tool["name"] == "get_agent_guardrails" for tool in snapshot["available_tools"])
+
+
+def test_capability_snapshot_exposes_skill_workshop_payload_and_draft_preview(tmp_path):
+    from backend.agent_features.agent_capabilities import (
+        build_capability_snapshot,
+        get_skill_workshop_draft,
+    )
+
+    workspace_skills_dir = tmp_path / "workspace-skills"
+    created = create_session(name="Workshop Test", data_dir=str(tmp_path))
+    session_id = created["session"]["id"]
+    set_active_session(session_id, data_dir=str(tmp_path))
+    update_session(
+        session_id,
+        {
+            "routines": [
+                {
+                    "id": "viridian_entry",
+                    "name": "viridian_entry",
+                    "description": "Move through the city gate and confirm the transition.",
+                    "status": "ready",
+                    "steps": [{"action": "UP", "frames": 4}, {"action": "A", "frames": 1}],
+                    "skill_draft": {
+                        "id": "skill-viridian-entry",
+                        "name": "viridian_entry",
+                        "source": "routine.upsert",
+                        "status": "draft",
+                        "summary": "Move through the city gate and confirm the transition.",
+                    },
+                }
+            ],
+        },
+        data_dir=str(tmp_path),
+    )
+    add_note(session_id, "The north gate triggers a short confirmation prompt.", data_dir=str(tmp_path))
+    add_control_pattern(
+        session_id,
+        ["UP", "A"],
+        "Enter Viridian gate cleanly",
+        note="Use A once after the movement to clear the prompt.",
+        data_dir=str(tmp_path),
+    )
+    add_failure_reflection(
+        session_id,
+        trigger="Repeated movement into blocked tile",
+        error="step returned false",
+        consequence="The agent burned extra turns without crossing the gate.",
+        defense="Check the position delta before repeating UP more than twice.",
+        severity="medium",
+        source="api.agent.act",
+        data_dir=str(tmp_path),
+    )
+
+    try:
+        snapshot = build_capability_snapshot(
+            agent_state={"current_goal": "Leave Viridian City"},
+            game_context={"loaded": True, "game_mode": "exploration"},
+            session_id=session_id,
+            data_dir=str(tmp_path),
+            workspace_skills_dir=str(workspace_skills_dir),
+        )
+        detail = get_skill_workshop_draft(
+            draft_id="skill-viridian-entry",
+            agent_state={"current_goal": "Leave Viridian City"},
+            game_context={"loaded": True, "game_mode": "exploration"},
+            session_id=session_id,
+            data_dir=str(tmp_path),
+            workspace_skills_dir=str(workspace_skills_dir),
+        )
+    finally:
+        delete_session(session_id, data_dir=str(tmp_path))
+
+    workshop = snapshot["skill_workshop"]
+    assert workshop["draft_count"] >= 2
+    assert workshop["workspace_precedence"] == "repo-local"
+    assert workshop["workspace_skills_root"] == str(workspace_skills_dir.resolve())
+    assert workshop["install_route"] == "/api/agent/skills/workshop/install"
+    assert detail["ok"] is True
+    assert detail["draft"]["id"] == "skill-viridian-entry"
+    assert detail["artifact"]["relative_install_dir"] == "generated/viridian-entry"
+    assert detail["artifact"]["install_path"].endswith("workspace-skills/generated/viridian-entry/SKILL.md")
+    assert detail["artifact"]["frontmatter"]["name"] == "viridian-entry"
+    assert "Check the position delta before repeating UP more than twice." in detail["artifact"]["content"]
+    assert "get_agent_context" in detail["artifact"]["content"]
