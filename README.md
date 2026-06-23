@@ -86,6 +86,10 @@ These endpoints are designed for AI agents to understand game state and make aut
 - `POST /api/agent/act` — Execute action and observe result in one call
 - `GET /api/agent/dialogue` — Current dialogue/text box state
 - `GET /api/agent/menu` — Current menu state
+- `GET /api/agent/runs/events` — Canonical versioned run ledger feed for operator UIs
+- `GET /api/agent/toolbelt` — Hermes-inspired tool metadata, memory summary, and planner hints
+- `GET /api/agent/routines` — Persisted routines, suggested playbooks, and skill drafts
+- `POST /api/agent/routines` — Session-scoped routine metadata only; does not tick or mutate PyBoy directly
 
 ### Sound control
 - `GET /api/sound/status`
@@ -109,7 +113,7 @@ If you are extending this repo for agents, read:
 - `AGENTS.md` — project invariants and agent workflow
 - `TOOLS.md` — local runtime/route/tool notes
 - `skills/pyboy-platform/SKILL.md` — repo-local agent skill
-- `ai-game-server/API-CONTRACT.md` — endpoint response shapes
+- `docs/API-CONTRACT.md` — endpoint response shapes and canonical route matrix
 - `docs/SOUND-SUPPORT.md` — sound configuration and platform caveats
 
 ## Important engineering rules
@@ -132,6 +136,8 @@ This repo has had focused repair work around:
 - save/load API wiring
 - LM Studio save/load tool routing
 - operator UI null safety
+- dual-surface run operator panels
+- Hermes-inspired routine, toolbelt, and auto-learning metadata
 
 See `docs/` for verification notes and results.
 
