@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from . import sessions, memory, events, telemetry, collision
+from . import sessions, memory, events, telemetry, collision, run_ledger
 
 __all__ = [
     "sessions",
@@ -27,6 +27,7 @@ __all__ = [
     "events",
     "telemetry",
     "collision",
+    "run_ledger",
     "register_all",
 ]
 

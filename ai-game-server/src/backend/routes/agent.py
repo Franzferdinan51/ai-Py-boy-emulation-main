@@ -30,6 +30,13 @@ from typing import Any, Callable, Dict, List, Optional
 
 from flask import jsonify, request
 
+from backend.agent_features.run_ledger import (
+    GameActionV1,
+    GameObservationV1,
+    get_run_events,
+    record_run_event,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -390,6 +397,20 @@ def register_agent_routes(
             }
         ), 200
 
+    @app.route("/api/agent/runs/events", methods=["GET"])
+    def api_agent_runs_events():
+        try:
+            limit = int(request.args.get("limit", 20))
+        except (ValueError, TypeError):
+            limit = 20
+        session_id = request.args.get("session_id")
+        current_state = game_state_getter() or {}
+        payload = get_run_events(limit=limit, session_id=session_id)
+        payload["loaded"] = bool(current_state.get("rom_loaded"))
+        payload["active_emulator"] = current_state.get("active_emulator")
+        payload["rom_loaded"] = bool(current_state.get("rom_loaded"))
+        return jsonify(payload), 200
+
     @app.route("/api/agent/context", methods=["GET"])
     def api_agent_context():
         """Composite snapshot: position + party + inventory + battle + health."""
@@ -644,29 +665,49 @@ def register_agent_routes(
                     if hp_pct < 30:
                         needs_healing = True
 
-            return jsonify(
-                {
-                    "success": success,
-                    "action": action,
-                    "frames": frames,
-                    "observation": {
-                        "game_mode": game_mode,
-                        "position": position_after,
-                        "battle": battle_after,
-                        "health_summary": {
-                            "party_healthy": not needs_healing,
-                            "lowest_hp_percent": round(lowest_hp, 1),
-                            "needs_healing": needs_healing,
-                        },
-                    },
-                    "changes": {
-                        "position_changed": position_changed,
-                        "battle_started": battle_started,
-                        "battle_ended": battle_ended,
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                }
-            ), 200
+            observation_payload = {
+                "game_mode": game_mode,
+                "position": position_after,
+                "battle": battle_after,
+                "health_summary": {
+                    "party_healthy": not needs_healing,
+                    "lowest_hp_percent": round(lowest_hp, 1),
+                    "needs_healing": needs_healing,
+                },
+            }
+            changes_payload = {
+                "position_changed": position_changed,
+                "battle_started": battle_started,
+                "battle_ended": battle_ended,
+            }
+            response_payload = {
+                "success": success,
+                "action": action,
+                "frames": frames,
+                "observation": observation_payload,
+                "changes": changes_payload,
+                "timestamp": datetime.now().isoformat(),
+            }
+            if success:
+                run_event = record_run_event(
+                    source="api.agent.act",
+                    action=GameActionV1(
+                        source="api.agent.act",
+                        action=action,
+                        frames=frames,
+                        success=success,
+                    ),
+                    observation=GameObservationV1(
+                        source="api.agent.act",
+                        observation=observation_payload,
+                        action=action,
+                    ),
+                    changes=changes_payload,
+                    success=success,
+                )
+                response_payload["event"] = run_event["event"]
+
+            return jsonify(response_payload), 200
         except Exception as e:
             logger.error(f"Error in act_and_observe: {e}")
             return jsonify(
