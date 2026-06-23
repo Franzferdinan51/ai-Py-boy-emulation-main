@@ -15,12 +15,13 @@ client = srv.app.test_client()
 
 
 class _LedgerStubEmulator:
-    def __init__(self) -> None:
+    def __init__(self, *, step_result: bool = True) -> None:
         self._step_calls = 0
+        self._step_result = step_result
 
     def step(self, action: str, frames: int) -> bool:
         self._step_calls += 1
-        return True
+        return self._step_result
 
     def get_position(self):
         return {"x": 7, "y": 9, "map_id": 3, "map_name": "Route 1"}
@@ -39,6 +40,7 @@ def _request(method: str, path: str, **kwargs):
 def test_agent_act_attaches_v1_event_and_events_endpoint_lists_it():
     stub = _LedgerStubEmulator()
     original = srv.emulators.get("ledger_stub")
+    original_game_state = dict(srv.game_state)
     srv.emulators["ledger_stub"] = stub
     srv.game_state.update(
         {
@@ -75,15 +77,54 @@ def test_agent_act_attaches_v1_event_and_events_endpoint_lists_it():
             srv.emulators.pop("ledger_stub", None)
         else:
             srv.emulators["ledger_stub"] = original
+        srv.game_state.clear()
+        srv.game_state.update(original_game_state)
 
 
 def test_run_ledger_events_endpoint_is_safe_without_rom():
-    srv.game_state.update({"rom_loaded": False, "active_emulator": None})
+    original_game_state = dict(srv.game_state)
 
-    response = _request("get", "/api/agent/runs/events?limit=500")
-    assert response.status_code == 200, response.get_data(as_text=True)
-    data = response.get_json() or {}
-    assert data["limit"] == 100
-    assert data["count"] >= 0
-    assert isinstance(data.get("events"), list)
-    json.dumps(data)
+    try:
+        srv.game_state.update({"rom_loaded": False, "active_emulator": None})
+
+        response = _request("get", "/api/agent/runs/events?limit=500")
+        assert response.status_code == 200, response.get_data(as_text=True)
+        data = response.get_json() or {}
+        assert data["limit"] == 100
+        assert data["count"] >= 0
+        assert isinstance(data.get("events"), list)
+        json.dumps(data)
+    finally:
+        srv.game_state.clear()
+        srv.game_state.update(original_game_state)
+
+
+def test_failed_action_does_not_record_a_run_event():
+    stub = _LedgerStubEmulator(step_result=False)
+    original = srv.emulators.get("ledger_failure_stub")
+    original_game_state = dict(srv.game_state)
+
+    try:
+        srv.emulators["ledger_failure_stub"] = stub
+        srv.game_state.update(
+            {
+                "rom_loaded": True,
+                "active_emulator": "ledger_failure_stub",
+                "rom_name": "Failure ROM",
+                "rom_path": "/tmp/failure-rom.gb",
+            }
+        )
+        before = _request("get", "/api/agent/runs/events?limit=100").get_json()["count"]
+
+        response = _request("post", "/api/agent/act", json={"action": "A", "frames": 1})
+        assert response.status_code == 200
+        assert "event" not in (response.get_json() or {})
+        after = _request("get", "/api/agent/runs/events?limit=100").get_json()["count"]
+        assert after == before
+    finally:
+        if original is None:
+            srv.emulators.pop("ledger_failure_stub", None)
+        else:
+            srv.emulators["ledger_failure_stub"] = original
+        srv.game_state.clear()
+        srv.game_state.update(original_game_state)
