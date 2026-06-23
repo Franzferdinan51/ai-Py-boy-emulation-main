@@ -38,10 +38,12 @@ from backend.agent_features.run_ledger import (
 )
 from backend.agent_features.agent_capabilities import (
     build_capability_snapshot,
+    get_guardrails_snapshot,
     get_routines_snapshot,
     get_toolbelt_snapshot,
     upsert_session_routine,
 )
+from backend.agent_features.memory import add_failure_reflection
 from backend.agent_features.sessions import get_current_session
 
 logger = logging.getLogger(__name__)
@@ -166,6 +168,7 @@ def register_agent_routes(
                 "active_routine": capabilities["active_routine"],
                 "available_tools": capabilities["available_tools"],
                 "memory_summary": capabilities["memory_summary"],
+                "guardrails": capabilities["guardrails"],
                 "next_recommended_action": capabilities["next_recommended_action"],
                 "timestamp": now,
             }
@@ -447,6 +450,15 @@ def register_agent_routes(
     @app.route("/api/agent/routines", methods=["GET"])
     def api_agent_routines():
         payload = get_routines_snapshot(
+            agent_state=_state(),
+            game_context={"loaded": bool((game_state_getter() or {}).get("rom_loaded"))},
+            session_id=_active_session_id(),
+        )
+        return jsonify(payload), 200
+
+    @app.route("/api/agent/guardrails", methods=["GET"])
+    def api_agent_guardrails():
+        payload = get_guardrails_snapshot(
             agent_state=_state(),
             game_context={"loaded": bool((game_state_getter() or {}).get("rom_loaded"))},
             session_id=_active_session_id(),
@@ -781,6 +793,26 @@ def register_agent_routes(
                     success=success,
                 )
                 response_payload["event"] = run_event["event"]
+            else:
+                active_session_id = _active_session_id()
+                if active_session_id:
+                    reflection = add_failure_reflection(
+                        active_session_id,
+                        trigger=f"Action {action} did not advance emulator state",
+                        error=f"step returned false for {action}",
+                        consequence=(
+                            f"Action {action} consumed {frames} frame(s) without a successful step, "
+                            "so repeating it blindly risks getting stuck."
+                        ),
+                        defense=(
+                            "Refresh context and inspect game mode, dialogue state, or menu state "
+                            "before repeating the same action."
+                        ),
+                        severity="medium",
+                        source="api.agent.act",
+                    )
+                    if reflection.get("ok"):
+                        response_payload["failure_reflection"] = reflection["record"]
 
             return jsonify(response_payload), 200
         except Exception as e:

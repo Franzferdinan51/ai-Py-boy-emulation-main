@@ -7,7 +7,11 @@ from pathlib import Path
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "ai-game-server", "src"))
 
-from backend.agent_features.memory import add_control_pattern, add_note
+from backend.agent_features.memory import (
+    add_control_pattern,
+    add_failure_reflection,
+    add_note,
+)
 from backend.agent_features.sessions import (
     create_session,
     delete_session,
@@ -99,3 +103,38 @@ def test_routine_upsert_creates_reusable_playbook_metadata(tmp_path):
     assert routine["origin"] == "operator"
     assert routine["steps"][0]["action"] == "UP"
     assert routine["skill_draft"]["status"] == "draft"
+
+
+def test_capability_snapshot_includes_recent_failure_guardrails(tmp_path):
+    from backend.agent_features.agent_capabilities import build_capability_snapshot
+
+    created = create_session(name="Guardrail Test", data_dir=str(tmp_path))
+    session_id = created["session"]["id"]
+    set_active_session(session_id, data_dir=str(tmp_path))
+    add_failure_reflection(
+        session_id,
+        trigger="Repeated A press into dialogue lock",
+        error="step returned false",
+        consequence="Agent wasted three turns without advancing text.",
+        defense="Check dialogue or menu state before retrying A more than once.",
+        severity="high",
+        source="api.agent.act",
+        data_dir=str(tmp_path),
+    )
+
+    try:
+        snapshot = build_capability_snapshot(
+            agent_state={"current_goal": "Leave dialogue safely"},
+            game_context={"loaded": True, "game_mode": "dialogue"},
+            session_id=session_id,
+            data_dir=str(tmp_path),
+        )
+    finally:
+        delete_session(session_id, data_dir=str(tmp_path))
+
+    assert snapshot["memory_summary"]["by_type"]["failure_reflection"] == 1
+    assert snapshot["memory_summary"]["recent_failure_reflections"][0]["trigger"] == "Repeated A press into dialogue lock"
+    assert snapshot["guardrails"][0]["defense"] == "Check dialogue or menu state before retrying A more than once."
+    assert snapshot["guardrails"][0]["severity"] == "high"
+    assert snapshot["auto_learning_signals"]["failure_reflection_count"] == 1
+    assert any(tool["name"] == "get_agent_guardrails" for tool in snapshot["available_tools"])

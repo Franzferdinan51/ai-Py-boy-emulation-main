@@ -9,6 +9,7 @@ os.environ.setdefault("BACKEND_PORT", "5002")
 os.environ.setdefault("FLASK_ENV", "development")
 
 import backend.server as srv  # noqa: E402
+from backend.agent_features.sessions import create_session, delete_session, set_active_session
 
 client = srv.app.test_client()
 
@@ -35,6 +36,7 @@ def test_canonical_game_agent_contract_matrix():
                 "active_routine",
                 "available_tools",
                 "memory_summary",
+                "guardrails",
                 "next_recommended_action",
             ),
         ),
@@ -53,11 +55,13 @@ def test_canonical_game_agent_contract_matrix():
                 "active_routine",
                 "available_tools",
                 "memory_summary",
+                "guardrails",
                 "next_recommended_action",
             ),
         ),
         ("get", "/api/agent/toolbelt", 200, ("available_tools", "tool_groups", "active_session_id")),
         ("get", "/api/agent/routines", 200, ("routines", "active_routine", "active_session_id")),
+        ("get", "/api/agent/guardrails", 200, ("active_session_id", "guardrails", "recent_failure_reflections")),
     ]
 
     for method, path, expected_status, required_keys in canonical_routes:
@@ -100,3 +104,58 @@ def test_agent_routines_post_is_registered_and_uses_safe_defaults():
         assert "error" in data
     else:
         assert "routine" in data
+
+
+class _FailureLearningStubEmulator:
+    def step(self, action: str, frames: int) -> bool:
+        return False
+
+    def get_position(self):
+        return {"x": 3, "y": 5, "map_id": 1, "map_name": "Viridian City"}
+
+    def get_battle_info(self):
+        return {"in_battle": False}
+
+    def get_party_info(self):
+        return [{"species": "Bulbasaur", "hp_percent": 100}]
+
+
+def test_failed_agent_action_persists_read_only_guardrail_metadata(tmp_path):
+    stub = _FailureLearningStubEmulator()
+    original = srv.emulators.get("failure_learning_stub")
+    original_game_state = dict(srv.game_state)
+    created = create_session(name="Failure Learning", data_dir=str(tmp_path))
+    session_id = created["session"]["id"]
+    set_active_session(session_id, data_dir=str(tmp_path))
+    srv.emulators["failure_learning_stub"] = stub
+    srv.game_state.update(
+        {
+            "rom_loaded": True,
+            "active_emulator": "failure_learning_stub",
+            "rom_name": "Failure Learning ROM",
+            "rom_path": "/tmp/failure-learning.gb",
+        }
+    )
+
+    try:
+        response = _request("post", "/api/agent/act", json={"action": "A", "frames": 1})
+        assert response.status_code == 200, response.get_data(as_text=True)
+        data = response.get_json() or {}
+        assert data["success"] is False
+        assert "failure_reflection" in data
+        assert data["failure_reflection"]["defense"]
+
+        guardrails = _request("get", "/api/agent/guardrails")
+        assert guardrails.status_code == 200, guardrails.get_data(as_text=True)
+        guardrail_data = guardrails.get_json() or {}
+        assert guardrail_data["active_session_id"] == session_id
+        assert guardrail_data["guardrails"][0]["trigger"] == "Action A did not advance emulator state"
+        assert guardrail_data["recent_failure_reflections"][0]["consequence"]
+    finally:
+        delete_session(session_id, data_dir=str(tmp_path))
+        if original is None:
+            srv.emulators.pop("failure_learning_stub", None)
+        else:
+            srv.emulators["failure_learning_stub"] = original
+        srv.game_state.clear()
+        srv.game_state.update(original_game_state)

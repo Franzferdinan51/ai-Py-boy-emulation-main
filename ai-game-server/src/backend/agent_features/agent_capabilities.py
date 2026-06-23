@@ -48,6 +48,14 @@ _TOOLBELT = [
         "description": "List saved routines plus generated routine suggestions.",
     },
     {
+        "name": "get_agent_guardrails",
+        "access": "read-only",
+        "category": "capabilities",
+        "backend_route": "/api/agent/guardrails",
+        "mcp_tool": "get_agent_guardrails",
+        "description": "Review recent failure reflections and do-not-repeat guardrails before acting.",
+    },
+    {
         "name": "act_and_observe",
         "access": "mutating",
         "category": "actions",
@@ -59,7 +67,7 @@ _TOOLBELT = [
 
 _TOOL_GROUPS = {
     "context": ["get_agent_context", "get_game_mode"],
-    "capabilities": ["get_agent_toolbelt", "get_agent_routines"],
+    "capabilities": ["get_agent_toolbelt", "get_agent_routines", "get_agent_guardrails"],
     "actions": ["act_and_observe"],
 }
 
@@ -110,6 +118,7 @@ def _memory_summary_payload(session_id: Optional[str], data_dir: Optional[str] =
             "latest_by_type": {},
             "recent_notes": [],
             "learned_control_patterns": [],
+            "recent_failure_reflections": [],
         }
 
     summary = summarize_memory(session_id, data_dir=data_dir)
@@ -127,6 +136,19 @@ def _memory_summary_payload(session_id: Optional[str], data_dir: Optional[str] =
         for record in records
         if record.get("type") == "control_pattern"
     ][-5:]
+    failure_reflections = [
+        {
+            "trigger": record.get("trigger", ""),
+            "error": record.get("error", ""),
+            "consequence": record.get("consequence", ""),
+            "defense": record.get("defense", ""),
+            "severity": record.get("severity", "medium"),
+            "source": record.get("source", "agent"),
+            "timestamp": record.get("timestamp"),
+        }
+        for record in records
+        if record.get("type") == "failure_reflection"
+    ][-5:]
 
     return {
         "total_records": summary.get("total_records", 0) if summary.get("ok") else 0,
@@ -134,7 +156,26 @@ def _memory_summary_payload(session_id: Optional[str], data_dir: Optional[str] =
         "latest_by_type": summary.get("latest_by_type", {}) if summary.get("ok") else {},
         "recent_notes": notes,
         "learned_control_patterns": list(reversed(control_patterns)),
+        "recent_failure_reflections": list(reversed(failure_reflections)),
     }
+
+
+def _guardrails(memory_summary: Dict[str, Any]) -> List[Dict[str, Any]]:
+    guardrails: List[Dict[str, Any]] = []
+    for reflection in memory_summary.get("recent_failure_reflections", []):
+        guardrails.append(
+            {
+                "kind": "failure_reflection",
+                "trigger": reflection.get("trigger", ""),
+                "error": reflection.get("error", ""),
+                "consequence": reflection.get("consequence", ""),
+                "defense": reflection.get("defense", ""),
+                "severity": reflection.get("severity", "medium"),
+                "source": reflection.get("source", "agent"),
+                "timestamp": reflection.get("timestamp"),
+            }
+        )
+    return guardrails
 
 
 def _skill_drafts(memory_summary: Dict[str, Any], routines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -252,6 +293,7 @@ def build_capability_snapshot(
     routines = _session_routines(session)
     active_routine = state.get("active_routine") or (session or {}).get("active_routine")
     memory_summary = _memory_summary_payload(active_session_id, data_dir=data_dir)
+    guardrails = _guardrails(memory_summary)
     suggested_routines = _suggested_routines(memory_summary)
     next_action = _next_recommended_action(state, context, active_routine)
 
@@ -261,6 +303,7 @@ def build_capability_snapshot(
         "available_tools": list(_TOOLBELT),
         "tool_groups": dict(_TOOL_GROUPS),
         "memory_summary": memory_summary,
+        "guardrails": guardrails,
         "next_recommended_action": next_action,
         "planner_hint": next_action,
         "routines": routines,
@@ -268,6 +311,8 @@ def build_capability_snapshot(
         "skill_drafts": _skill_drafts(memory_summary, routines),
         "auto_learning_signals": {
             "control_patterns_observed": len(memory_summary.get("learned_control_patterns", [])),
+            "failure_reflection_count": len(memory_summary.get("recent_failure_reflections", [])),
+            "guardrail_count": len(guardrails),
             "suggested_routine_count": len(suggested_routines),
             "skill_draft_count": len(_skill_drafts(memory_summary, routines)),
         },
@@ -294,6 +339,7 @@ def get_toolbelt_snapshot(
         "available_tools": snapshot["available_tools"],
         "tool_groups": snapshot["tool_groups"],
         "memory_summary": snapshot["memory_summary"],
+        "guardrails": snapshot["guardrails"],
         "next_recommended_action": snapshot["next_recommended_action"],
         "planner_hint": snapshot["planner_hint"],
         "auto_learning_signals": snapshot["auto_learning_signals"],
@@ -320,6 +366,28 @@ def get_routines_snapshot(
         "routines": snapshot["routines"],
         "suggested_routines": snapshot["suggested_routines"],
         "skill_drafts": snapshot["skill_drafts"],
+        "timestamp": snapshot["timestamp"],
+    }
+
+
+def get_guardrails_snapshot(
+    *,
+    agent_state: Optional[Dict[str, Any]] = None,
+    game_context: Optional[Dict[str, Any]] = None,
+    session_id: Optional[str] = None,
+    data_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    snapshot = build_capability_snapshot(
+        agent_state=agent_state,
+        game_context=game_context,
+        session_id=session_id,
+        data_dir=data_dir,
+    )
+    return {
+        "active_session_id": snapshot["active_session_id"],
+        "active_routine": snapshot["active_routine"],
+        "guardrails": snapshot["guardrails"],
+        "recent_failure_reflections": snapshot["memory_summary"]["recent_failure_reflections"],
         "timestamp": snapshot["timestamp"],
     }
 

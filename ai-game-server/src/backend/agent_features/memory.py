@@ -14,6 +14,7 @@ Stores:
   - notes: free-form knowledge notes (RAG-ready)
   - facts: structured key-value facts about the world
   - controls: learned control patterns (button sequences → outcomes)
+  - failure reflections: structured do-not-repeat patterns and defenses
 """
 from __future__ import annotations
 
@@ -36,6 +37,10 @@ def _now_iso() -> str:
 
 
 def _memory_path(session_id: str, data_dir: Optional[str] = None) -> Path:
+    if data_dir is None:
+        session = get_session(session_id)
+        if session and session.get("data_dir"):
+            return Path(str(session["data_dir"])) / "memory" / "knowledge.jsonl"
     return Path(data_dir or DEFAULT_DATA_DIR) / "games" / session_id / "memory" / "knowledge.jsonl"
 
 
@@ -247,6 +252,41 @@ def add_control_pattern(
     return {"ok": True, "record": record}
 
 
+def add_failure_reflection(
+    session_id: str,
+    trigger: str,
+    error: str,
+    consequence: str,
+    defense: str,
+    severity: str = "medium",
+    source: str = "agent",
+    data_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Record a structured failure reflection / guardrail memory."""
+    sess = get_session(session_id, data_dir)
+    if not sess:
+        return {"ok": False, "error": f"Session {session_id!r} not found"}
+
+    normalized_severity = str(severity or "medium").strip().lower()
+    if normalized_severity not in {"low", "medium", "high", "critical"}:
+        normalized_severity = "medium"
+
+    record = {
+        "id": str(uuid.uuid4()),
+        "type": "failure_reflection",
+        "timestamp": _now_iso(),
+        "trigger": str(trigger or "").strip(),
+        "error": str(error or "").strip(),
+        "consequence": str(consequence or "").strip(),
+        "defense": str(defense or "").strip(),
+        "severity": normalized_severity,
+        "source": str(source or "agent").strip() or "agent",
+    }
+    with _lock:
+        _append_jsonl(_memory_path(session_id, data_dir), record)
+    return {"ok": True, "record": record}
+
+
 # ---------------------------------------------------------------------------
 # Query / retrieval (RAG-ready)
 # ---------------------------------------------------------------------------
@@ -444,5 +484,22 @@ def register_memory_routes(app, *, data_dir: Optional[str] = None):
             sequence=p.get("sequence", []),
             outcome=p.get("outcome", ""),
             note=p.get("note", ""),
+            data_dir=data_dir,
+        ))
+
+    @app.route("/api/agent/memory/failure_reflection", methods=["POST"])
+    def _memory_failure_reflection():
+        p = request.get_json(silent=True) or {}
+        session_id = p.get("session_id")
+        if not session_id:
+            return jsonify({"ok": False, "error": "session_id required"}), 400
+        return jsonify(add_failure_reflection(
+            session_id,
+            trigger=p.get("trigger", ""),
+            error=p.get("error", ""),
+            consequence=p.get("consequence", ""),
+            defense=p.get("defense", ""),
+            severity=p.get("severity", "medium"),
+            source=p.get("source", "agent"),
             data_dir=data_dir,
         ))

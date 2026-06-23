@@ -16,10 +16,11 @@ be treated as the primary surface.
 | Canonical HTTP route | Supported aliases | High-level payload fields | No-ROM behavior | Matching generic MCP tools |
 | --- | --- | --- | --- | --- |
 | `GET /api/game/state` | none | `rom_loaded`, `active_emulator`, `rom_path`, `rom_name`, `frame_count`, `ai_running`, `current_goal`, `fps`, `speed_multiplier`, `current_provider`, `current_model` | Returns `200` with the current in-memory game-state snapshot | `get_state` |
-| `GET /api/agent/context` | none | `loaded`, `rom_name`, `frame`, `game_mode`, `position`, `party`, `inventory`, `battle`, `health_summary`, `recommendations`, `active_session_id`, `active_routine`, `available_tools`, `memory_summary`, `next_recommended_action`, `timestamp` | Returns `200` with a safe empty snapshot | `get_agent_context` |
+| `GET /api/agent/context` | none | `loaded`, `rom_name`, `frame`, `game_mode`, `position`, `party`, `inventory`, `battle`, `health_summary`, `recommendations`, `active_session_id`, `active_routine`, `available_tools`, `memory_summary`, `guardrails`, `next_recommended_action`, `timestamp` | Returns `200` with a safe empty snapshot | `get_agent_context` |
 | `POST /api/agent/act` | none | request: `action`, `frames`; response: `success`, `action`, `frames`, `observation`, `changes`, `timestamp` | Returns `400` with `error: "No ROM loaded"` | `act_and_observe` |
-| `GET /api/agent/toolbelt` | none | `active_session_id`, `active_routine`, `available_tools`, `tool_groups`, `memory_summary`, `next_recommended_action`, `auto_learning_signals`, `timestamp` | Returns `200` with safe empty/default metadata | `get_agent_toolbelt` |
+| `GET /api/agent/toolbelt` | none | `active_session_id`, `active_routine`, `available_tools`, `tool_groups`, `memory_summary`, `guardrails`, `next_recommended_action`, `auto_learning_signals`, `timestamp` | Returns `200` with safe empty/default metadata | `get_agent_toolbelt` |
 | `GET /api/agent/routines` | none | `active_session_id`, `active_routine`, `routines`, `suggested_routines`, `skill_drafts`, `timestamp` | Returns `200` even if no session is active | `get_agent_routines` |
+| `GET /api/agent/guardrails` | none | `active_session_id`, `active_routine`, `guardrails`, `recent_failure_reflections`, `timestamp` | Returns `200` with safe empty/default metadata | `get_agent_guardrails` |
 | `POST /api/agent/routines` | none | request: `name`, `steps`, optional `description`, `tags`, `session_id`; response: `routine`, `active_routine`, `timestamp` | Returns `400` if no active or supplied session exists | none |
 | `POST /api/save_state` | `POST /save_state` | request body accepted; current route stores one slot per active emulator in memory | Returns `400` with `error: "No ROM loaded"` | `save_state`, `quick_save` |
 | `POST /api/load_state` | `POST /load_state` | request body accepted; current route restores the active emulator slot from memory | Returns `400` with `error: "No ROM loaded"` or `error: "No saved state available"` | `load_state`, `quick_load` |
@@ -37,6 +38,29 @@ These endpoints follow OpenClaw conventions for:
 - Status summaries for dashboards and MCP tools
 
 All endpoints return JSON with stable, agent-friendly shapes.
+
+---
+
+## Failure Learning And Guardrails
+
+The backend capability adapter now exposes structured failure-learning metadata
+alongside success-oriented memory summaries.
+
+- Persistent memory type: `failure_reflection`
+- Record fields: `trigger`, `error`, `consequence`, `defense`, `severity`, `source`, `timestamp`
+- Read-only capability surfaces:
+  - `GET /api/agent/context`
+  - `GET /api/agent/state`
+  - `GET /api/agent/toolbelt`
+  - `GET /api/agent/guardrails`
+- Matching MCP tool:
+  - `get_agent_guardrails`
+
+Auto-learning remains conservative:
+
+- A failed `POST /api/agent/act` can append one `failure_reflection` record for the active session.
+- The reflection is metadata-only and does not trigger any extra emulator actions.
+- Guardrails are advisory planner context intended to reduce repeated mistakes, not enforce control flow.
 
 ---
 
