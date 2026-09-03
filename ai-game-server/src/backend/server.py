@@ -446,6 +446,27 @@ elif ai_runtime_state["provider"] == "nvidia":
 emulation_loop_running = False
 emulation_loop_thread = None
 
+# Optional WebSocket lifecycle compatibility. The streaming implementation was
+# removed during the route extraction; keep its lifecycle API safe so startup
+# and health endpoints report a disabled, not-running service.
+WS_PORT = 5003
+ws_server_running = False
+ws_clients = set()
+
+
+def start_websocket_server() -> bool:
+    """Report that optional WebSocket streaming is disabled."""
+    logger.warning("[WS] WebSocket streaming is disabled in this build")
+    return False
+
+
+def stop_websocket_server() -> bool:
+    """Stop the optional WebSocket service without raising during shutdown."""
+    global ws_server_running
+    ws_server_running = False
+    ws_clients.clear()
+    return False
+
 # AI provider manager is imported from ai_provider_manager
 
 def get_game_state():
@@ -1540,8 +1561,11 @@ def main():
 
     # Start WebSocket server for streaming
     logger.info("[WS] Starting WebSocket streaming server...")
-    start_websocket_server()
-    logger.info(f"[WS] WebSocket server started on ws://localhost:{WS_PORT}/api/ws/stream")
+    websocket_started = start_websocket_server()
+    if websocket_started:
+        logger.info(f"[WS] WebSocket server started on ws://localhost:{WS_PORT}/api/ws/stream")
+    else:
+        logger.info("[WS] WebSocket streaming disabled; continuing without it")
 
     # ------------------------------------------------------------------
     # Wire agent_features (sessions, memory, events, telemetry, collision)
@@ -1571,115 +1595,8 @@ def main():
     except Exception as e:  # noqa: BLE001
         logger.error(f"[agent_features] Failed to register: {e}", exc_info=True)
 
-    # ------------------------------------------------------------------
-    # Wire refactored route blueprints (config, save_load, ui, ws, tetris, vision)
-    # ------------------------------------------------------------------
-    try:
-        from backend.routes import register_all as register_route_blueprints
-        from backend.routes.ws import WebSocketRunner
-
-        # Build a WebSocketRunner from the (currently-undefined) ws globals.
-        # If they're not defined (most common case), the blueprint uses a stub.
-        def _ws_is_running():
-            return bool(getattr(sys.modules[__name__], "ws_server_running", False))
-
-        def _ws_port():
-            return int(getattr(sys.modules[__name__], "WS_PORT", 5003) or 5003)
-
-        def _ws_clients():
-            ws_clients = getattr(sys.modules[__name__], "ws_clients", None)
-            if ws_clients is None:
-                return 0
-            try:
-                return len(ws_clients)
-            except TypeError:
-                return 0
-
-        def _ws_start():
-            fn = getattr(sys.modules[__name__], "start_websocket_server", None)
-            if fn is None:
-                raise RuntimeError(
-                    "WebSocket server start function not available in this build"
-                )
-            return fn()
-
-        def _ws_stop():
-            fn = getattr(sys.modules[__name__], "stop_websocket_server", None)
-            if fn is None:
-                return None
-            return fn()
-
-        ws_runner = WebSocketRunner(
-            is_running=_ws_is_running,
-            get_port=_ws_port,
-            get_clients=_ws_clients,
-            start_fn=_ws_start,
-            stop_fn=_ws_stop,
-        )
-
-        counts = register_route_blueprints(
-            app,
-            emulators_getter=lambda: emulators,
-            game_state_getter=get_game_state,
-            ai_provider_manager=ai_provider_manager,
-            secure_config=secure_config if SECURE_CONFIG_AVAILABLE else None,
-            secure_config_available=SECURE_CONFIG_AVAILABLE,
-            host=HOST,
-            port=PORT,
-            debug=DEBUG,
-            saved_states=saved_states,
-            websocket_runner=ws_runner,
-            health_server_start_time_getter=lambda: SERVER_START_TIME,
-            health_pyboy_available=PYBOY_AVAILABLE,
-            health_mcp_available=MCP_AVAILABLE,
-            health_get_memory_usage=_get_memory_usage,
-            health_component_health=component_health,
-            health_ws_status_getter=lambda: (
-                bool(ws_server_running) if 'ws_server_running' in globals() else False,
-                int(WS_PORT) if 'WS_PORT' in globals() else 5003,
-                len(ws_clients) if 'ws_clients' in globals() else 0,
-            ),
-            health_get_performance_stats=get_performance_stats,
-            health_agent_state_getter=lambda: agent_state,
-            ai_models_get_model_discovery=get_model_discovery,
-            ai_models_openclaw_endpoint_getter=lambda: app.config.get(
-                'OPENCLAW_ENDPOINT', 'http://localhost:18789'
-            ),
-            ai_runtime_state_getter=lambda: ai_runtime_state,
-            ai_runtime_state_setter=_set_ai_runtime_state,
-            ai_runtime_openclaw_endpoint_setter=lambda v: app.config.__setitem__('OPENCLAW_ENDPOINT', v),
-            screen_numpy_to_base64=numpy_to_base64_image,
-            screen_update_performance_metrics=update_performance_metrics,
-            screen_performance_monitor=performance_monitor,
-            screen_get_memory_usage=_get_memory_usage,
-            screen_use_multi_process=USE_MULTI_PROCESS,
-            screen_optimization_system_manager=optimization_system_manager,
-            screen_optimization_system_available=OPTIMIZATION_SYSTEM_AVAILABLE,
-            input_update_game_state=update_game_state,
-            input_get_action_history=get_action_history,
-            input_add_to_action_history=add_to_action_history,
-            input_record_agent_action=record_agent_action,
-            input_record_agent_error=record_agent_error,
-            input_record_agent_decision=record_agent_decision,
-            input_validate_string_input=validate_string_input,
-            input_validate_integer_input=validate_integer_input,
-            input_validate_json_data=validate_json_data,
-            input_timeout_handler=timeout_handler,
-            input_ai_request_timeout=AI_REQUEST_TIMEOUT,
-        )
-        logger.info(
-            f"[routes] Registered routes — "
-            f"config:{counts.get('config',0)} health:{counts.get('health',0)} "
-            f"ai_models:{counts.get('ai_models',0)} "
-            f"ai_runtime:{counts.get('ai_runtime',0)} "
-            f"save_load:{counts.get('save_load',0)} "
-            f"screen:{counts.get('screen',0)} "
-            f"input:{counts.get('input',0)} "
-            f"ui:{counts.get('ui',0)} ws:{counts.get('ws',0)} "
-            f"tetris:{counts.get('tetris',0)} vision:{counts.get('vision',0)}"
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"[routes] Failed to register: {e}", exc_info=True)
+    # Refactored route blueprints are registered at import time above.
+    # Do not register them again here: Flask rejects duplicate endpoints.
 
     try:
         app.run(host=HOST, port=PORT, debug=DEBUG, threaded=True, use_reloader=False)

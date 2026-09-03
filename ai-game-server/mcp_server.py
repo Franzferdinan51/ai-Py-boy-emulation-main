@@ -345,14 +345,7 @@ def init_emulator(rom_file: str) -> bool:
 def press_button(button: str) -> bool:
     """Press a controller button with validation"""
     global emulator, frame_count
-    
-    if emulator is None:
-        raise EmulatorError(
-            "Emulator not initialized. Load a ROM first.",
-            EmulatorErrorCode.NOT_INITIALIZED,
-            ["Call emulator_load_rom first with a valid .gb ROM file path"]
-        )
-    
+
     button_upper = button.upper()
     try:
         game_button = GameButton(button_upper)
@@ -362,7 +355,14 @@ def press_button(button: str) -> bool:
             EmulatorErrorCode.BUTTON_INVALID,
             [f"Use one of: {', '.join(GameButton.values())}"]
         )
-    
+
+    if emulator is None:
+        raise EmulatorError(
+            "Emulator not initialized. Load a ROM first.",
+            EmulatorErrorCode.NOT_INITIALIZED,
+            ["Call emulator_load_rom first with a valid .gb ROM file path"]
+        )
+
     button_map = {
         GameButton.A: WindowEvent.PRESS_BUTTON_A,
         GameButton.B: WindowEvent.PRESS_BUTTON_B,
