@@ -17,7 +17,7 @@ pyboy>=2.0.0,<3.0  # Game Boy emulator
 pygba>=0.2.0       # Game Boy Advance emulator
 
 # Agent / MCP
-mcp>=1.0.0          # Model Context Protocol
+mcp>=1.0.0,<2.0.0   # Model Context Protocol (decorator API)
 
 # Utilities
 python-dotenv>=1.0.0
