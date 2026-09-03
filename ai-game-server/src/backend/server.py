@@ -1474,6 +1474,20 @@ def get_status():
 
 
 
+def cleanup_server_resources():
+    """Release emulator resources during normal or partial shutdown."""
+    registry = globals().get("emulators", {})
+    for emulator in list(registry.values()):
+        try:
+            stop = getattr(emulator, "stop", None)
+            if callable(stop):
+                stop()
+        except Exception:
+            logger.exception("Failed to stop emulator during shutdown")
+    if hasattr(registry, "clear"):
+        registry.clear()
+
+
 def signal_handler(sig, frame):
     """Handle shutdown signals gracefully"""
     logger.info(f"Received signal {sig}, shutting down gracefully...")
