@@ -25,6 +25,7 @@ import time
 from flask_cors import CORS
 import numpy as np
 from PIL import Image
+PIL_AVAILABLE = True  # PIL is imported above
 import asyncio
 import websockets
 from websockets.server import serve
@@ -535,6 +536,7 @@ try:
         port=PORT,
         debug=DEBUG,
         saved_states=saved_states,
+        screen_numpy_to_base64=lambda na: numpy_to_base64_image(na),
         websocket_runner=_ws_runner,
         health_server_start_time_getter=lambda: SERVER_START_TIME,
         health_pyboy_available=PYBOY_AVAILABLE,
